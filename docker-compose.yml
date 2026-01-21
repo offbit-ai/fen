@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  fen-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - fen-data:/app/data
+      - ./rules:/app/rules:ro
+    environment:
+      - BIND_ADDRESS=0.0.0.0:3000
+      - DATABASE_PATH=/app/data/fen.redb
+      - RULES_PATH=/app/rules
+      - RUST_LOG=info,fen_api=debug,fen_ingestion=debug,fen_rules=debug
+      - MAX_UPLOAD_SIZE=52428800  # 50MB
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  fen-data:
+    driver: local

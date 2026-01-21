@@ -1,0 +1,67 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/fen-core",
+    "crates/fen-storage",
+    "crates/fen-ingestion",
+    "crates/fen-rules",
+    "crates/fen-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Fen Team"]
+license = "MIT"
+
+[workspace.dependencies]
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
+
+# Web Framework
+axum = { version = "0.7", features = ["multipart", "macros"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
+
+# Storage
+redb = "2.1"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1.3"
+
+# Performance
+bumpalo = "3.16"
+dashmap = "6.0"
+
+# Document Processing
+pdfium-render = "0.8"
+regex = "1.10"
+
+# Rule Engine
+zen-engine = "0.21"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Utilities
+thiserror = "1.0"
+anyhow = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = { version = "1.36", features = ["serde"] }
+bytes = "1.0"
+mime = "0.3"
+futures = "0.3"
+
+# Testing
+tokio-test = "0.4"
+
+[workspace.lints.rust]
+unsafe_code = "warn"
+
+[workspace.lints.clippy]
+all = "warn"
