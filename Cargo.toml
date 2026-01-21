@@ -5,6 +5,7 @@ members = [
     "crates/fen-storage",
     "crates/fen-ingestion",
     "crates/fen-rules",
+    "crates/fen-ml",
     "crates/fen-api",
 ]
 
@@ -39,6 +40,12 @@ dashmap = "6.0"
 # Document Processing
 pdfium-render = "0.8"
 regex = "1.10"
+image = "0.25"
+
+# ML & ONNX
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["ndarray", "std", "download-binaries", "tls-native"] }
+ndarray = "0.17"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 
 # Rule Engine
 zen-engine = "0.21"

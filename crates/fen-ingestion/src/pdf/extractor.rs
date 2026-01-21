@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use image::{DynamicImage, RgbaImage};
 use pdfium_render::prelude::*;
 
 use crate::error::IngestionError;
@@ -10,6 +11,16 @@ pub struct ExtractedPdf {
     pub text: String,
     pub page_count: usize,
     pub metadata: PdfMetadataInfo,
+    /// Whether text extraction produced meaningful content
+    pub has_text: bool,
+}
+
+/// PDF page rendered as image for ML processing
+pub struct RenderedPage {
+    pub image: DynamicImage,
+    pub page_index: usize,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// PDF metadata
@@ -80,12 +91,71 @@ impl PdfExtractor {
             creation_date: meta.get(PdfDocumentMetadataTagType::CreationDate).map(|t| t.value().to_string()),
         };
 
+        let trimmed_text = full_text.trim().to_string();
+        let has_text = !trimmed_text.is_empty() && trimmed_text.len() > 50;
+
         Ok(ExtractedPdf {
-            text: full_text.trim().to_string(),
+            text: trimmed_text,
             page_count,
             metadata,
+            has_text,
         })
     }
+
+    /// Render PDF pages as images for ML processing
+    pub fn render_pages_from_bytes(&self, bytes: &[u8]) -> Result<Vec<RenderedPage>, IngestionError> {
+        let document = self
+            .pdfium
+            .load_pdf_from_byte_slice(bytes, None)
+            .map_err(|e| IngestionError::PdfLoad(e.to_string()))?;
+
+        self.render_pages(&document)
+    }
+
+    fn render_pages(&self, document: &PdfDocument) -> Result<Vec<RenderedPage>, IngestionError> {
+        let mut pages = Vec::new();
+        let render_config = PdfRenderConfig::new()
+            .set_target_width(2048)
+            .set_maximum_height(2048)
+            .rotate_if_landscape(PdfPageRenderRotation::None, false);
+
+        for (i, page) in document.pages().iter().enumerate() {
+            let width = page.width().value as u32;
+            let height = page.height().value as u32;
+
+            // Render page to bitmap
+            let bitmap = page
+                .render_with_config(&render_config)
+                .map_err(|e| IngestionError::PdfRender(format!("Page {}: {}", i, e)))?;
+
+            // Convert to DynamicImage
+            let image = bitmap_to_image(&bitmap)?;
+
+            pages.push(RenderedPage {
+                image,
+                page_index: i,
+                width,
+                height,
+            });
+        }
+
+        Ok(pages)
+    }
+}
+
+/// Convert pdfium bitmap to DynamicImage
+fn bitmap_to_image(bitmap: &PdfBitmap) -> Result<DynamicImage, IngestionError> {
+    let width = bitmap.width() as u32;
+    let height = bitmap.height() as u32;
+
+    // Get raw RGBA bytes from the bitmap
+    let buffer = bitmap.as_raw_bytes();
+
+    // Create image from raw bytes
+    let img = RgbaImage::from_raw(width, height, buffer.to_vec())
+        .ok_or_else(|| IngestionError::PdfRender("Failed to create image from bitmap".to_string()))?;
+
+    Ok(DynamicImage::ImageRgba8(img))
 }
 
 impl Default for PdfExtractor {
