@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use chrono::NaiveDate;
+use rust_decimal::Decimal;
 
 use fen_core::domain::{Contract, ContractId, Invoice, InvoiceId};
 
@@ -36,4 +38,114 @@ pub trait DocumentStore: Send + Sync {
 
     /// Count total contracts
     async fn count_contracts(&self) -> Result<usize, StorageError>;
+}
+
+/// Vector search result with similarity score
+#[derive(Debug, Clone)]
+pub struct VectorSearchResult<T> {
+    pub item: T,
+    pub score: f32,
+}
+
+/// Invoice search filters
+#[derive(Debug, Clone, Default)]
+pub struct InvoiceFilter {
+    /// Filter by vendor name (partial match)
+    pub vendor_name: Option<String>,
+    /// Filter by date range
+    pub date_from: Option<NaiveDate>,
+    pub date_to: Option<NaiveDate>,
+    /// Filter by minimum amount
+    pub min_amount: Option<Decimal>,
+    /// Filter by maximum amount
+    pub max_amount: Option<Decimal>,
+    /// Filter by currency
+    pub currency: Option<String>,
+}
+
+impl InvoiceFilter {
+    /// Build a SQL filter string for LanceDB
+    pub fn to_sql_filter(&self) -> Option<String> {
+        let mut conditions = Vec::new();
+
+        if let Some(ref name) = self.vendor_name {
+            conditions.push(format!("vendor_name LIKE '%{}%'", name.replace('\'', "''")));
+        }
+
+        if let Some(date) = self.date_from {
+            conditions.push(format!("invoice_date >= '{}'", date));
+        }
+
+        if let Some(date) = self.date_to {
+            conditions.push(format!("invoice_date <= '{}'", date));
+        }
+
+        if let Some(min) = self.min_amount {
+            conditions.push(format!("total_amount >= {}", min));
+        }
+
+        if let Some(max) = self.max_amount {
+            conditions.push(format!("total_amount <= {}", max));
+        }
+
+        if let Some(ref curr) = self.currency {
+            conditions.push(format!("currency = '{}'", curr));
+        }
+
+        if conditions.is_empty() {
+            None
+        } else {
+            Some(conditions.join(" AND "))
+        }
+    }
+}
+
+/// Vector store operations for semantic search
+#[async_trait]
+pub trait VectorStore: Send + Sync {
+    /// Store an invoice with its embedding vector
+    async fn store_invoice_with_embedding(
+        &mut self,
+        invoice: &Invoice,
+        embedding: Option<&[f32]>,
+    ) -> Result<(), StorageError>;
+
+    /// Search invoices by semantic similarity
+    async fn search_invoices_by_embedding(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<VectorSearchResult<Invoice>>, StorageError>;
+
+    /// Hybrid search: semantic + filters
+    async fn search_invoices_hybrid(
+        &self,
+        query_embedding: Option<&[f32]>,
+        filter: &InvoiceFilter,
+        limit: usize,
+    ) -> Result<Vec<Invoice>, StorageError>;
+
+    /// Create vector index for faster search
+    async fn create_vector_index(&self) -> Result<(), StorageError>;
+}
+
+/// Storage tier for tiered architecture
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StorageTier {
+    /// Hot tier (redb) - recent data, sub-ms latency
+    Hot,
+    /// Warm tier (LanceDB) - 30-365 days, vector search
+    Warm,
+    /// Cold tier - archived data
+    Cold,
+}
+
+/// Metrics for query performance
+#[derive(Debug, Clone, Default)]
+pub struct QueryMetrics {
+    pub query_time_ms: u64,
+    pub rows_scanned: usize,
+    pub rows_returned: usize,
+    pub tier_used: Option<StorageTier>,
+    pub cache_hit: bool,
 }

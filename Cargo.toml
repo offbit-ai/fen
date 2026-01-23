@@ -27,6 +27,10 @@ tower-http = { version = "0.5", features = ["cors", "trace", "limit"] }
 
 # Storage
 redb = "2.1"
+lancedb = "0.17"
+arrow = { version = "53", default-features = false }
+arrow-array = "53"
+arrow-schema = "53"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
