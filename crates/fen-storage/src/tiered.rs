@@ -6,19 +6,40 @@ use tokio::sync::RwLock;
 
 use fen_core::domain::{Contract, ContractId, Invoice, InvoiceId};
 
+use crate::config::{HotStorageBackend, WarmStorageBackend};
 use crate::error::StorageError;
 use crate::hot::RedbStorage;
+use crate::location::{DocumentLocationIndex, TierDistribution};
 use crate::query::QueryCache;
 use crate::traits::{InvoiceFilter, StorageTier};
 use crate::warm::LanceStorage;
 
 /// Configuration for tiered storage
+///
+/// # Feature Flags
+///
+/// The storage backends are controlled by feature flags:
+/// - `embedded` (default): Local filesystem storage for development
+/// - `remote-storage`: Cloud/S3 storage backends for production
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Development configuration (default)
+/// let config = TieredStorageConfig::default();
+///
+/// // Production configuration with S3
+/// let config = TieredStorageConfig {
+///     warm_backend: WarmStorageBackend::s3("s3://bucket/warm", s3_config),
+///     ..Default::default()
+/// };
+/// ```
 #[derive(Debug, Clone)]
 pub struct TieredStorageConfig {
-    /// Path to hot storage (redb)
-    pub hot_path: String,
-    /// Path to warm storage (LanceDB)
-    pub warm_path: String,
+    /// Hot tier storage backend (redb - always embedded)
+    pub hot_backend: HotStorageBackend,
+    /// Warm tier storage backend (LanceDB - embedded or remote)
+    pub warm_backend: WarmStorageBackend,
     /// Age threshold (days) for hot tier data
     pub hot_tier_days: u32,
     /// Age threshold (days) for warm tier data
@@ -34,13 +55,77 @@ pub struct TieredStorageConfig {
 impl Default for TieredStorageConfig {
     fn default() -> Self {
         Self {
-            hot_path: "data/hot.redb".to_string(),
-            warm_path: "data/warm".to_string(),
+            hot_backend: HotStorageBackend::default(),
+            warm_backend: WarmStorageBackend::default(),
             hot_tier_days: 30,
             warm_tier_days: 365,
             auto_migration: true,
             cache_enabled: true,
             cache_max_entries: 10000,
+        }
+    }
+}
+
+impl TieredStorageConfig {
+    /// Create a development configuration with local filesystem storage
+    pub fn development() -> Self {
+        Self::default()
+    }
+
+    /// Create a development configuration with custom paths
+    pub fn development_with_paths(hot_path: impl Into<String>, warm_path: impl Into<String>) -> Self {
+        Self {
+            hot_backend: HotStorageBackend::embedded(hot_path),
+            warm_backend: WarmStorageBackend::embedded(warm_path),
+            ..Default::default()
+        }
+    }
+
+    /// Create a production configuration with S3 backend for warm tier
+    #[cfg(feature = "remote-storage")]
+    pub fn production_s3(
+        hot_path: impl Into<String>,
+        s3_uri: impl Into<String>,
+        s3_config: crate::config::S3Config,
+    ) -> Self {
+        Self {
+            hot_backend: HotStorageBackend::embedded(hot_path),
+            warm_backend: WarmStorageBackend::s3(s3_uri, s3_config),
+            ..Default::default()
+        }
+    }
+
+    /// Create a production configuration with LanceDB Cloud backend
+    #[cfg(feature = "remote-storage")]
+    pub fn production_lance_cloud(
+        hot_path: impl Into<String>,
+        db_uri: impl Into<String>,
+        api_key: impl Into<String>,
+        region: Option<String>,
+    ) -> Self {
+        Self {
+            hot_backend: HotStorageBackend::embedded(hot_path),
+            warm_backend: WarmStorageBackend::lance_cloud(db_uri, api_key, region),
+            ..Default::default()
+        }
+    }
+
+    /// Check if this is a development (embedded) configuration
+    pub fn is_development(&self) -> bool {
+        self.warm_backend.is_embedded()
+    }
+
+    /// Check if this is a production (remote) configuration
+    #[cfg(feature = "remote-storage")]
+    pub fn is_production(&self) -> bool {
+        self.warm_backend.is_remote()
+    }
+
+    /// Get the hot tier backend URI for logging
+    pub fn hot_backend_uri(&self) -> &str {
+        match &self.hot_backend {
+            HotStorageBackend::Embedded { path } => path,
+            HotStorageBackend::InMemory => "<in-memory>",
         }
     }
 }
@@ -51,24 +136,65 @@ pub struct TieredStorage {
     hot: Arc<RedbStorage>,
     warm: Arc<RwLock<LanceStorage>>,
     cache: Arc<QueryCache>,
+    /// Location index tracking which tier each document resides in.
+    /// This is the single source of truth for document counts.
+    location_index: Arc<DocumentLocationIndex>,
 }
 
 impl TieredStorage {
     /// Create a new tiered storage from configuration
+    ///
+    /// # Feature Flags
+    ///
+    /// Storage backends are determined by feature flags:
+    /// - `embedded` (default): Local filesystem storage
+    /// - `remote-storage`: S3/cloud storage backends
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Development (default embedded storage)
+    /// let config = TieredStorageConfig::default();
+    /// let storage = TieredStorage::new(config).await?;
+    ///
+    /// // Production with S3 (requires remote-storage feature)
+    /// let config = TieredStorageConfig::production_s3(
+    ///     "/data/hot.redb",
+    ///     "s3://bucket/warm",
+    ///     S3Config::new("us-east-1"),
+    /// );
+    /// let storage = TieredStorage::new(config).await?;
+    /// ```
     pub async fn new(config: TieredStorageConfig) -> Result<Self, StorageError> {
-        // Ensure directories exist
-        if let Some(parent) = Path::new(&config.hot_path).parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::create_dir_all(&config.warm_path)?;
+        // Initialize hot tier (always redb)
+        let hot = match &config.hot_backend {
+            HotStorageBackend::Embedded { path } => {
+                if let Some(parent) = Path::new(path).parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                Arc::new(RedbStorage::new(path)?)
+            }
+            HotStorageBackend::InMemory => Arc::new(RedbStorage::in_memory()?),
+        };
 
-        let hot = Arc::new(RedbStorage::new(&config.hot_path)?);
-        let warm = Arc::new(RwLock::new(LanceStorage::new(&config.warm_path).await?));
+        // Initialize warm tier (embedded or remote based on config)
+        let warm = Arc::new(RwLock::new(
+            LanceStorage::from_backend(&config.warm_backend).await?,
+        ));
+
         let cache = Arc::new(QueryCache::new(config.cache_max_entries));
+        let location_index = Arc::new(DocumentLocationIndex::new());
+
+        let backend_mode = if config.is_development() {
+            "development (embedded)"
+        } else {
+            "production (remote)"
+        };
 
         tracing::info!(
-            hot_path = %config.hot_path,
-            warm_path = %config.warm_path,
+            hot_uri = %config.hot_backend_uri(),
+            warm_uri = %config.warm_backend.connection_uri(),
+            mode = %backend_mode,
             "Initialized tiered storage"
         );
 
@@ -77,6 +203,7 @@ impl TieredStorage {
             hot,
             warm,
             cache,
+            location_index,
         })
     }
 
@@ -85,15 +212,26 @@ impl TieredStorage {
         let temp_dir = std::env::temp_dir();
         let warm_path = temp_dir.join(format!("fen_test_{}", uuid::Uuid::new_v4()));
 
+        let config = TieredStorageConfig {
+            hot_backend: HotStorageBackend::in_memory(),
+            warm_backend: WarmStorageBackend::embedded(warm_path.to_string_lossy().to_string()),
+            cache_max_entries: 1000,
+            ..Default::default()
+        };
+
         let hot = Arc::new(RedbStorage::in_memory()?);
-        let warm = Arc::new(RwLock::new(LanceStorage::new(&warm_path).await?));
-        let cache = Arc::new(QueryCache::new(1000));
+        let warm = Arc::new(RwLock::new(
+            LanceStorage::from_backend(&config.warm_backend).await?,
+        ));
+        let cache = Arc::new(QueryCache::new(config.cache_max_entries));
+        let location_index = Arc::new(DocumentLocationIndex::new());
 
         Ok(Self {
-            config: TieredStorageConfig::default(),
+            config,
             hot,
             warm,
             cache,
+            location_index,
         })
     }
 
@@ -124,7 +262,12 @@ impl TieredStorage {
                 // Store in hot tier
                 self.hot.store_invoice(invoice).await?;
 
+                // Register in location index (Hot is the primary location)
+                self.location_index
+                    .register_invoice(invoice.id.clone(), StorageTier::Hot);
+
                 // Also index in warm tier if embedding provided (for vector search)
+                // Note: This is for search indexing only, not primary storage
                 if embedding.is_some() {
                     let mut warm = self.warm.write().await;
                     warm.store_invoice_with_embedding(invoice, embedding)
@@ -136,6 +279,10 @@ impl TieredStorage {
                 let mut warm = self.warm.write().await;
                 warm.store_invoice_with_embedding(invoice, embedding)
                     .await?;
+
+                // Register in location index
+                self.location_index
+                    .register_invoice(invoice.id.clone(), tier);
             }
         }
 
@@ -184,12 +331,15 @@ impl TieredStorage {
     pub async fn delete_invoice(&self, id: &InvoiceId) -> Result<bool, StorageError> {
         self.cache.invalidate_invoice(id);
 
+        // Remove from location index
+        let was_tracked = self.location_index.remove_invoice(id).is_some();
+
         // Try to delete from hot tier
         let hot_deleted = self.hot.delete_invoice(id).await?;
 
         // Note: LanceDB doesn't support direct deletes easily, would need to implement
-        // For now, just return hot tier result
-        Ok(hot_deleted)
+        // For now, just return whether we found and removed it
+        Ok(hot_deleted || was_tracked)
     }
 
     /// List invoices from hot tier
@@ -201,14 +351,10 @@ impl TieredStorage {
         self.hot.list_invoices(limit, offset).await
     }
 
-    /// Count invoices across all tiers
+    /// Count invoices across all tiers (deduplicated via location index)
     pub async fn count_invoices(&self) -> Result<usize, StorageError> {
-        let hot_count = self.hot.count_invoices().await?;
-        let warm = self.warm.read().await;
-        let warm_count = warm.count_invoices().await?;
-
-        // Note: May have duplicates during migration window
-        Ok(hot_count + warm_count)
+        // Use location index for accurate, deduplicated count
+        Ok(self.location_index.count_invoices())
     }
 
     /// Search invoices by embedding similarity
@@ -252,6 +398,9 @@ impl TieredStorage {
     /// Store a contract
     pub async fn store_contract(&self, contract: &Contract) -> Result<(), StorageError> {
         self.hot.store_contract(contract).await?;
+        // Contracts are always stored in hot tier for now
+        self.location_index
+            .register_contract(contract.id.clone(), StorageTier::Hot);
         self.cache.invalidate_contract(&contract.id);
         Ok(())
     }
@@ -278,6 +427,7 @@ impl TieredStorage {
     /// Delete a contract
     pub async fn delete_contract(&self, id: &ContractId) -> Result<bool, StorageError> {
         self.cache.invalidate_contract(id);
+        self.location_index.remove_contract(id);
         self.hot.delete_contract(id).await
     }
 
@@ -290,9 +440,9 @@ impl TieredStorage {
         self.hot.list_contracts(limit, offset).await
     }
 
-    /// Count contracts
+    /// Count contracts (deduplicated via location index)
     pub async fn count_contracts(&self) -> Result<usize, StorageError> {
-        self.hot.count_contracts().await
+        Ok(self.location_index.count_contracts())
     }
 
     /// Create vector indices
@@ -302,6 +452,9 @@ impl TieredStorage {
     }
 
     /// Migrate old data from hot to warm tier
+    ///
+    /// This uses atomic tier transitions in the location index to prevent
+    /// duplicate counting during migration.
     pub async fn migrate_to_warm(&self) -> Result<usize, StorageError> {
         if !self.config.auto_migration {
             return Ok(0);
@@ -311,16 +464,33 @@ impl TieredStorage {
             - chrono::Duration::days(self.config.hot_tier_days as i64);
 
         let mut migrated = 0;
-        let invoices = self.hot.list_invoices(1000, 0).await?;
 
-        for invoice in invoices {
+        // Get invoices that are in hot tier according to location index
+        let hot_invoice_ids = self.location_index.invoices_in_tier(StorageTier::Hot);
+
+        for invoice_id in hot_invoice_ids {
+            // Fetch the invoice from hot tier
+            let invoice = match self.hot.get_invoice(&invoice_id).await? {
+                Some(inv) => inv,
+                None => {
+                    // Invoice no longer in hot tier, clean up index
+                    self.location_index.remove_invoice(&invoice_id);
+                    continue;
+                }
+            };
+
             if invoice.invoice_date < cutoff_date {
-                // Move to warm tier
+                // Step 1: Store in warm tier first
                 let mut warm = self.warm.write().await;
                 warm.store_invoice_with_embedding(&invoice, None).await?;
                 drop(warm);
 
-                // Delete from hot tier
+                // Step 2: Atomically update location index (single source of truth)
+                // This ensures no duplicate counting during the transition
+                self.location_index
+                    .move_invoice(&invoice.id, StorageTier::Warm);
+
+                // Step 3: Delete from hot tier (safe now since index updated)
                 self.hot.delete_invoice(&invoice.id).await?;
                 self.cache.invalidate_invoice(&invoice.id);
 
@@ -348,6 +518,21 @@ impl TieredStorage {
     /// Get hot storage reference
     pub fn hot(&self) -> &Arc<RedbStorage> {
         &self.hot
+    }
+
+    /// Get tier distribution for invoices
+    pub fn invoice_tier_distribution(&self) -> TierDistribution {
+        self.location_index.invoice_tier_distribution()
+    }
+
+    /// Get tier distribution for contracts
+    pub fn contract_tier_distribution(&self) -> TierDistribution {
+        self.location_index.contract_tier_distribution()
+    }
+
+    /// Get the location index for advanced queries
+    pub fn location_index(&self) -> &Arc<DocumentLocationIndex> {
+        &self.location_index
     }
 }
 

@@ -3,6 +3,13 @@ name = "fen-storage"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["embedded"]
+# Development: Local filesystem storage (redb + LanceDB embedded)
+embedded = []
+# Production: Remote/cloud storage backends (S3, LanceDB Cloud)
+remote-storage = []
+
 [dependencies]
 fen-core = { path = "../fen-core" }
 

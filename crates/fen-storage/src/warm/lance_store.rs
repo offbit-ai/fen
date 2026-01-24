@@ -14,6 +14,7 @@ use lancedb::Connection;
 
 use fen_core::domain::{Invoice, InvoiceId};
 
+use crate::config::WarmStorageBackend;
 use crate::error::StorageError;
 
 /// Embedding dimensions for document vectors
@@ -26,15 +27,50 @@ pub struct LanceStorage {
 }
 
 impl LanceStorage {
-    /// Create a new LanceDB storage at the given path
+    /// Create a new LanceDB storage at the given path (embedded mode)
+    ///
+    /// This is the default constructor for development use. For production,
+    /// use `from_backend` with a configured `WarmStorageBackend`.
     pub async fn new(path: impl AsRef<Path>) -> Result<Self, StorageError> {
-        let uri = path.as_ref().to_string_lossy().to_string();
-        let conn = connect(&uri)
-            .execute()
-            .await
-            .map_err(|e| StorageError::Connection(e.to_string()))?;
+        let backend = WarmStorageBackend::embedded(path.as_ref().to_string_lossy().to_string());
+        Self::from_backend(&backend).await
+    }
 
-        tracing::info!(uri = %uri, "Connected to LanceDB");
+    /// Create LanceDB storage from backend configuration
+    ///
+    /// This is the preferred constructor for production deployments,
+    /// allowing configuration of embedded, S3, or LanceDB Cloud backends.
+    ///
+    /// # Feature Flags
+    ///
+    /// - Without `remote-storage`: Only embedded backend is supported
+    /// - With `remote-storage`: S3 and LanceDB Cloud backends are available
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Development: embedded storage
+    /// let backend = WarmStorageBackend::embedded("/data/warm");
+    /// let storage = LanceStorage::from_backend(&backend).await?;
+    ///
+    /// // Production: S3 storage (requires remote-storage feature)
+    /// let backend = WarmStorageBackend::s3("s3://bucket/warm", s3_config);
+    /// let storage = LanceStorage::from_backend(&backend).await?;
+    /// ```
+    pub async fn from_backend(backend: &WarmStorageBackend) -> Result<Self, StorageError> {
+        let conn = Self::connect_backend(backend).await?;
+
+        let backend_type = if backend.is_embedded() {
+            "embedded"
+        } else {
+            "remote"
+        };
+
+        tracing::info!(
+            uri = %backend.connection_uri(),
+            backend = %backend_type,
+            "Connected to LanceDB"
+        );
 
         let mut storage = Self {
             conn,
@@ -45,6 +81,68 @@ impl LanceStorage {
         storage.ensure_tables().await?;
 
         Ok(storage)
+    }
+
+    /// Connect to LanceDB based on backend configuration
+    async fn connect_backend(backend: &WarmStorageBackend) -> Result<Connection, StorageError> {
+        match backend {
+            WarmStorageBackend::Embedded { path } => {
+                // Ensure directory exists for embedded mode
+                if let Some(parent) = Path::new(path).parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::create_dir_all(path)?;
+
+                connect(path)
+                    .execute()
+                    .await
+                    .map_err(|e| StorageError::Connection(e.to_string()))
+            }
+
+            #[cfg(feature = "remote-storage")]
+            WarmStorageBackend::S3 { uri, config } => {
+                let mut builder = connect(uri);
+
+                // Configure S3 storage options
+                builder = builder.storage_option("region", &config.region);
+
+                if let Some(ref key) = config.access_key_id {
+                    builder = builder.storage_option("aws_access_key_id", key);
+                }
+                if let Some(ref secret) = config.secret_access_key {
+                    builder = builder.storage_option("aws_secret_access_key", secret);
+                }
+                if let Some(ref endpoint) = config.endpoint {
+                    builder = builder.storage_option("endpoint", endpoint);
+                }
+                if config.allow_http {
+                    builder = builder.storage_option("allow_http", "true");
+                }
+
+                builder
+                    .execute()
+                    .await
+                    .map_err(|e| StorageError::Connection(e.to_string()))
+            }
+
+            #[cfg(feature = "remote-storage")]
+            WarmStorageBackend::LanceCloud {
+                db_uri,
+                api_key,
+                region,
+            } => {
+                let mut builder = connect(db_uri).api_key(api_key);
+
+                if let Some(ref r) = region {
+                    builder = builder.host_override(r);
+                }
+
+                builder
+                    .execute()
+                    .await
+                    .map_err(|e| StorageError::Connection(e.to_string()))
+            }
+        }
     }
 
     /// Ensure all required tables exist
