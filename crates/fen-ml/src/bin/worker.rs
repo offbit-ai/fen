@@ -13,15 +13,49 @@
 //! ```
 
 use clap::Parser;
+use fen_core::domain::Invoice;
 use fen_events::{topics, EventConsumer, EventProducer, LocalEventBus, LocalEventConsumer, RawEvent};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
-use tracing::{info, warn};
+use tracing::{debug, error, info, warn};
 
 #[cfg(feature = "kafka")]
 use fen_events::{KafkaConfig, KafkaConsumer, KafkaProducer};
+
+/// Event payload for processed document (bincode serialized)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DocumentProcessedEvent {
+    document_id: String,
+    tenant_id: String,
+    invoice_id: String,
+    document_type: String,
+    confidence_score: f64,
+    processing_time_ms: u64,
+    extracted_fields: Vec<String>,
+    vendor_name: String,
+    invoice_number: String,
+    total_amount: String,
+    /// The full Invoice - baseline worker extracts metrics from it
+    invoice: Invoice,
+}
+
+/// Event payload for baseline update
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BaselineComputedEvent {
+    baseline_id: String,
+    vendor_name: String,
+    tenant_id: String,
+    metric_name: String,
+    mean: f64,
+    stddev: f64,
+    min_value: f64,
+    max_value: f64,
+    sample_count: u64,
+    updated_at: String,
+}
 
 /// Fen Baseline Worker
 #[derive(Parser, Debug)]
@@ -49,12 +83,26 @@ struct Args {
     health_port: u16,
 }
 
-/// Running statistics for a vendor metric
-#[derive(Debug, Clone, Default)]
+/// Running statistics for a vendor metric using Welford's online algorithm
+#[derive(Debug, Clone)]
 struct RunningStats {
     count: u64,
     mean: f64,
     m2: f64, // For Welford's online variance algorithm
+    min_value: f64,
+    max_value: f64,
+}
+
+impl Default for RunningStats {
+    fn default() -> Self {
+        Self {
+            count: 0,
+            mean: 0.0,
+            m2: 0.0,
+            min_value: f64::MAX,
+            max_value: f64::MIN,
+        }
+    }
 }
 
 impl RunningStats {
@@ -64,6 +112,14 @@ impl RunningStats {
         self.mean += delta / self.count as f64;
         let delta2 = value - self.mean;
         self.m2 += delta * delta2;
+
+        // Track min/max
+        if value < self.min_value {
+            self.min_value = value;
+        }
+        if value > self.max_value {
+            self.max_value = value;
+        }
     }
 
     fn variance(&self) -> f64 {
@@ -79,12 +135,19 @@ impl RunningStats {
     }
 }
 
+/// Vendor statistics key combining vendor name and tenant
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct VendorKey {
+    tenant_id: String,
+    vendor_name: String,
+}
+
 /// Worker state
 struct WorkerState {
     messages_processed: std::sync::atomic::AtomicU64,
     baselines_updated: std::sync::atomic::AtomicU64,
-    // vendor_name -> metric_name -> RunningStats
-    vendor_stats: RwLock<HashMap<String, HashMap<String, RunningStats>>>,
+    /// (tenant_id, vendor_name) -> metric_name -> RunningStats
+    vendor_stats: RwLock<HashMap<VendorKey, HashMap<String, RunningStats>>>,
     healthy: std::sync::atomic::AtomicBool,
 }
 
@@ -103,51 +166,131 @@ impl WorkerState {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
-    fn increment_baselines(&self) {
+    fn increment_baselines(&self, count: u64) {
         self.baselines_updated
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            .fetch_add(count, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
+/// Extract numeric metrics from the invoice
+fn extract_metrics(invoice: &Invoice) -> Vec<(String, f64)> {
+    use rust_decimal::prelude::ToPrimitive;
+    let mut metrics = Vec::new();
+
+    // Extract total_amount
+    if let Some(value) = invoice.total_amount.to_f64() {
+        metrics.push(("total_amount".to_string(), value));
+    }
+
+    // Extract subtotal
+    if let Some(value) = invoice.subtotal.to_f64() {
+        metrics.push(("subtotal".to_string(), value));
+    }
+
+    // Extract tax_amount
+    if let Some(value) = invoice.tax_amount.to_f64() {
+        metrics.push(("tax_amount".to_string(), value));
+    }
+
+    // Extract line_item_count
+    metrics.push(("line_item_count".to_string(), invoice.line_items.len() as f64));
+
+    // Extract confidence_score
+    metrics.push(("confidence_score".to_string(), invoice.confidence_score as f64));
+
+    metrics
+}
+
+/// Process a document event and update baseline statistics
+/// Returns baseline events to publish when enough samples are collected
 async fn process_for_baseline(
     event: &RawEvent,
     state: &WorkerState,
     min_samples: usize,
-) -> Option<Vec<u8>> {
-    // TODO: Implement actual baseline extraction:
-    // 1. Deserialize DocumentProcessed event
-    // 2. Extract vendor name and numeric fields
-    // 3. Update running statistics
-    // 4. If enough samples, compute and return baseline
+) -> Vec<Vec<u8>> {
+    // 1. Deserialize DocumentProcessed event (bincode format)
+    let processed: DocumentProcessedEvent = match bincode::deserialize(&event.payload) {
+        Ok(p) => p,
+        Err(e) => {
+            error!(error = %e, "Failed to deserialize DocumentProcessedEvent");
+            return Vec::new();
+        }
+    };
 
-    let key = event.key.as_deref().unwrap_or_default();
-
-    // Stub implementation
-    let vendor_name = format!("vendor_{}", key.first().unwrap_or(&0) % 10);
-    let metric_name = "total_amount".to_string();
-    let value = 100.0 + (event.payload.len() as f64 % 50.0); // Fake value
-
-    let mut stats = state.vendor_stats.write().await;
-    let vendor_metrics = stats.entry(vendor_name.clone()).or_default();
-    let metric_stats = vendor_metrics.entry(metric_name.clone()).or_default();
-    metric_stats.update(value);
-
-    if metric_stats.count as usize >= min_samples && metric_stats.count % 10 == 0 {
-        // Publish baseline update every 10 samples after minimum
-        let baseline_event = serde_json::json!({
-            "baseline_id": uuid::Uuid::new_v4().to_string(),
-            "vendor_name": vendor_name,
-            "metric_name": metric_name,
-            "mean": metric_stats.mean,
-            "stddev": metric_stats.stddev(),
-            "sample_count": metric_stats.count,
-            "updated_at": chrono::Utc::now().to_rfc3339(),
-        });
-
-        return Some(serde_json::to_vec(&baseline_event).ok()?);
+    // Skip if vendor name is empty
+    if processed.vendor_name.is_empty() {
+        debug!(
+            document_id = %processed.document_id,
+            "Skipping document with empty vendor name"
+        );
+        return Vec::new();
     }
 
-    None
+    debug!(
+        document_id = %processed.document_id,
+        tenant_id = %processed.tenant_id,
+        vendor_name = %processed.vendor_name,
+        "Processing document for baseline"
+    );
+
+    // 2. Extract numeric fields from the invoice
+    let metrics = extract_metrics(&processed.invoice);
+
+    if metrics.is_empty() {
+        debug!(
+            document_id = %processed.document_id,
+            "No numeric metrics extracted from document"
+        );
+        return Vec::new();
+    }
+
+    let vendor_key = VendorKey {
+        tenant_id: processed.tenant_id.clone(),
+        vendor_name: processed.vendor_name.clone(),
+    };
+
+    let mut baseline_events = Vec::new();
+
+    // 3. Update running statistics for each metric
+    let mut stats = state.vendor_stats.write().await;
+    let vendor_metrics = stats.entry(vendor_key.clone()).or_default();
+
+    for (metric_name, value) in metrics {
+        let metric_stats = vendor_metrics.entry(metric_name.clone()).or_default();
+        metric_stats.update(value);
+
+        // 4. If enough samples, compute and return baseline
+        // Publish baseline update every 10 samples after minimum threshold
+        if metric_stats.count as usize >= min_samples && metric_stats.count % 10 == 0 {
+            let baseline_event = BaselineComputedEvent {
+                baseline_id: uuid::Uuid::new_v4().to_string(),
+                vendor_name: vendor_key.vendor_name.clone(),
+                tenant_id: vendor_key.tenant_id.clone(),
+                metric_name: metric_name.clone(),
+                mean: metric_stats.mean,
+                stddev: metric_stats.stddev(),
+                min_value: metric_stats.min_value,
+                max_value: metric_stats.max_value,
+                sample_count: metric_stats.count,
+                updated_at: chrono::Utc::now().to_rfc3339(),
+            };
+
+            info!(
+                vendor_name = %baseline_event.vendor_name,
+                metric_name = %baseline_event.metric_name,
+                mean = baseline_event.mean,
+                stddev = baseline_event.stddev,
+                sample_count = baseline_event.sample_count,
+                "Publishing baseline update"
+            );
+
+            if let Ok(payload) = serde_json::to_vec(&baseline_event) {
+                baseline_events.push(payload);
+            }
+        }
+    }
+
+    baseline_events
 }
 
 async fn run_worker(
@@ -172,15 +315,19 @@ async fn run_worker(
 
         for event in events {
             let key = event.key.as_deref().unwrap_or_default();
-            if let Some(baseline_payload) = process_for_baseline(&event, &state, min_samples).await
-            {
+            let baseline_payloads = process_for_baseline(&event, &state, min_samples).await;
+
+            for baseline_payload in &baseline_payloads {
                 if let Err(e) = producer
-                    .publish(topics::BASELINE_UPDATES, key, &baseline_payload)
+                    .publish(topics::BASELINE_UPDATES, key, baseline_payload)
                     .await
                 {
                     warn!(error = %e, "Failed to publish baseline update");
                 }
-                state.increment_baselines();
+            }
+
+            if !baseline_payloads.is_empty() {
+                state.increment_baselines(baseline_payloads.len() as u64);
             }
             state.increment_processed();
         }
