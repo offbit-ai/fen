@@ -9,6 +9,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::config::AppConfig;
+use crate::middleware::RateLimitLayer;
 use crate::routes::{documents, health, ingest, validate};
 use crate::state::AppState;
 
@@ -19,8 +20,11 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    // Create rate limiter from config
+    let rate_limit = RateLimitLayer::new(config.rate_limit_rps, config.rate_limit_burst);
+
     Router::new()
-        // Health check
+        // Health check (no rate limiting)
         .route("/health", get(health::health_check))
         // Documents - combined GET and POST on same path
         .route("/documents", get(documents::list_documents).post(ingest::ingest_document))
@@ -29,8 +33,9 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/validate", post(validate::validate_documents))
         // Stats
         .route("/stats", get(documents::get_stats))
-        // Add middleware
+        // Add middleware (order matters - rate limit first, then trace, then body limit)
         .layer(TraceLayer::new_for_http())
+        .layer(rate_limit)
         .layer(RequestBodyLimitLayer::new(config.max_upload_size))
         .layer(cors)
         .with_state(state)
