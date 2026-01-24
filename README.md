@@ -113,6 +113,123 @@ Fen automatically ingests, parses, and analyzes invoices and contracts at scale 
 | `fen-ml` | Document intelligence: LayoutLMv3, embeddings, OCR, table extraction |
 | `fen-rules` | GoRules Zen engine + structural validations |
 | `fen-api` | REST endpoints (axum) for document upload, query, and validation |
+| `fen-events` | Event streaming with Kafka support and protobuf schemas |
+| `fen-notify` | Real-time notification delivery (WebSocket, Email, Webhook) |
+| `fen-cluster` | Shard management, routing, and 2PC transaction coordination |
+| `fen-grpc` | Inter-node gRPC communication for distributed deployment |
+
+## Distributed Architecture
+
+Fen supports horizontal scaling through an event-driven distributed architecture with sharded storage and multi-node coordination.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              CONTROL PLANE                                       │
+│  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────────┐ │
+│  │   Raft Coordinator  │  │   Config Service    │  │   Metadata Store        │ │
+│  │   (openraft)        │  │   (etcd sync)       │  │   (shard assignments)   │ │
+│  └─────────────────────┘  └─────────────────────┘  └─────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                    ┌───────────────────┼───────────────────┐
+                    ▼                   ▼                   ▼
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                           EVENT BUS (Kafka)                                       │
+│  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐ ┌────────────────┐    │
+│  │ fen.document.  │ │ fen.document.  │ │ fen.anomaly.   │ │ fen.baseline.  │    │
+│  │ ingestion      │ │ processed      │ │ detected       │ │ updates        │    │
+│  └────────────────┘ └────────────────┘ └────────────────┘ └────────────────┘    │
+└──────────────────────────────────────────────────────────────────────────────────┘
+          │                      │                      │
+          ▼                      ▼                      ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         COMPUTE PLANE (Stateless)                                │
+│  ┌─────────────────────┐  ┌─────────────────────┐  ┌─────────────────────────┐ │
+│  │  Ingestion Workers  │  │  Validation Workers │  │   Baseline Workers      │ │
+│  │  (GPU for ML)       │  │  (Rule Engine)      │  │   (Stats Computation)   │ │
+│  └─────────────────────┘  └─────────────────────┘  └─────────────────────────┘ │
+│  ┌─────────────────────┐  ┌─────────────────────┐                              │
+│  │  Notification Svc   │  │  Metrics Aggregator │  ◄── Real-time Reporting    │
+│  │  (WebSocket/Email)  │  │  (Prometheus)       │                              │
+│  └─────────────────────┘  └─────────────────────┘                              │
+└─────────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                           DATA PLANE (Sharded)                                   │
+│  ┌───────────────────────────────────────────────────────────────────────────┐ │
+│  │                        Shard Manager                                       │ │
+│  │   Consistent Hashing: hash(tenant_id || doc_type) % num_shards            │ │
+│  │   2PC Coordinator for cross-shard transactions                             │ │
+│  └───────────────────────────────────────────────────────────────────────────┘ │
+│                                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │   Shard 0    │  │   Shard 1    │  │   Shard 2    │  │   Shard N    │       │
+│  │  ┌────────┐  │  │  ┌────────┐  │  │  ┌────────┐  │  │  ┌────────┐  │       │
+│  │  │ redb   │  │  │  │ redb   │  │  │  │ redb   │  │  │  │ redb   │  │       │
+│  │  │ (hot)  │  │  │  │ (hot)  │  │  │  │ (hot)  │  │  │  │ (hot)  │  │       │
+│  │  ├────────┤  │  │  ├────────┤  │  │  ├────────┤  │  │  ├────────┤  │       │
+│  │  │LanceDB │  │  │  │LanceDB │  │  │  │LanceDB │  │  │  │LanceDB │  │       │
+│  │  │ (warm) │  │  │  │ (warm) │  │  │  │ (warm) │  │  │  │ (warm) │  │       │
+│  │  └────────┘  │  │  └────────┘  │  │  └────────┘  │  │  └────────┘  │       │
+│  │  3x replicas │  │  3x replicas │  │  3x replicas │  │  3x replicas │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Distributed Features
+
+| Component | Description |
+|-----------|-------------|
+| **Event Streaming** | Kafka-based event bus with protobuf schemas for all domain events |
+| **Consistent Hashing** | XXH3-based partition key routing for tenant/document-type sharding |
+| **Two-Phase Commit** | ACID transactions across shards with automatic retry and recovery |
+| **Notification Hub** | Multi-channel delivery (WebSocket, Email, Webhook) with tenant preferences |
+| **gRPC Services** | Inter-node communication with connection pooling |
+| **Raft Consensus** | Leader election and cluster membership (optional) |
+
+### Deployment Modes
+
+Fen supports both standalone and distributed deployment:
+
+```bash
+# Standalone mode (default) - single node, no external dependencies
+CLUSTER_MODE=standalone cargo run -p fen-api
+
+# Distributed mode - requires Kafka and multiple nodes
+CLUSTER_MODE=distributed \
+KAFKA_BOOTSTRAP_SERVERS=localhost:9092 \
+NUM_SHARDS=16 \
+cargo run -p fen-api
+```
+
+### Event Topics
+
+| Topic | Description |
+|-------|-------------|
+| `fen.document.ingestion` | New document uploaded for processing |
+| `fen.document.processed` | Document parsing and embedding complete |
+| `fen.anomaly.detected` | Anomaly found during validation |
+| `fen.baseline.updates` | Vendor baseline recalculated |
+| `fen.metrics` | Real-time metrics for observability |
+| `fen.alerts` | System alerts and notifications |
+
+### Notification Providers
+
+The notification system supports pluggable delivery channels:
+
+| Provider | Mode | Use Case |
+|----------|------|----------|
+| WebSocket | Immediate | Real-time UI updates |
+| Email | Batched | Periodic digest reports |
+| Webhook | Async | External integrations |
+
+Configure per-tenant notification preferences:
+
+```rust
+// Set tenant to receive WebSocket and Email notifications
+hub.set_tenant_providers(tenant_id, vec!["websocket", "email"]);
+```
 
 ## Storage Tiers
 
