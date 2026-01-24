@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -72,7 +72,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -108,7 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -126,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -164,7 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -182,7 +182,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -202,7 +202,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -222,7 +222,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
@@ -242,7 +242,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-action@stable
+      - uses: dtolnay/rust-toolchain@stable
       - uses: actions/cache@v4
         with:
           path: |
