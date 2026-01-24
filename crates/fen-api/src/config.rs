@@ -15,6 +15,12 @@ pub struct AppConfig {
 
     /// Maximum upload size in bytes
     pub max_upload_size: usize,
+
+    /// Rate limit: requests per second
+    pub rate_limit_rps: u32,
+
+    /// Rate limit: burst size
+    pub rate_limit_burst: u32,
 }
 
 impl AppConfig {
@@ -28,6 +34,14 @@ impl AppConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(50 * 1024 * 1024), // 50MB default
+            rate_limit_rps: env::var("RATE_LIMIT_RPS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(100), // 100 requests per second default
+            rate_limit_burst: env::var("RATE_LIMIT_BURST")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(200), // 200 burst capacity default
         }
     }
 }

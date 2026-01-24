@@ -8,7 +8,7 @@ use ndarray::Array4;
 use ort::session::Session;
 use ort::value::TensorRef;
 
-use super::{BoundingBox, OcrConfig, OcrResult, TextRegion};
+use super::{BoundingBox, CtcDecodingStrategy, OcrConfig, OcrResult, TextRegion};
 use crate::error::MlError;
 
 /// Trait for OCR engines
@@ -245,11 +245,25 @@ impl OcrEngine {
         keep
     }
 
-    /// Recognize text in a region
+    /// Recognize text in a region (single)
     fn recognize_text(
         &self,
         input: Array4<f32>,
     ) -> Result<(String, f32), MlError> {
+        let results = self.recognize_text_batch(&[input])?;
+        Ok(results.into_iter().next().unwrap_or_else(|| (String::new(), 0.0)))
+    }
+
+    /// Recognize text in multiple regions with batched inference
+    /// This is significantly faster than processing regions one at a time
+    fn recognize_text_batch(
+        &self,
+        inputs: &[Array4<f32>],
+    ) -> Result<Vec<(String, f32)>, MlError> {
+        if inputs.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let mut recognition_session = self
             .recognition_session
             .as_ref()
@@ -257,7 +271,26 @@ impl OcrEngine {
             .lock()
             .map_err(|e| MlError::ModelLoading(format!("Failed to acquire session lock: {}", e)))?;
 
-        let input_tensor = TensorRef::from_array_view(&input)
+        let batch_size = inputs.len();
+
+        // Get dimensions from first input (all inputs should have same dimensions)
+        let first = &inputs[0];
+        let (_, channels, height, width) = (
+            first.shape()[0],
+            first.shape()[1],
+            first.shape()[2],
+            first.shape()[3],
+        );
+
+        // Combine all inputs into a single batch tensor
+        let mut batch_input = Array4::<f32>::zeros((batch_size, channels, height, width));
+        for (i, input) in inputs.iter().enumerate() {
+            batch_input
+                .slice_mut(ndarray::s![i, .., .., ..])
+                .assign(&input.slice(ndarray::s![0, .., .., ..]));
+        }
+
+        let input_tensor = TensorRef::from_array_view(&batch_input)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
         let outputs = recognition_session.run(ort::inputs!["input" => input_tensor])?;
@@ -268,73 +301,269 @@ impl OcrEngine {
             &outputs[0]
         };
 
-        let (_, data) = output
+        let (shape, data) = output
             .try_extract_tensor::<f32>()
             .map_err(|e| MlError::Postprocessing(e.to_string()))?;
 
-        // Decode CTC output (simplified)
-        let (text, confidence) = self.decode_ctc(data);
+        // Parse batch output - shape should be [batch, seq_len, vocab_size] or [batch * seq_len, vocab_size]
+        let mut results = Vec::with_capacity(batch_size);
 
-        Ok((text, confidence))
+        if shape.len() == 3 {
+            // Shape: [batch, seq_len, vocab_size]
+            let seq_len = shape[1] as usize;
+            let vocab_size = shape[2] as usize;
+            let sample_size = seq_len * vocab_size;
+
+            for batch_idx in 0..batch_size {
+                let start = batch_idx * sample_size;
+                let end = start + sample_size;
+                if end <= data.len() {
+                    let sample_data = &data[start..end];
+                    let (text, confidence) = self.decode_ctc(sample_data);
+                    results.push((text, confidence));
+                } else {
+                    results.push((String::new(), 0.0));
+                }
+            }
+        } else {
+            // Fallback: process as single output
+            let (text, confidence) = self.decode_ctc(data);
+            results.push((text, confidence));
+        }
+
+        Ok(results)
     }
 
-    /// Decode CTC output to text
+    /// Get the vocabulary/charset for CTC decoding
+    fn get_vocabulary(&self) -> Vec<char> {
+        self.config
+            .decoder_config
+            .vocabulary
+            .clone()
+            .unwrap_or_else(|| {
+                // Default vocabulary: printable ASCII + common extended characters
+                // Index 0 is reserved for blank token
+                let mut chars: Vec<char> = Vec::with_capacity(128);
+                // Space and punctuation
+                chars.extend(" !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".chars());
+                // Digits
+                chars.extend('0'..='9');
+                // Uppercase letters
+                chars.extend('A'..='Z');
+                // Lowercase letters
+                chars.extend('a'..='z');
+                // Common currency and symbols
+                chars.extend("£€¥¢©®™°±×÷".chars());
+                chars
+            })
+    }
+
+    /// Decode CTC output to text using configured strategy
     fn decode_ctc(&self, logits: &[f32]) -> (String, f32) {
-        // Simplified CTC decoding - in production, use proper vocabulary
-        // This is a placeholder that would need the actual character set
-        let charset: Vec<char> = " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~".chars().collect();
-
-        let mut text = String::new();
-        let mut prev_idx: i32 = -1;
-        let mut total_conf = 0.0;
-        let mut count = 0;
-
-        // Assume logits are shaped [seq_len, vocab_size]
-        let vocab_size = charset.len() + 1; // +1 for blank token
+        let vocabulary = self.get_vocabulary();
+        let vocab_size = vocabulary.len() + 1; // +1 for blank token at index 0
         let seq_len = logits.len() / vocab_size;
+
+        if seq_len == 0 {
+            return (String::new(), 0.0);
+        }
+
+        // Convert logits to log probabilities for numerical stability
+        let log_probs = self.compute_log_probabilities(logits, vocab_size, seq_len);
+
+        match self.config.decoder_config.strategy {
+            CtcDecodingStrategy::Greedy => {
+                self.decode_ctc_greedy(&log_probs, &vocabulary, vocab_size, seq_len)
+            }
+            CtcDecodingStrategy::BeamSearch => {
+                self.decode_ctc_beam_search(&log_probs, &vocabulary, vocab_size, seq_len)
+            }
+        }
+    }
+
+    /// Compute log probabilities from logits with numerical stability
+    fn compute_log_probabilities(
+        &self,
+        logits: &[f32],
+        vocab_size: usize,
+        seq_len: usize,
+    ) -> Vec<Vec<f32>> {
+        let mut log_probs = Vec::with_capacity(seq_len);
 
         for t in 0..seq_len {
             let start = t * vocab_size;
-            let end = start + vocab_size;
-            if end > logits.len() {
-                break;
-            }
-
+            let end = (start + vocab_size).min(logits.len());
             let frame = &logits[start..end];
 
-            // Softmax and argmax
+            // Log-softmax for numerical stability
             let max_val = frame.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-            let exp_sum: f32 = frame.iter().map(|&x| (x - max_val).exp()).sum();
+            let log_sum_exp: f32 = frame
+                .iter()
+                .map(|&x| (x - max_val).exp())
+                .sum::<f32>()
+                .ln()
+                + max_val;
 
-            let mut best_idx = 0;
-            let mut best_prob = 0.0;
-            for (i, &val) in frame.iter().enumerate() {
-                let prob = (val - max_val).exp() / exp_sum;
-                if prob > best_prob {
-                    best_prob = prob;
-                    best_idx = i;
-                }
-            }
+            let frame_log_probs: Vec<f32> = frame
+                .iter()
+                .map(|&x| x - log_sum_exp)
+                .collect();
 
-            // Skip blank token (index 0) and repeated characters
-            if best_idx != 0 && best_idx as i32 != prev_idx {
-                if let Some(&c) = charset.get(best_idx - 1) {
-                    text.push(c);
-                    total_conf += best_prob;
-                    count += 1;
-                }
-            }
-
-            prev_idx = best_idx as i32;
+            log_probs.push(frame_log_probs);
         }
 
-        let avg_conf = if count > 0 {
-            total_conf / count as f32
+        log_probs
+    }
+
+    /// Greedy CTC decoding - fastest but less accurate
+    fn decode_ctc_greedy(
+        &self,
+        log_probs: &[Vec<f32>],
+        vocabulary: &[char],
+        _vocab_size: usize,
+        seq_len: usize,
+    ) -> (String, f32) {
+        let blank_idx = self.config.decoder_config.blank_index;
+        let mut text = String::new();
+        let mut prev_idx: Option<usize> = None;
+        let mut total_log_prob = 0.0;
+        let mut char_count = 0;
+
+        for t in 0..seq_len {
+            let frame = &log_probs[t];
+
+            // Find argmax
+            let (best_idx, best_log_prob) = frame
+                .iter()
+                .enumerate()
+                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap())
+                .unwrap_or((blank_idx, &f32::NEG_INFINITY));
+
+            // CTC collapse: skip blank and repeated characters
+            if best_idx != blank_idx && Some(best_idx) != prev_idx {
+                // Convert index to character (accounting for blank at index 0)
+                let char_idx = if best_idx > blank_idx {
+                    best_idx - 1
+                } else {
+                    best_idx
+                };
+
+                if let Some(&c) = vocabulary.get(char_idx) {
+                    text.push(c);
+                    total_log_prob += best_log_prob;
+                    char_count += 1;
+                }
+            }
+
+            prev_idx = Some(best_idx);
+        }
+
+        // Convert log probability to confidence score
+        let avg_confidence = if char_count > 0 {
+            (total_log_prob / char_count as f32).exp()
         } else {
             0.0
         };
 
-        (text, avg_conf)
+        (text, avg_confidence)
+    }
+
+    /// Beam search CTC decoding - more accurate but slower
+    fn decode_ctc_beam_search(
+        &self,
+        log_probs: &[Vec<f32>],
+        vocabulary: &[char],
+        vocab_size: usize,
+        seq_len: usize,
+    ) -> (String, f32) {
+        let blank_idx = self.config.decoder_config.blank_index;
+        let beam_width = self.config.decoder_config.beam_width;
+
+        // Beam: (prefix, log_prob_blank, log_prob_non_blank)
+        // We track two probabilities: ending in blank vs ending in non-blank
+        let mut beams: Vec<(String, f32, f32)> = vec![(String::new(), 0.0, f32::NEG_INFINITY)];
+
+        for t in 0..seq_len {
+            let frame = &log_probs[t];
+            let mut new_beams: std::collections::HashMap<String, (f32, f32)> =
+                std::collections::HashMap::new();
+
+            for (prefix, log_pb, log_pnb) in &beams {
+                let log_p = self.log_add(*log_pb, *log_pnb);
+
+                // Process blank
+                let blank_log_prob = frame.get(blank_idx).copied().unwrap_or(f32::NEG_INFINITY);
+                let entry = new_beams.entry(prefix.clone()).or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
+                entry.0 = self.log_add(entry.0, log_p + blank_log_prob);
+
+                // Process each character
+                for c_idx in 0..vocab_size {
+                    if c_idx == blank_idx {
+                        continue;
+                    }
+
+                    let c_log_prob = frame.get(c_idx).copied().unwrap_or(f32::NEG_INFINITY);
+                    let char_idx = if c_idx > blank_idx { c_idx - 1 } else { c_idx };
+
+                    if let Some(&c) = vocabulary.get(char_idx) {
+                        let last_char = prefix.chars().last();
+
+                        if Some(c) == last_char {
+                            // Same character: can only extend if previous was blank
+                            let mut new_prefix = prefix.clone();
+                            new_prefix.push(c);
+                            let entry = new_beams.entry(new_prefix).or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
+                            entry.1 = self.log_add(entry.1, *log_pb + c_log_prob);
+
+                            // Or stay with current prefix
+                            let entry = new_beams.entry(prefix.clone()).or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
+                            entry.1 = self.log_add(entry.1, *log_pnb + c_log_prob);
+                        } else {
+                            // Different character: can always extend
+                            let mut new_prefix = prefix.clone();
+                            new_prefix.push(c);
+                            let entry = new_beams.entry(new_prefix).or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
+                            entry.1 = self.log_add(entry.1, log_p + c_log_prob);
+                        }
+                    }
+                }
+            }
+
+            // Convert back to beam format and prune
+            beams = new_beams
+                .into_iter()
+                .map(|(prefix, (log_pb, log_pnb))| (prefix, log_pb, log_pnb))
+                .collect();
+
+            // Sort by total probability and keep top beams
+            beams.sort_by(|a, b| {
+                let prob_a = self.log_add(a.1, a.2);
+                let prob_b = self.log_add(b.1, b.2);
+                prob_b.partial_cmp(&prob_a).unwrap()
+            });
+            beams.truncate(beam_width);
+        }
+
+        // Return best beam
+        if let Some((text, log_pb, log_pnb)) = beams.into_iter().next() {
+            let log_prob = self.log_add(log_pb, log_pnb);
+            let confidence = log_prob.exp().min(1.0);
+            (text, confidence)
+        } else {
+            (String::new(), 0.0)
+        }
+    }
+
+    /// Log-space addition: log(exp(a) + exp(b))
+    fn log_add(&self, a: f32, b: f32) -> f32 {
+        if a == f32::NEG_INFINITY {
+            return b;
+        }
+        if b == f32::NEG_INFINITY {
+            return a;
+        }
+        let max = a.max(b);
+        max + ((a - max).exp() + (b - max).exp()).ln()
     }
 
     /// Sort text regions by reading order (top-to-bottom, left-to-right)
@@ -387,14 +616,25 @@ impl OcrProvider for OcrEngine {
             });
         }
 
-        // Step 3: Recognize text in each region
+        // Step 3: Preprocess all regions for batch recognition
+        let recognition_inputs: Vec<Array4<f32>> = boxes
+            .iter()
+            .filter_map(|bbox| self.preprocess_for_recognition(image, bbox).ok())
+            .collect();
+
+        // Step 4: Batch recognize all text regions in a single forward pass
+        let recognition_results = self.recognize_text_batch(&recognition_inputs)?;
+
+        // Step 5: Build text regions from results
         let mut regions = Vec::with_capacity(boxes.len());
         let mut total_confidence = 0.0;
 
-        for (i, bbox) in boxes.iter().enumerate() {
-            let recognition_input = self.preprocess_for_recognition(image, bbox)?;
-            let (text, confidence) = self.recognize_text(recognition_input)?;
-
+        for (i, ((bbox, _input), (text, confidence))) in boxes
+            .iter()
+            .zip(recognition_inputs.iter())
+            .zip(recognition_results.into_iter())
+            .enumerate()
+        {
             if confidence >= self.config.confidence_threshold {
                 regions.push(TextRegion {
                     text,

@@ -16,6 +16,7 @@ fen-rules = { path = "../fen-rules" }
 axum.workspace = true
 tower.workspace = true
 tower-http.workspace = true
+governor.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

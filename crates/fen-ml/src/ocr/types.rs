@@ -20,6 +20,9 @@ pub struct OcrConfig {
 
     /// Enable GPU acceleration
     pub gpu_enabled: bool,
+
+    /// CTC decoder configuration
+    pub decoder_config: CtcDecoderConfig,
 }
 
 impl Default for OcrConfig {
@@ -31,8 +34,45 @@ impl Default for OcrConfig {
             confidence_threshold: 0.7,
             max_dimension: 2048,
             gpu_enabled: false,
+            decoder_config: CtcDecoderConfig::default(),
         }
     }
+}
+
+/// CTC decoder configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CtcDecoderConfig {
+    /// Decoding strategy
+    pub strategy: CtcDecodingStrategy,
+
+    /// Beam width for beam search (ignored for greedy)
+    pub beam_width: usize,
+
+    /// Blank token index (usually 0)
+    pub blank_index: usize,
+
+    /// Custom vocabulary (if None, uses default ASCII + common symbols)
+    pub vocabulary: Option<Vec<char>>,
+}
+
+impl Default for CtcDecoderConfig {
+    fn default() -> Self {
+        Self {
+            strategy: CtcDecodingStrategy::BeamSearch,
+            beam_width: 10,
+            blank_index: 0,
+            vocabulary: None,
+        }
+    }
+}
+
+/// CTC decoding strategy
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CtcDecodingStrategy {
+    /// Simple greedy decoding (fastest, less accurate)
+    Greedy,
+    /// Beam search decoding (slower, more accurate)
+    BeamSearch,
 }
 
 /// Supported languages for OCR
