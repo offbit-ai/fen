@@ -95,6 +95,24 @@ pub enum PipelineOp {
         include_scores: bool,
     },
 
+    /// Statistical baseline analysis for anomaly detection
+    ///
+    /// Example: `|> ANALYZE BASELINE vendor_name WINDOW 90 DAYS THRESHOLD 2.0`
+    AnalyzeBaseline {
+        /// Field to group baselines by (default: vendor_name)
+        #[serde(default = "default_baseline_field")]
+        group_by: String,
+        /// Rolling window in days (default: 90)
+        #[serde(default = "default_window_days")]
+        window_days: u32,
+        /// Z-score threshold for outlier detection (default: 2.0)
+        #[serde(default = "default_threshold")]
+        threshold: f64,
+        /// Metrics to analyze (default: ["total_amount"])
+        #[serde(default = "default_metrics")]
+        metrics: Vec<String>,
+    },
+
     /// Cross-validate invoices against contracts
     CrossValidate {
         /// Field pairs to compare (invoice_field, contract_field)
@@ -644,4 +662,21 @@ pub mod contract_columns {
             EMBEDDING,
         ]
     }
+}
+
+// Default functions for AnalyzeBaseline serde defaults
+fn default_baseline_field() -> String {
+    "vendor_name".to_string()
+}
+
+fn default_window_days() -> u32 {
+    90
+}
+
+fn default_threshold() -> f64 {
+    2.0
+}
+
+fn default_metrics() -> Vec<String> {
+    vec!["total_amount".to_string()]
 }

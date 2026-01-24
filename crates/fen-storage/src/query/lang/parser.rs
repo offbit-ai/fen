@@ -328,8 +328,13 @@ impl<'a> QueryParser<'a> {
         Ok(PipelineOp::Validate { rules, fail_fast })
     }
 
-    /// Parse ANALYZE [WITH [analyzers...]] [INCLUDE_SCORES]
+    /// Parse ANALYZE [BASELINE ...] or ANALYZE [WITH [analyzers...]] [INCLUDE_SCORES]
     fn parse_analyze_op(&mut self) -> Result<PipelineOp, ParseError> {
+        // Check for ANALYZE BASELINE syntax
+        if self.check(&TokenKind::Baseline) {
+            return self.parse_analyze_baseline_op();
+        }
+
         let mut analyzers = None;
         let mut include_scores = false;
 
@@ -352,6 +357,55 @@ impl<'a> QueryParser<'a> {
         Ok(PipelineOp::Analyze {
             analyzers,
             include_scores,
+        })
+    }
+
+    /// Parse ANALYZE BASELINE [group_by] [WINDOW n DAYS] [THRESHOLD f] [METRICS [...]]
+    /// Example: |> ANALYZE BASELINE vendor_name WINDOW 90 DAYS THRESHOLD 2.0 METRICS ['total_amount']
+    fn parse_analyze_baseline_op(&mut self) -> Result<PipelineOp, ParseError> {
+        self.expect_keyword(TokenKind::Baseline)?;
+
+        // Parse optional group_by field (defaults to "vendor_name")
+        let group_by = if self.check_ident() && !self.check(&TokenKind::Window)
+            && !self.check(&TokenKind::Threshold) && !self.check(&TokenKind::Metrics) {
+            let name = self.parse_identifier()?;
+            name
+        } else {
+            "vendor_name".to_string()
+        };
+
+        // Parse optional WINDOW n DAYS (defaults to 90)
+        let window_days = if self.check(&TokenKind::Window) {
+            self.advance();
+            let days = self.parse_integer()? as u32;
+            // Expect DAYS keyword
+            self.expect_keyword(TokenKind::Days)?;
+            days
+        } else {
+            90
+        };
+
+        // Parse optional THRESHOLD f (defaults to 2.0)
+        let threshold = if self.check(&TokenKind::Threshold) {
+            self.advance();
+            self.parse_number()?
+        } else {
+            2.0
+        };
+
+        // Parse optional METRICS [...]
+        let metrics = if self.check(&TokenKind::Metrics) {
+            self.advance();
+            self.parse_string_list()?
+        } else {
+            vec!["total_amount".to_string()]
+        };
+
+        Ok(PipelineOp::AnalyzeBaseline {
+            group_by,
+            window_days,
+            threshold,
+            metrics,
         })
     }
 
@@ -955,6 +1009,32 @@ impl<'a> QueryParser<'a> {
                 Err(self.error(
                     ParseErrorKind::UnexpectedToken {
                         expected: vec!["positive integer".to_string()],
+                        found: token.kind.as_str().to_string(),
+                    },
+                    span,
+                ))
+            }
+        }
+    }
+
+    fn parse_number(&mut self) -> Result<f64, ParseError> {
+        let token = self.current();
+        match &token.kind {
+            TokenKind::Float(f) => {
+                let f = *f;
+                self.advance();
+                Ok(f)
+            }
+            TokenKind::Integer(i) => {
+                let f = *i as f64;
+                self.advance();
+                Ok(f)
+            }
+            _ => {
+                let span = token.span;
+                Err(self.error(
+                    ParseErrorKind::UnexpectedToken {
+                        expected: vec!["number".to_string()],
                         found: token.kind.as_str().to_string(),
                     },
                     span,

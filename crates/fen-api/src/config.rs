@@ -21,6 +21,87 @@ pub struct AppConfig {
 
     /// Rate limit: burst size
     pub rate_limit_burst: u32,
+
+    /// Statistical anomaly detection configuration
+    pub statistical: StatisticalConfig,
+}
+
+/// Configuration for statistical anomaly detection
+#[derive(Debug, Clone)]
+pub struct StatisticalConfig {
+    /// Enable statistical analysis
+    pub enabled: bool,
+    /// Enable during document ingestion (POST /documents)
+    pub on_ingest: bool,
+    /// Enable during validation (POST /validate)
+    pub on_validate: bool,
+    /// Default z-score threshold for outlier detection
+    pub threshold: f64,
+    /// Metrics to analyze
+    pub metrics: Vec<String>,
+    /// Rolling window in days for baseline computation
+    pub window_days: u32,
+    /// Enable seasonal baseline awareness (month-of-year patterns)
+    pub seasonal: bool,
+}
+
+impl Default for StatisticalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            on_ingest: false,   // Disabled by default on ingest (performance)
+            on_validate: true,  // Enabled on explicit validation
+            threshold: 2.0,
+            metrics: vec!["total_amount".to_string()],
+            window_days: 90,
+            seasonal: true,
+        }
+    }
+}
+
+impl StatisticalConfig {
+    /// Load statistical configuration from environment variables
+    pub fn from_env() -> Self {
+        let enabled = env::var("STATISTICAL_ENABLED")
+            .map(|s| s.to_lowercase() == "true" || s == "1")
+            .unwrap_or(true);
+
+        let on_ingest = env::var("STATISTICAL_ON_INGEST")
+            .map(|s| s.to_lowercase() == "true" || s == "1")
+            .unwrap_or(false);
+
+        let on_validate = env::var("STATISTICAL_ON_VALIDATE")
+            .map(|s| s.to_lowercase() == "true" || s == "1")
+            .unwrap_or(true);
+
+        let threshold = env::var("STATISTICAL_THRESHOLD")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(2.0);
+
+        let metrics = env::var("STATISTICAL_METRICS")
+            .map(|s| s.split(',').map(|m| m.trim().to_string()).collect())
+            .unwrap_or_else(|_| vec!["total_amount".to_string()]);
+
+        let window_days = env::var("STATISTICAL_WINDOW_DAYS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(90);
+
+        let seasonal = env::var("STATISTICAL_SEASONAL")
+            .map(|s| s.to_lowercase() == "true" || s == "1")
+            .unwrap_or(true);
+
+        Self {
+            enabled,
+            on_ingest,
+            on_validate,
+            threshold,
+            metrics,
+            window_days,
+            seasonal,
+        }
+    }
 }
 
 impl AppConfig {
@@ -42,6 +123,7 @@ impl AppConfig {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(200), // 200 burst capacity default
+            statistical: StatisticalConfig::from_env(),
         }
     }
 }

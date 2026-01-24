@@ -1,5 +1,7 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::baseline::StatisticalScore;
 use super::ids::DocumentId;
 
 /// Types of anomalies that can be detected
@@ -21,6 +23,8 @@ pub enum AnomalyType {
     ContractViolation,
     /// Generic validation failure
     ValidationFailure,
+    /// Statistical outlier - value significantly deviates from historical baseline
+    StatisticalOutlier,
 }
 
 impl std::fmt::Display for AnomalyType {
@@ -34,6 +38,7 @@ impl std::fmt::Display for AnomalyType {
             AnomalyType::DateInconsistency => write!(f, "Date Inconsistency"),
             AnomalyType::ContractViolation => write!(f, "Contract Violation"),
             AnomalyType::ValidationFailure => write!(f, "Validation Failure"),
+            AnomalyType::StatisticalOutlier => write!(f, "Statistical Outlier"),
         }
     }
 }
@@ -60,7 +65,7 @@ impl std::fmt::Display for Severity {
 }
 
 /// A detected anomaly
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Anomaly {
     pub document_id: DocumentId,
     pub anomaly_type: AnomalyType,
@@ -70,6 +75,12 @@ pub struct Anomaly {
     pub expected_value: Option<String>,
     pub actual_value: Option<String>,
     pub confidence: f32,
+    /// Statistical analysis score (for StatisticalOutlier anomalies)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statistical_score: Option<StatisticalScore>,
+    /// When this anomaly was detected
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detected_at: Option<DateTime<Utc>>,
 }
 
 impl Anomaly {
@@ -89,6 +100,8 @@ impl Anomaly {
             expected_value: None,
             actual_value: None,
             confidence: 1.0,
+            statistical_score: None,
+            detected_at: None,
         }
     }
 
@@ -106,6 +119,24 @@ impl Anomaly {
     ) -> Self {
         self.expected_value = Some(expected.into());
         self.actual_value = Some(actual.into());
+        self
+    }
+
+    /// Set statistical score (for StatisticalOutlier anomalies)
+    pub fn with_statistical_score(mut self, score: StatisticalScore) -> Self {
+        self.statistical_score = Some(score);
+        self
+    }
+
+    /// Set detection timestamp
+    pub fn with_detected_at(mut self, detected_at: DateTime<Utc>) -> Self {
+        self.detected_at = Some(detected_at);
+        self
+    }
+
+    /// Set confidence level (0.0 to 1.0)
+    pub fn with_confidence(mut self, confidence: f32) -> Self {
+        self.confidence = confidence;
         self
     }
 }

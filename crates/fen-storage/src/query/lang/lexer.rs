@@ -81,6 +81,12 @@ pub enum TokenKind<'a> {
     CrossValidate,
     Aggregate,
     With,
+    // Statistical baseline keywords
+    Baseline,
+    Window,
+    Days,
+    Threshold,
+    Metrics,
 
     // Identifiers and literals
     Ident(&'a str),
@@ -149,6 +155,11 @@ impl<'a> TokenKind<'a> {
                 | TokenKind::CrossValidate
                 | TokenKind::Aggregate
                 | TokenKind::With
+                | TokenKind::Baseline
+                | TokenKind::Window
+                | TokenKind::Days
+                | TokenKind::Threshold
+                | TokenKind::Metrics
         )
     }
 
@@ -188,6 +199,11 @@ impl<'a> TokenKind<'a> {
             TokenKind::CrossValidate => "CROSS_VALIDATE",
             TokenKind::Aggregate => "AGGREGATE",
             TokenKind::With => "WITH",
+            TokenKind::Baseline => "BASELINE",
+            TokenKind::Window => "WINDOW",
+            TokenKind::Days => "DAYS",
+            TokenKind::Threshold => "THRESHOLD",
+            TokenKind::Metrics => "METRICS",
             TokenKind::Ident(s) => s,
             TokenKind::String(_) => "<string>",
             TokenKind::Integer(_) => "<integer>",
@@ -349,6 +365,12 @@ fn keyword_or_ident(input: Input) -> IResult<Input, Token> {
             "CROSS_VALIDATE" => TokenKind::CrossValidate,
             "AGGREGATE" => TokenKind::Aggregate,
             "WITH" => TokenKind::With,
+            // Statistical baseline keywords
+            "BASELINE" => TokenKind::Baseline,
+            "WINDOW" => TokenKind::Window,
+            "DAYS" => TokenKind::Days,
+            "THRESHOLD" => TokenKind::Threshold,
+            "METRICS" => TokenKind::Metrics,
             _ => TokenKind::Ident(ident_str),
         };
         (input, kind)

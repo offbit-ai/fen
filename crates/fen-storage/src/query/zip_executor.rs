@@ -1359,6 +1359,8 @@ impl ZipExecutor {
                                     expected_value: Some(line_total.to_string()),
                                     actual_value: Some(invoice_total.to_string()),
                                     confidence: 1.0,
+                                    statistical_score: None,
+                                    detected_at: None,
                                 });
                             }
                         }
@@ -1378,6 +1380,8 @@ impl ZipExecutor {
                                         expected_value: Some(format!(">= {}", invoice.invoice_date)),
                                         actual_value: Some(due_date.to_string()),
                                         confidence: 1.0,
+                                        statistical_score: None,
+                                        detected_at: None,
                                     });
                                 }
                             }
@@ -1401,6 +1405,8 @@ impl ZipExecutor {
                                     expected_value: Some("non-empty".to_string()),
                                     actual_value: Some("empty".to_string()),
                                     confidence: 1.0,
+                                    statistical_score: None,
+                                    detected_at: None,
                                 });
                             }
                         }

@@ -1,18 +1,22 @@
 use std::path::Path;
 use std::time::Instant;
 
-use fen_core::domain::{Anomaly, AnomalyType, Invoice, Severity, ValidationResult};
+use fen_core::domain::{Anomaly, AnomalyType, Invoice, Severity, ValidationResult, VendorBaseline};
 
 use crate::error::RuleError;
+use crate::statistical::{StatisticalAnalyzer, StatisticalAnalyzerConfig};
 use crate::structural::StructuralValidator;
 use crate::zen::ZenEngineHandle;
 
 /// Rule engine for invoice validation
 /// Combines built-in structural validations with GoRules Zen for custom rules
+/// and optional statistical anomaly detection
 pub struct RuleEngine {
     structural_validator: StructuralValidator,
     /// Optional Zen engine for custom JDM rules
     zen_engine: Option<ZenEngineHandle>,
+    /// Optional statistical analyzer for baseline-based detection
+    statistical_analyzer: Option<StatisticalAnalyzer>,
 }
 
 impl RuleEngine {
@@ -45,6 +49,7 @@ impl RuleEngine {
         Ok(Self {
             structural_validator: StructuralValidator::new(),
             zen_engine,
+            statistical_analyzer: None,
         })
     }
 
@@ -53,7 +58,25 @@ impl RuleEngine {
         Self {
             structural_validator: StructuralValidator::new(),
             zen_engine: None,
+            statistical_analyzer: None,
         }
+    }
+
+    /// Enable statistical analysis with default configuration
+    pub fn with_statistical_analysis(mut self) -> Self {
+        self.statistical_analyzer = Some(StatisticalAnalyzer::new());
+        self
+    }
+
+    /// Enable statistical analysis with custom configuration
+    pub fn with_statistical_config(mut self, config: StatisticalAnalyzerConfig) -> Self {
+        self.statistical_analyzer = Some(StatisticalAnalyzer::with_config(config));
+        self
+    }
+
+    /// Check if statistical analysis is enabled
+    pub fn has_statistical_analysis(&self) -> bool {
+        self.statistical_analyzer.is_some()
     }
 
     /// Check if custom GoRules are loaded
@@ -63,10 +86,34 @@ impl RuleEngine {
 
     /// Validate an invoice using structural validations and optional custom rules
     pub async fn validate_invoice(&self, invoice: &Invoice) -> Result<ValidationResult, RuleError> {
+        self.validate_invoice_with_baselines(invoice, &[]).await
+    }
+
+    /// Validate an invoice with statistical analysis using provided baselines
+    pub async fn validate_invoice_with_baselines(
+        &self,
+        invoice: &Invoice,
+        baselines: &[VendorBaseline],
+    ) -> Result<ValidationResult, RuleError> {
         let start = Instant::now();
 
         // Run structural validations
         let mut anomalies = self.structural_validator.validate_invoice(invoice);
+
+        // Run statistical analysis if enabled and baselines provided
+        if let Some(analyzer) = &self.statistical_analyzer {
+            if !baselines.is_empty() {
+                let statistical_anomalies = analyzer.analyze_for_anomalies(invoice, baselines);
+                if !statistical_anomalies.is_empty() {
+                    tracing::debug!(
+                        invoice_id = %invoice.id,
+                        outlier_count = statistical_anomalies.len(),
+                        "Statistical outliers detected"
+                    );
+                }
+                anomalies.extend(statistical_anomalies);
+            }
+        }
 
         // Run custom rules if available
         if let Some(zen) = &self.zen_engine {
@@ -85,10 +132,16 @@ impl RuleEngine {
             anomaly_count = result.anomalies.len(),
             time_ms = validation_time_ms,
             has_custom_rules = self.has_custom_rules(),
+            has_statistical = self.has_statistical_analysis(),
             "Validation completed"
         );
 
         Ok(result)
+    }
+
+    /// Get the statistical analyzer (if enabled)
+    pub fn statistical_analyzer(&self) -> Option<&StatisticalAnalyzer> {
+        self.statistical_analyzer.as_ref()
     }
 
     /// Run custom GoRules validations
@@ -150,7 +203,8 @@ impl RuleEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
+    use chrono::{NaiveDate, Utc};
+    use fen_core::domain::{BaselineId, BaselinePeriod, BaselineStats};
     use rust_decimal::Decimal;
 
     #[tokio::test]
@@ -172,5 +226,112 @@ mod tests {
     async fn test_no_custom_rules_by_default() {
         let engine = RuleEngine::builtin_only();
         assert!(!engine.has_custom_rules());
+    }
+
+    #[tokio::test]
+    async fn test_statistical_analysis_enabled() {
+        let engine = RuleEngine::builtin_only().with_statistical_analysis();
+        assert!(engine.has_statistical_analysis());
+    }
+
+    #[tokio::test]
+    async fn test_statistical_outlier_detection() {
+        let engine = RuleEngine::builtin_only().with_statistical_analysis();
+
+        let mut invoice = Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        invoice.subtotal = Decimal::new(5000, 0); // $5000 - an outlier
+        invoice.total_amount = Decimal::new(5000, 0);
+        invoice.confidence_score = 0.9;
+
+        // Create baseline with mean $1000, stddev $100
+        let baseline = VendorBaseline {
+            id: BaselineId::new(),
+            vendor_name: invoice.vendor.name.clone(),
+            metric_name: "total_amount".to_string(),
+            period: BaselinePeriod::Rolling90Days,
+            stats: BaselineStats {
+                count: 50,
+                mean: 1000.0,
+                stddev: 100.0,
+                min: 700.0,
+                max: 1300.0,
+                p25: 933.0,
+                p50: 1000.0,
+                p75: 1067.0,
+                p90: 1128.0,
+                p95: 1165.0,
+                p99: 1233.0,
+            },
+            recent_values: vec![950.0, 1000.0, 1050.0],
+            computed_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::hours(24),
+        };
+
+        let result = engine
+            .validate_invoice_with_baselines(&invoice, &[baseline])
+            .await
+            .unwrap();
+
+        // Should have statistical outlier anomaly
+        let statistical_anomalies: Vec<_> = result
+            .anomalies
+            .iter()
+            .filter(|a| a.anomaly_type == AnomalyType::StatisticalOutlier)
+            .collect();
+
+        assert_eq!(statistical_anomalies.len(), 1);
+        let anomaly = statistical_anomalies[0];
+        assert!(anomaly.statistical_score.is_some());
+
+        let score = anomaly.statistical_score.as_ref().unwrap();
+        assert!(score.is_outlier);
+        assert!(score.z_score > 2.0); // Should be ~40 stddev above mean
+    }
+
+    #[tokio::test]
+    async fn test_statistical_normal_value() {
+        let engine = RuleEngine::builtin_only().with_statistical_analysis();
+
+        let mut invoice = Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        invoice.subtotal = Decimal::new(1050, 0); // $1050 - within normal range
+        invoice.total_amount = Decimal::new(1050, 0);
+        invoice.confidence_score = 0.9;
+
+        let baseline = VendorBaseline {
+            id: BaselineId::new(),
+            vendor_name: invoice.vendor.name.clone(),
+            metric_name: "total_amount".to_string(),
+            period: BaselinePeriod::Rolling90Days,
+            stats: BaselineStats {
+                count: 50,
+                mean: 1000.0,
+                stddev: 100.0,
+                min: 700.0,
+                max: 1300.0,
+                p25: 933.0,
+                p50: 1000.0,
+                p75: 1067.0,
+                p90: 1128.0,
+                p95: 1165.0,
+                p99: 1233.0,
+            },
+            recent_values: vec![950.0, 1000.0, 1050.0],
+            computed_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::hours(24),
+        };
+
+        let result = engine
+            .validate_invoice_with_baselines(&invoice, &[baseline])
+            .await
+            .unwrap();
+
+        // Should NOT have statistical outlier anomaly
+        let statistical_anomalies: Vec<_> = result
+            .anomalies
+            .iter()
+            .filter(|a| a.anomaly_type == AnomalyType::StatisticalOutlier)
+            .collect();
+
+        assert!(statistical_anomalies.is_empty());
     }
 }

@@ -13,7 +13,7 @@ pub use config::{HotStorageBackend, WarmStorageBackend};
 pub use config::S3Config;
 pub use error::StorageError;
 pub use fulltext::{FullTextConfig, FullTextIndex, SearchResult as FullTextSearchResult};
-pub use hot::RedbStorage;
+pub use hot::{AnomalyRecord, AnomalyStore, BaselineStore, CacheStats, RedbStorage};
 pub use location::{DocumentLocationIndex, TierDistribution};
 pub use query::{
     parse_query, ColumnValue, ExecutionResult, ExecutorConfig, FenQuery, ParseError, ParseErrorKind,
