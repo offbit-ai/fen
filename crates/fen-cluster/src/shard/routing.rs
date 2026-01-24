@@ -247,7 +247,6 @@ impl RoutingTableManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fen_core::domain::DocumentType;
 
     #[test]
     fn test_routing_table_add_remove_node() {
@@ -255,7 +254,7 @@ mod tests {
 
         let node_id = NodeId::new();
         let assignment = NodeAssignment {
-            node_id: node_id.clone(),
+            node_id,
             primary_shards: vec![ShardId(0), ShardId(1), ShardId(2)],
             replica_shards: vec![ShardId(5), ShardId(6)],
             address: "localhost:9000".to_string(),
@@ -280,7 +279,7 @@ mod tests {
 
         let node_id = NodeId::new();
         let assignment = NodeAssignment {
-            node_id: node_id.clone(),
+            node_id,
             primary_shards: vec![ShardId(0)],
             replica_shards: vec![],
             address: "localhost:9000".to_string(),
@@ -316,7 +315,7 @@ mod tests {
 
         let node_id = NodeId::new();
         let assignment = NodeAssignment {
-            node_id: node_id.clone(),
+            node_id,
             primary_shards: vec![ShardId(0)],
             replica_shards: vec![],
             address: "localhost:9000".to_string(),

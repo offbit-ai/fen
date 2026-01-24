@@ -227,7 +227,7 @@ mod tests {
         let cache = QueryCache::new(100);
 
         let invoice = Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
-        let id = invoice.id.clone();
+        let id = invoice.id;
 
         // Not in cache
         assert!(cache.get_invoice(&id).is_none());
@@ -246,7 +246,7 @@ mod tests {
         let cache = QueryCache::new(100);
 
         let invoice = Invoice::new("INV-002", NaiveDate::from_ymd_opt(2024, 1, 20).unwrap());
-        let id = invoice.id.clone();
+        let id = invoice.id;
 
         cache.put_invoice(invoice);
         assert!(cache.get_invoice(&id).is_some());
@@ -260,7 +260,7 @@ mod tests {
         let cache = QueryCache::new(100);
 
         let invoice = Invoice::new("INV-003", NaiveDate::from_ymd_opt(2024, 1, 25).unwrap());
-        let id = invoice.id.clone();
+        let id = invoice.id;
 
         // Miss
         cache.get_invoice(&id);
@@ -277,7 +277,7 @@ mod tests {
         let cache = QueryCache::with_ttl(100, 0); // Immediate expiry
 
         let invoice = Invoice::new("INV-004", NaiveDate::from_ymd_opt(2024, 1, 30).unwrap());
-        let id = invoice.id.clone();
+        let id = invoice.id;
 
         cache.put_invoice(invoice);
 

@@ -252,7 +252,7 @@ fn format_metric_name(metric: &str) -> String {
 mod tests {
     use super::*;
     use chrono::NaiveDate;
-    use fen_core::domain::{BaselineId, BaselinePeriod, TrendIndicator};
+    use fen_core::domain::{BaselineId, BaselinePeriod};
     use rust_decimal::Decimal;
 
     fn create_test_invoice(total: f64) -> Invoice {

@@ -605,11 +605,8 @@ mod tests {
     #[tokio::test]
     async fn test_handler_store_document() {
         let node_id = NodeId::new();
-        let handler = DataNodeHandler::new(
-            node_id.clone(),
-            vec![ShardId(0), ShardId(1)],
-            PathBuf::from("/tmp"),
-        );
+        let handler =
+            DataNodeHandler::new(node_id, vec![ShardId(0), ShardId(1)], PathBuf::from("/tmp"));
 
         let request = StoreDocumentRequest {
             document_id: Some(fen_grpc::proto::DocumentId {

@@ -432,7 +432,7 @@ mod tests {
     #[async_trait]
     impl LocalShardHandle for MockLocalShard {
         fn shard_id(&self) -> ShardId {
-            self.shard_id.clone()
+            self.shard_id
         }
 
         fn is_ready(&self) -> bool {

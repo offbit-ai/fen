@@ -477,7 +477,7 @@ mod tests {
         let node_id = NodeId::new();
         let shards = state
             .register_node(
-                node_id.clone(),
+                node_id,
                 "localhost".to_string(),
                 9000,
                 vec![ShardId(0), ShardId(1)],

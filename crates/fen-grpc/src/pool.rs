@@ -189,7 +189,7 @@ mod tests {
         let pool = ConnectionPool::with_defaults();
         let node_id = NodeId::new();
 
-        pool.register_node(node_id.clone(), "http://localhost:9000".to_string());
+        pool.register_node(node_id, "http://localhost:9000".to_string());
 
         assert_eq!(pool.node_count(), 1);
         assert!(pool.list_nodes().contains(&node_id));
@@ -200,7 +200,7 @@ mod tests {
         let pool = ConnectionPool::with_defaults();
         let node_id = NodeId::new();
 
-        pool.register_node(node_id.clone(), "http://localhost:9000".to_string());
+        pool.register_node(node_id, "http://localhost:9000".to_string());
         pool.unregister_node(&node_id);
 
         assert_eq!(pool.node_count(), 0);

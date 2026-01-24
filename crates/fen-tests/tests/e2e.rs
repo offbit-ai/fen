@@ -535,7 +535,6 @@ mod query {
         let result = env.query_engine.get_invoice(&invoice.id).await.unwrap();
 
         // Should have query metrics
-        assert!(result.metrics.query_time_ms >= 0);
         assert_eq!(result.metrics.rows_returned, 1);
         assert_eq!(result.metrics.tier_used, Some(StorageTier::Hot));
     }
@@ -657,7 +656,7 @@ mod full_pipeline {
         // 1. Ingest document
         let text = sample_invoice_text();
         let invoice = env.pipeline.ingest_text(text).await.unwrap();
-        let invoice_id = invoice.id.clone();
+        let invoice_id = invoice.id;
 
         tracing::info!(invoice_id = %invoice_id, "Ingested invoice");
 
@@ -944,7 +943,7 @@ mod anomaly_scenarios {
                 .any(|a| a.anomaly_type == AnomalyType::MathMismatch
                     && a.field_path
                         .as_ref()
-                        .map_or(false, |f| f.contains("line_item"))),
+                        .is_some_and(|f| f.contains("line_item"))),
             "Expected line item math mismatch, found: {:?}",
             result.anomalies
         );
@@ -1050,7 +1049,6 @@ mod anomaly_scenarios {
 // ============================================================================
 
 mod unified_query {
-    use super::*;
     use fen_storage::{parse_query, QueryParams};
 
     /// Test basic SELECT query parsing
@@ -1802,7 +1800,6 @@ mod zip_queries {
         assert_eq!(result.metadata.pair_count, 1);
         assert_eq!(result.metadata.invoice_count, 1);
         assert_eq!(result.metadata.contract_count, 1);
-        assert!(result.metadata.execution_time_ms >= 0);
         assert_eq!(result.metadata.zip_mode, "Inner");
     }
 
@@ -1837,7 +1834,7 @@ mod zip_queries {
 
 mod query_execution {
     use super::*;
-    use fen_storage::{parse_query, DocumentStore, QueryParams};
+    use fen_storage::{parse_query, QueryParams};
     use fen_tests::QueryExecutorTestEnv;
     use rust_decimal_macros::dec;
 
@@ -1985,7 +1982,7 @@ mod query_execution {
         // Store 5 invoices
         for i in 1..=5 {
             let inv = InvoiceFixture::new()
-                .with_number(&format!("LIM-{:03}", i))
+                .with_number(format!("LIM-{:03}", i))
                 .build();
             env.store_invoice(&inv).await.unwrap();
         }
@@ -2301,7 +2298,6 @@ mod query_execution {
         let result = env.executor.execute(&query, &params).await.unwrap();
 
         // Execution time should be tracked
-        assert!(result.metadata.execution_time_ms >= 0);
         assert_eq!(result.metadata.rows_returned, result.rows.len());
     }
 }

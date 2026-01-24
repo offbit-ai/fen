@@ -71,7 +71,7 @@ mod tests {
         // Add some nodes to the routing table
         let node1 = NodeId::new();
         let assignment = NodeAssignment {
-            node_id: node1.clone(),
+            node_id: node1,
             primary_shards: vec![ShardId(0), ShardId(1), ShardId(2)],
             replica_shards: vec![],
             address: "localhost:9000".to_string(),
@@ -99,7 +99,7 @@ mod tests {
         #[async_trait]
         impl TransactionParticipant for MockParticipant {
             fn shard_id(&self) -> ShardId {
-                self.shard_id.clone()
+                self.shard_id
             }
 
             async fn prepare(&self, _tx_id: &TransactionId) -> Result<(), TransactionError> {

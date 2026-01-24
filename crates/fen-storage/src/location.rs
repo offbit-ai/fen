@@ -197,7 +197,7 @@ mod tests {
         let index = DocumentLocationIndex::new();
         let invoice = Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
 
-        index.register_invoice(invoice.id.clone(), StorageTier::Hot);
+        index.register_invoice(invoice.id, StorageTier::Hot);
 
         assert_eq!(index.get_invoice_tier(&invoice.id), Some(StorageTier::Hot));
         assert!(index.contains_invoice(&invoice.id));
@@ -208,7 +208,7 @@ mod tests {
         let index = DocumentLocationIndex::new();
         let invoice = Invoice::new("INV-002", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
 
-        index.register_invoice(invoice.id.clone(), StorageTier::Hot);
+        index.register_invoice(invoice.id, StorageTier::Hot);
         assert_eq!(index.get_invoice_tier(&invoice.id), Some(StorageTier::Hot));
 
         let old_tier = index.move_invoice(&invoice.id, StorageTier::Warm);
@@ -240,14 +240,14 @@ mod tests {
 
         for i in 0..5 {
             let inv = Invoice::new(
-                &format!("HOT-{}", i),
+                format!("HOT-{}", i),
                 NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             );
             index.register_invoice(inv.id, StorageTier::Hot);
         }
         for i in 0..3 {
             let inv = Invoice::new(
-                &format!("WARM-{}", i),
+                format!("WARM-{}", i),
                 NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
             );
             index.register_invoice(inv.id, StorageTier::Warm);
@@ -265,7 +265,7 @@ mod tests {
         let index = DocumentLocationIndex::new();
         let invoice = Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
 
-        index.register_invoice(invoice.id.clone(), StorageTier::Hot);
+        index.register_invoice(invoice.id, StorageTier::Hot);
         assert_eq!(index.count_invoices(), 1);
 
         let removed_tier = index.remove_invoice(&invoice.id);

@@ -512,7 +512,10 @@ mod tests {
 
         assert_eq!(tokens.len(), 4);
         assert!(matches!(tokens[0].kind, TokenKind::Integer(42)));
-        assert!(matches!(tokens[1].kind, TokenKind::Float(f) if (f - 3.14).abs() < 0.001));
+        #[allow(clippy::approx_constant)]
+        {
+            assert!(matches!(tokens[1].kind, TokenKind::Float(f) if (f - 3.14).abs() < 0.001));
+        }
         assert!(matches!(tokens[2].kind, TokenKind::Integer(-5)));
     }
 

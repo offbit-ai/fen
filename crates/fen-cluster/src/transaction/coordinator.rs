@@ -718,7 +718,7 @@ mod tests {
     #[async_trait]
     impl TransactionParticipant for MockParticipant {
         fn shard_id(&self) -> ShardId {
-            self.shard_id.clone()
+            self.shard_id
         }
 
         async fn prepare(&self, _tx_id: &TransactionId) -> Result<(), TransactionError> {
@@ -726,7 +726,7 @@ mod tests {
                 Ok(())
             } else {
                 Err(TransactionError::ParticipantAbort {
-                    shard_id: self.shard_id.clone(),
+                    shard_id: self.shard_id,
                     reason: "Test abort".to_string(),
                 })
             }
