@@ -1,5 +1,8 @@
 # Fen
 
+[![CI](https://github.com/offbit-ai/fen/actions/workflows/ci.yml/badge.svg)](https://github.com/offbit-ai/fen/actions/workflows/ci.yml)
+[![Crates](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml)
+
 Real-time invoice and contract inconsistency detection system built in Rust.
 
 Fen automatically ingests, parses, and analyzes invoices and contracts at scale while detecting structural and semantic inconsistencies with sub-millisecond query times. The system combines modern document understanding models with a tiered storage architecture and multi-layer anomaly detection pipeline.
@@ -105,18 +108,20 @@ Fen automatically ingests, parses, and analyzes invoices and contracts at scale 
 
 ## Crates
 
-| Crate | Description |
-|-------|-------------|
-| `fen-core` | Domain models (Invoice, Contract, Party, Anomaly) with serde serialization |
-| `fen-storage` | Hot tier (redb), warm tier (LanceDB), query engine, cache |
-| `fen-ingestion` | PDF text extraction (pdfium), regex + ML-based invoice parsing |
-| `fen-ml` | Document intelligence: LayoutLMv3, embeddings, OCR, table extraction |
-| `fen-rules` | GoRules Zen engine + structural validations |
-| `fen-api` | REST endpoints (axum) for document upload, query, and validation |
-| `fen-events` | Event streaming with Kafka support and protobuf schemas |
-| `fen-notify` | Real-time notification delivery (WebSocket, Email, Webhook) |
-| `fen-cluster` | Shard management, routing, and 2PC transaction coordination |
-| `fen-grpc` | Inter-node gRPC communication for distributed deployment |
+| Crate | Status | Description |
+|-------|--------|-------------|
+| `fen-core` | [![fen-core](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-core)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Domain models (Invoice, Contract, Party, Anomaly) with serde serialization |
+| `fen-storage` | [![fen-storage](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-storage)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Hot tier (redb), warm tier (LanceDB), query engine, cache |
+| `fen-ingestion` | [![fen-ingestion](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-ingestion)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | PDF text extraction (pdfium), regex + ML-based invoice parsing |
+| `fen-ml` | [![fen-ml](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-ml)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Document intelligence: LayoutLMv3, embeddings, OCR, table extraction |
+| `fen-rules` | [![fen-rules](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-rules)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | GoRules Zen engine + structural validations |
+| `fen-api` | [![fen-api](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-api)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | REST endpoints (axum) for document upload, query, and validation |
+| `fen-events` | [![fen-events](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-events)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Event streaming with Kafka support and protobuf schemas |
+| `fen-notify` | [![fen-notify](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-notify)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Real-time notification delivery (WebSocket, Email, Webhook) |
+| `fen-cluster` | [![fen-cluster](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-cluster)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Shard management, routing, and 2PC transaction coordination |
+| `fen-grpc` | [![fen-grpc](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-grpc)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Inter-node gRPC communication for distributed deployment |
+| `fen-coordinator` | [![fen-coordinator](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-coordinator)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Control plane binary for cluster coordination |
+| `fen-data` | [![fen-data](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-data)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Data node binary for shard hosting |
 
 ## Distributed Architecture
 
