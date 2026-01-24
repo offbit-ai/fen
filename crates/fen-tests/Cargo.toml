@@ -1,0 +1,42 @@
+[package]
+name = "fen-tests"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# This crate contains integration tests only
+[[test]]
+name = "e2e"
+path = "tests/e2e.rs"
+
+[dependencies]
+# All fen crates
+fen-core = { path = "../fen-core" }
+fen-storage = { path = "../fen-storage" }
+fen-ingestion = { path = "../fen-ingestion" }
+fen-rules = { path = "../fen-rules" }
+
+# Async runtime
+tokio.workspace = true
+async-trait.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Utilities
+uuid.workspace = true
+chrono.workspace = true
+rust_decimal.workspace = true
+rust_decimal_macros.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+futures.workspace = true
+tempfile = "3.10"
+
+[dev-dependencies]
+tokio-test.workspace = true
+
+[lints]
+workspace = true

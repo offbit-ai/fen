@@ -7,6 +7,7 @@ members = [
     "crates/fen-rules",
     "crates/fen-ml",
     "crates/fen-api",
+    "crates/fen-tests",
 ]
 
 [workspace.package]
@@ -68,6 +69,7 @@ anyhow = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1.36", features = ["serde"] }
+rust_decimal_macros = "1.36"
 bytes = "1.0"
 mime = "0.3"
 futures = "0.3"

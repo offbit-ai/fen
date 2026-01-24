@@ -13,7 +13,7 @@ pub use config::S3Config;
 pub use error::StorageError;
 pub use hot::RedbStorage;
 pub use location::{DocumentLocationIndex, TierDistribution};
-pub use query::{QueryCache, QueryEngine, QueryResult};
+pub use query::{QueryCache, QueryEngine, QueryEngineConfig, QueryResult};
 pub use tiered::{TieredStorage, TieredStorageConfig};
 pub use traits::{DocumentStore, InvoiceFilter, QueryMetrics, StorageTier, VectorSearchResult, VectorStore};
 pub use warm::LanceStorage;
