@@ -3,7 +3,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use rust_decimal::Decimal;
 
-use fen_core::domain::{Currency, DocumentId, Invoice, InvoiceId, LineItem, Party};
+use fen_core::domain::{Currency, DocumentId, Invoice, InvoiceId, LineItem, Party, TenantId};
 use fen_core::ValidationStatus;
 
 use crate::error::IngestionError;
@@ -73,6 +73,7 @@ impl InvoiceParser {
         Ok(Invoice {
             id: InvoiceId::new(),
             document_id,
+            tenant_id: TenantId::system(),
             invoice_number,
             invoice_date,
             due_date: None,

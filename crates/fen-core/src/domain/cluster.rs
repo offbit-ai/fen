@@ -22,9 +22,20 @@ impl TenantId {
         Ok(Self(Uuid::parse_str(s)?))
     }
 
+    /// Create a default/system tenant ID (nil UUID).
+    /// Used for system-level operations or when tenant is not applicable.
+    pub const fn system() -> Self {
+        Self(Uuid::nil())
+    }
+
     /// Get the bytes of the tenant ID for hashing.
     pub fn as_bytes(&self) -> &[u8] {
         self.0.as_bytes()
+    }
+
+    /// Check if this is the system tenant.
+    pub fn is_system(&self) -> bool {
+        self.0.is_nil()
     }
 }
 

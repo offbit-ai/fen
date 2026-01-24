@@ -10,7 +10,7 @@ use rust_decimal_macros::dec;
 use fen_core::domain::{
     party::{Address, Contact},
     ClauseType, Contract, ContractClause, ContractType, Currency, DocumentId, Invoice, InvoiceId,
-    LineItem, Party, PartyId,
+    LineItem, Party, PartyId, TenantId,
 };
 use fen_core::ValidationStatus;
 
@@ -217,6 +217,7 @@ impl InvoiceFixture {
         Invoice {
             id: invoice_id,
             document_id,
+            tenant_id: TenantId::system(),
             invoice_number: self.invoice_number,
             invoice_date: self.invoice_date,
             due_date: Some(self.due_date),
@@ -327,6 +328,7 @@ impl ContractFixture {
         Contract {
             id: fen_core::domain::ContractId::new(),
             document_id: DocumentId::new(),
+            tenant_id: TenantId::system(),
             contract_number: None,
             title: self.title,
             contract_type: self.contract_type,

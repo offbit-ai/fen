@@ -2,6 +2,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use super::cluster::TenantId;
 use super::ids::{ContractId, DocumentId, InvoiceId};
 use super::party::Party;
 use crate::validation::ValidationStatus;
@@ -79,6 +80,8 @@ impl LineItem {
 pub struct Invoice {
     pub id: InvoiceId,
     pub document_id: DocumentId,
+    /// Tenant that owns this invoice
+    pub tenant_id: TenantId,
 
     // Header information
     pub invoice_number: String,
@@ -120,6 +123,7 @@ impl Invoice {
         Self {
             id: InvoiceId::new(),
             document_id: DocumentId::new(),
+            tenant_id: TenantId::system(),
             invoice_number: invoice_number.into(),
             invoice_date,
             due_date: None,
@@ -138,6 +142,12 @@ impl Invoice {
             confidence_score: 0.0,
             extracted_text: String::new(),
         }
+    }
+
+    /// Set the tenant for this invoice
+    pub fn with_tenant(mut self, tenant_id: TenantId) -> Self {
+        self.tenant_id = tenant_id;
+        self
     }
 
     /// Link this invoice to a contract

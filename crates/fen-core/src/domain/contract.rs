@@ -2,6 +2,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use super::cluster::TenantId;
 use super::ids::{ContractId, DocumentId};
 use super::invoice::Currency;
 use super::party::Party;
@@ -64,6 +65,8 @@ impl ContractClause {
 pub struct Contract {
     pub id: ContractId,
     pub document_id: DocumentId,
+    /// Tenant that owns this contract
+    pub tenant_id: TenantId,
 
     // Identification
     pub contract_number: Option<String>,
@@ -99,6 +102,7 @@ impl Contract {
         Self {
             id: ContractId::new(),
             document_id: DocumentId::new(),
+            tenant_id: TenantId::system(),
             contract_number: None,
             title: title.into(),
             contract_type: ContractType::default(),
@@ -113,5 +117,11 @@ impl Contract {
             confidence_score: 0.0,
             extracted_text: String::new(),
         }
+    }
+
+    /// Set the tenant for this contract
+    pub fn with_tenant(mut self, tenant_id: TenantId) -> Self {
+        self.tenant_id = tenant_id;
+        self
     }
 }
