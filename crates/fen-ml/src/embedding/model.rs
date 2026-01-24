@@ -102,6 +102,7 @@ impl EmbeddingModel {
 
     /// Generate embedding for a single text
     /// Uses LRU cache to avoid recomputing embeddings for repeated texts
+    #[tracing::instrument(skip(self, text), fields(text_len = %text.len()))]
     pub fn embed(&self, text: &str) -> Result<Vec<f32>, MlError> {
         if !self.has_model() {
             return Ok(vec![0.0; self.config.embedding_dim]);
@@ -113,9 +114,11 @@ impl EmbeddingModel {
         // Check cache first
         if let Ok(mut cache) = self.cache.lock() {
             if let Some(cached) = cache.get(&text_hash) {
+                tracing::trace!("Embedding cache hit");
                 return Ok(cached.clone());
             }
         }
+        tracing::trace!("Embedding cache miss");
 
         // Compute embedding
         let embeddings = self.embed_batch(&[text])?;
@@ -143,6 +146,7 @@ impl EmbeddingModel {
     ///
     /// This processes all texts in a single forward pass for better performance
     /// compared to processing one at a time.
+    #[tracing::instrument(skip(self, texts), fields(batch_size = %texts.len()))]
     pub fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, MlError> {
         if texts.is_empty() {
             return Ok(Vec::new());
@@ -166,9 +170,12 @@ impl EmbeddingModel {
         let batch_size = texts.len();
 
         // Tokenize all texts at once - tokenizers crate handles padding automatically
-        let encodings = tokenizer
-            .encode_batch(texts.to_vec(), true)
-            .map_err(|e| MlError::Tokenization(e.to_string()))?;
+        let encodings = {
+            let _span = tracing::info_span!("embedding_tokenization", batch_size = %batch_size).entered();
+            tokenizer
+                .encode_batch(texts.to_vec(), true)
+                .map_err(|e| MlError::Tokenization(e.to_string()))?
+        };
 
         // Find max sequence length in this batch (after padding)
         let max_len = encodings
@@ -206,10 +213,13 @@ impl EmbeddingModel {
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
         // Run batched inference
-        let outputs = session.run(ort::inputs![
-            "input_ids" => input_ids_tensor,
-            "attention_mask" => attention_mask_tensor
-        ])?;
+        let outputs = {
+            let _span = tracing::info_span!("embedding_inference", batch_size = %batch_size, seq_len = %max_len).entered();
+            session.run(ort::inputs![
+                "input_ids" => input_ids_tensor,
+                "attention_mask" => attention_mask_tensor
+            ])?
+        };
 
         // Get last hidden state output - try by name first, otherwise use first output
         let output = if let Some(out) = outputs.get("last_hidden_state") {
@@ -273,6 +283,11 @@ impl EmbeddingModel {
     /// Generate document embeddings at multiple granularities
     ///
     /// Uses batch processing internally for efficiency
+    #[tracing::instrument(skip(self, full_text, sections, entities), fields(
+        text_len = %full_text.len(),
+        num_sections = %sections.len(),
+        num_entities = %entities.len()
+    ))]
     pub fn embed_document(
         &self,
         full_text: &str,
@@ -361,6 +376,11 @@ impl EmbeddingModel {
     }
 
     /// Find most similar embeddings from candidates
+    #[tracing::instrument(skip(self, query, candidates), fields(
+        query_dim = %query.len(),
+        num_candidates = %candidates.len(),
+        top_k = %top_k
+    ))]
     pub fn find_similar(
         &self,
         query: &[f32],

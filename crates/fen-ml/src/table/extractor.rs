@@ -8,12 +8,33 @@ use once_cell::sync::Lazy;
 use ort::session::{Session, SessionOutputs};
 use ort::value::TensorRef;
 use regex::Regex;
+use rstar::{RTree, RTreeObject, AABB};
 
 use super::{
     ExtractedTable, TableCell, TableColumn, TableExtractionResult, TableExtractorConfig, TableRow,
 };
 use crate::error::MlError;
 use crate::ocr::{BoundingBox, OcrResult, TextRegion};
+
+/// Wrapper for TextRegion that implements RTreeObject for spatial indexing
+#[derive(Clone)]
+struct IndexedRegion {
+    region: TextRegion,
+}
+
+impl RTreeObject for IndexedRegion {
+    type Envelope = AABB<[f32; 2]>;
+
+    fn envelope(&self) -> Self::Envelope {
+        AABB::from_corners(
+            [self.region.bbox.x, self.region.bbox.y],
+            [
+                self.region.bbox.x + self.region.bbox.width,
+                self.region.bbox.y + self.region.bbox.height,
+            ],
+        )
+    }
+}
 
 // Pre-compiled regex pattern for number detection
 static NUMBER_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d+\.?\d*").unwrap());
@@ -73,6 +94,12 @@ impl TableExtractor {
     }
 
     /// Extract tables from document
+    #[tracing::instrument(skip(self, image, ocr_result), fields(
+        width = %image.width(),
+        height = %image.height(),
+        num_regions = %ocr_result.regions.len(),
+        has_models = %self.has_models()
+    ))]
     pub fn extract(
         &self,
         image: &DynamicImage,
@@ -81,8 +108,10 @@ impl TableExtractor {
         let start = Instant::now();
 
         let tables = if self.has_models() {
+            let _span = tracing::info_span!("table_model_extraction").entered();
             self.extract_with_models(image, ocr_result)?
         } else {
+            let _span = tracing::info_span!("table_rule_based").entered();
             self.extract_rule_based(image, ocr_result)?
         };
 
@@ -136,6 +165,7 @@ impl TableExtractor {
     }
 
     /// Detect tables in the image using detection model
+    #[tracing::instrument(skip(self, image), fields(width = %image.width(), height = %image.height()))]
     fn detect_tables(&self, image: &DynamicImage) -> Result<Vec<(BoundingBox, f32)>, MlError> {
         let mut session = self
             .detection_session
@@ -144,11 +174,17 @@ impl TableExtractor {
             .lock()
             .map_err(|e| MlError::ModelLoading(format!("Failed to acquire session lock: {}", e)))?;
 
-        let input = self.preprocess_for_detection(image)?;
+        let input = {
+            let _span = tracing::info_span!("table_detection_preprocess").entered();
+            self.preprocess_for_detection(image)?
+        };
         let input_tensor = TensorRef::from_array_view(&input)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let outputs = session.run(ort::inputs!["input" => input_tensor])?;
+        let outputs = {
+            let _span = tracing::info_span!("table_detection_inference").entered();
+            session.run(ort::inputs!["input" => input_tensor])?
+        };
 
         let output = if let Some(out) = outputs.get("output") {
             out
@@ -203,6 +239,7 @@ impl TableExtractor {
     }
 
     /// Extract table structure (rows, columns, cells)
+    #[tracing::instrument(skip(self, image), fields(bbox_x = %table_bbox.x, bbox_y = %table_bbox.y))]
     fn extract_structure(
         &self,
         image: &DynamicImage,
@@ -223,11 +260,17 @@ impl TableExtractor {
             table_bbox.height as u32,
         );
 
-        let input = self.preprocess_for_structure(&cropped)?;
+        let input = {
+            let _span = tracing::info_span!("table_structure_preprocess").entered();
+            self.preprocess_for_structure(&cropped)?
+        };
         let input_tensor = TensorRef::from_array_view(&input)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let outputs = session.run(ort::inputs!["input" => input_tensor])?;
+        let outputs = {
+            let _span = tracing::info_span!("table_structure_inference").entered();
+            session.run(ort::inputs!["input" => input_tensor])?
+        };
 
         // Parse structure output (rows, columns, cells)
         self.parse_structure_output(&outputs, table_bbox)
@@ -377,13 +420,32 @@ impl TableExtractor {
         Ok(TableStructure { rows, columns })
     }
 
-    /// Assign OCR text to detected cells
+    /// Assign OCR text to detected cells using spatial indexing for O(log n) lookups
+    #[tracing::instrument(skip(self, structure, ocr_result, _table_bbox), fields(
+        num_rows = %structure.rows.len(),
+        num_cols = %structure.columns.len(),
+        num_regions = %ocr_result.regions.len()
+    ))]
     fn assign_text_to_cells(
         &self,
         structure: &TableStructure,
         ocr_result: &OcrResult,
         _table_bbox: &BoundingBox,
     ) -> Vec<Vec<TableCell>> {
+        // Build R-tree spatial index for OCR regions - O(n log n)
+        let indexed_regions: Vec<IndexedRegion> = ocr_result
+            .regions
+            .iter()
+            .map(|region| IndexedRegion {
+                region: region.clone(),
+            })
+            .collect();
+
+        let rtree = {
+            let _span = tracing::info_span!("build_rtree", num_regions = %indexed_regions.len()).entered();
+            RTree::bulk_load(indexed_regions)
+        };
+
         let mut cells = Vec::new();
 
         for (row_idx, row) in structure.rows.iter().enumerate() {
@@ -398,8 +460,8 @@ impl TableExtractor {
                     row.bbox.height,
                 );
 
-                // Find OCR text that falls within this cell
-                let text = self.find_text_in_region(&cell_bbox, ocr_result);
+                // Find OCR text using spatial index - O(log n) query
+                let text = self.find_text_in_region_indexed(&cell_bbox, &rtree);
 
                 row_cells.push(TableCell {
                     text,
@@ -419,7 +481,43 @@ impl TableExtractor {
         cells
     }
 
-    /// Find OCR text that falls within a bounding box
+    /// Find OCR text that falls within a bounding box using spatial index
+    /// This is O(log n + k) where k is the number of overlapping regions
+    fn find_text_in_region_indexed(
+        &self,
+        bbox: &BoundingBox,
+        rtree: &RTree<IndexedRegion>,
+    ) -> String {
+        // Query the R-tree for regions that intersect with the cell bbox
+        let query_envelope = AABB::from_corners(
+            [bbox.x, bbox.y],
+            [bbox.x + bbox.width, bbox.y + bbox.height],
+        );
+
+        let mut texts: Vec<(usize, String)> = rtree
+            .locate_in_envelope_intersecting(&query_envelope)
+            .filter_map(|indexed| {
+                // Calculate overlap ratio using IoU
+                let overlap = indexed.region.bbox.iou(bbox);
+                if overlap > 0.3 {
+                    Some((indexed.region.order, indexed.region.text.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // Sort by reading order and join
+        texts.sort_by_key(|(order, _)| *order);
+        texts
+            .into_iter()
+            .map(|(_, text)| text)
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Find OCR text that falls within a bounding box (legacy O(n) method)
+    #[allow(dead_code)]
     fn find_text_in_region(&self, bbox: &BoundingBox, ocr_result: &OcrResult) -> String {
         let mut texts = Vec::new();
 

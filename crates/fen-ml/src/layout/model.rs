@@ -96,6 +96,12 @@ impl LayoutModel {
     }
 
     /// Analyze document layout
+    #[tracing::instrument(skip(self, image, ocr_result), fields(
+        width = %image.width(),
+        height = %image.height(),
+        num_regions = %ocr_result.regions.len(),
+        has_model = %self.has_model()
+    ))]
     pub fn analyze(
         &self,
         image: &DynamicImage,
@@ -105,8 +111,10 @@ impl LayoutModel {
 
         // If model is loaded, use it; otherwise use rule-based analysis
         let result = if self.has_model() {
+            let _span = tracing::info_span!("layout_model_inference").entered();
             self.analyze_with_model(image, ocr_result)?
         } else {
+            let _span = tracing::info_span!("layout_rule_based").entered();
             self.analyze_rule_based(ocr_result)?
         };
 
@@ -117,6 +125,7 @@ impl LayoutModel {
     }
 
     /// Analyze with ONNX model
+    #[tracing::instrument(skip(self, image, ocr_result))]
     fn analyze_with_model(
         &self,
         image: &DynamicImage,
@@ -130,8 +139,10 @@ impl LayoutModel {
             .map_err(|e| MlError::ModelLoading(format!("Failed to acquire session lock: {}", e)))?;
 
         // Prepare inputs for LayoutLMv3
-        let (input_ids, attention_mask, bbox, pixel_values) =
-            self.prepare_inputs(image, ocr_result)?;
+        let (input_ids, attention_mask, bbox, pixel_values) = {
+            let _span = tracing::info_span!("layout_prepare_inputs").entered();
+            self.prepare_inputs(image, ocr_result)?
+        };
 
         // Create tensor references from arrays
         let input_ids_tensor = TensorRef::from_array_view(&input_ids)
@@ -144,12 +155,15 @@ impl LayoutModel {
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
         // Run inference
-        let outputs = session.run(ort::inputs![
-            "input_ids" => input_ids_tensor,
-            "attention_mask" => attention_mask_tensor,
-            "bbox" => bbox_tensor,
-            "pixel_values" => pixel_values_tensor
-        ])?;
+        let outputs = {
+            let _span = tracing::info_span!("layout_onnx_inference").entered();
+            session.run(ort::inputs![
+                "input_ids" => input_ids_tensor,
+                "attention_mask" => attention_mask_tensor,
+                "bbox" => bbox_tensor,
+                "pixel_values" => pixel_values_tensor
+            ])?
+        };
 
         // Parse outputs - LayoutLMv3 outputs token classifications
         let output = if let Some(out) = outputs.get("logits") {

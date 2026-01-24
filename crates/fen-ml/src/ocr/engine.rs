@@ -82,6 +82,7 @@ impl OcrEngine {
     }
 
     /// Preprocess image for detection model
+    #[tracing::instrument(skip(self, image), fields(width = %image.width(), height = %image.height()))]
     fn preprocess_for_detection(&self, image: &DynamicImage) -> Result<Array4<f32>, MlError> {
         let (width, height) = image.dimensions();
 
@@ -120,6 +121,7 @@ impl OcrEngine {
     }
 
     /// Preprocess a text region for recognition
+    #[tracing::instrument(skip(self, image), fields(bbox_x = %bbox.x, bbox_y = %bbox.y))]
     fn preprocess_for_recognition(
         &self,
         image: &DynamicImage,
@@ -160,6 +162,7 @@ impl OcrEngine {
     }
 
     /// Run text detection on preprocessed image
+    #[tracing::instrument(skip(self, image, input), fields(input_shape = ?input.shape()))]
     fn detect_text_regions(
         &self,
         image: &DynamicImage,
@@ -256,6 +259,7 @@ impl OcrEngine {
 
     /// Recognize text in multiple regions with batched inference
     /// This is significantly faster than processing regions one at a time
+    #[tracing::instrument(skip(self, inputs), fields(batch_size = %inputs.len()))]
     fn recognize_text_batch(
         &self,
         inputs: &[Array4<f32>],
@@ -359,6 +363,7 @@ impl OcrEngine {
     }
 
     /// Decode CTC output to text using configured strategy
+    #[tracing::instrument(skip(self, logits), fields(logits_len = %logits.len(), strategy = ?self.config.decoder_config.strategy))]
     fn decode_ctc(&self, logits: &[f32]) -> (String, f32) {
         let vocabulary = self.get_vocabulary();
         let vocab_size = vocabulary.len() + 1; // +1 for blank token at index 0
@@ -587,6 +592,7 @@ impl OcrEngine {
 
 #[async_trait]
 impl OcrProvider for OcrEngine {
+    #[tracing::instrument(skip(self, image), fields(width = %image.width(), height = %image.height()))]
     async fn process_image(&self, image: &DynamicImage) -> Result<OcrResult, MlError> {
         let start = Instant::now();
 
@@ -602,10 +608,17 @@ impl OcrProvider for OcrEngine {
         }
 
         // Step 1: Preprocess for detection
-        let detection_input = self.preprocess_for_detection(image)?;
+        let detection_input = {
+            let _span = tracing::info_span!("ocr_detection_preprocess").entered();
+            self.preprocess_for_detection(image)?
+        };
 
         // Step 2: Detect text regions
-        let boxes = self.detect_text_regions(image, detection_input)?;
+        let boxes = {
+            let _span = tracing::info_span!("ocr_detection_inference").entered();
+            self.detect_text_regions(image, detection_input)?
+        };
+        tracing::debug!(num_regions = %boxes.len(), "Detected text regions");
 
         if boxes.is_empty() {
             return Ok(OcrResult {
@@ -617,13 +630,19 @@ impl OcrProvider for OcrEngine {
         }
 
         // Step 3: Preprocess all regions for batch recognition
-        let recognition_inputs: Vec<Array4<f32>> = boxes
-            .iter()
-            .filter_map(|bbox| self.preprocess_for_recognition(image, bbox).ok())
-            .collect();
+        let recognition_inputs: Vec<Array4<f32>> = {
+            let _span = tracing::info_span!("ocr_recognition_preprocess", num_regions = %boxes.len()).entered();
+            boxes
+                .iter()
+                .filter_map(|bbox| self.preprocess_for_recognition(image, bbox).ok())
+                .collect()
+        };
 
         // Step 4: Batch recognize all text regions in a single forward pass
-        let recognition_results = self.recognize_text_batch(&recognition_inputs)?;
+        let recognition_results = {
+            let _span = tracing::info_span!("ocr_recognition_inference", batch_size = %recognition_inputs.len()).entered();
+            self.recognize_text_batch(&recognition_inputs)?
+        };
 
         // Step 5: Build text regions from results
         let mut regions = Vec::with_capacity(boxes.len());
