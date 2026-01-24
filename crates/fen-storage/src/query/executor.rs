@@ -18,8 +18,8 @@ use crate::error::StorageError;
 use crate::fulltext::FullTextIndex;
 use crate::hot::RedbStorage;
 use crate::query::lang::{
-    BinaryOperator, Expr, FenQuery, FilterExpr, FunctionCall, FunctionName,
-    Literal, OrderByClause, ParamValue, QueryParams, QueryTarget, SelectItem, SortDirection,
+    BinaryOperator, Expr, FenQuery, FilterExpr, FunctionCall, FunctionName, Literal, OrderByClause,
+    ParamValue, QueryParams, QueryTarget, SelectItem, SortDirection,
 };
 use crate::traits::DocumentStore;
 use crate::warm::LanceStorage;
@@ -182,7 +182,8 @@ impl QueryExecutor {
 
         // Get candidate invoices based on search strategy
         let mut candidates = if uses_vector {
-            self.vector_search_invoices(query, params, limit * 3).await?
+            self.vector_search_invoices(query, params, limit * 3)
+                .await?
         } else if uses_text {
             self.text_search_invoices(query, params, limit * 3).await?
         } else {
@@ -245,7 +246,8 @@ impl QueryExecutor {
 
         // Apply WHERE filters
         if let Some(filter) = &query.filter {
-            candidates.retain(|(contract, _)| self.evaluate_contract_filter(filter, contract, params));
+            candidates
+                .retain(|(contract, _)| self.evaluate_contract_filter(filter, contract, params));
         }
 
         // Apply ORDER BY (for contracts, we use a simpler sort)
@@ -298,71 +300,84 @@ impl QueryExecutor {
         Ok(contracts.into_iter().map(|c| (c, 0.0)).collect())
     }
 
-    fn evaluate_contract_filter(&self, filter: &FilterExpr, contract: &Contract, params: &QueryParams) -> bool {
+    fn evaluate_contract_filter(
+        &self,
+        filter: &FilterExpr,
+        contract: &Contract,
+        params: &QueryParams,
+    ) -> bool {
         self.evaluate_contract_expr_bool(&filter.expr, contract, params)
     }
 
-    fn evaluate_contract_expr_bool(&self, expr: &Expr, contract: &Contract, params: &QueryParams) -> bool {
+    fn evaluate_contract_expr_bool(
+        &self,
+        expr: &Expr,
+        contract: &Contract,
+        params: &QueryParams,
+    ) -> bool {
         match expr {
-            Expr::BinaryOp { left, op, right } => {
-                match op {
-                    BinaryOperator::And => {
-                        self.evaluate_contract_expr_bool(left, contract, params)
-                            && self.evaluate_contract_expr_bool(right, contract, params)
-                    }
-                    BinaryOperator::Or => {
-                        self.evaluate_contract_expr_bool(left, contract, params)
-                            || self.evaluate_contract_expr_bool(right, contract, params)
-                    }
-                    BinaryOperator::Eq => {
-                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
-                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
-                        self.compare_values(&left_val, &right_val, |a, b| a == b)
-                    }
-                    BinaryOperator::NotEq => {
-                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
-                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
-                        self.compare_values(&left_val, &right_val, |a, b| a != b)
-                    }
-                    BinaryOperator::Lt => {
-                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
-                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
-                        self.compare_values_ord(&left_val, &right_val, |a, b| a < b)
-                    }
-                    BinaryOperator::LtEq => {
-                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
-                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
-                        self.compare_values_ord(&left_val, &right_val, |a, b| a <= b)
-                    }
-                    BinaryOperator::Gt => {
-                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
-                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
-                        self.compare_values_ord(&left_val, &right_val, |a, b| a > b)
-                    }
-                    BinaryOperator::GtEq => {
-                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
-                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
-                        self.compare_values_ord(&left_val, &right_val, |a, b| a >= b)
-                    }
-                    BinaryOperator::Like => {
-                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
-                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
-                        self.like_match(&left_val, &right_val, false)
-                    }
-                    BinaryOperator::ILike => {
-                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
-                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
-                        self.like_match(&left_val, &right_val, true)
-                    }
-                    _ => false,
+            Expr::BinaryOp { left, op, right } => match op {
+                BinaryOperator::And => {
+                    self.evaluate_contract_expr_bool(left, contract, params)
+                        && self.evaluate_contract_expr_bool(right, contract, params)
                 }
-            }
-            Expr::Function(FunctionCall { name: FunctionName::Contains, args }) => {
+                BinaryOperator::Or => {
+                    self.evaluate_contract_expr_bool(left, contract, params)
+                        || self.evaluate_contract_expr_bool(right, contract, params)
+                }
+                BinaryOperator::Eq => {
+                    let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                    let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                    self.compare_values(&left_val, &right_val, |a, b| a == b)
+                }
+                BinaryOperator::NotEq => {
+                    let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                    let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                    self.compare_values(&left_val, &right_val, |a, b| a != b)
+                }
+                BinaryOperator::Lt => {
+                    let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                    let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                    self.compare_values_ord(&left_val, &right_val, |a, b| a < b)
+                }
+                BinaryOperator::LtEq => {
+                    let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                    let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                    self.compare_values_ord(&left_val, &right_val, |a, b| a <= b)
+                }
+                BinaryOperator::Gt => {
+                    let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                    let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                    self.compare_values_ord(&left_val, &right_val, |a, b| a > b)
+                }
+                BinaryOperator::GtEq => {
+                    let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                    let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                    self.compare_values_ord(&left_val, &right_val, |a, b| a >= b)
+                }
+                BinaryOperator::Like => {
+                    let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                    let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                    self.like_match(&left_val, &right_val, false)
+                }
+                BinaryOperator::ILike => {
+                    let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                    let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                    self.like_match(&left_val, &right_val, true)
+                }
+                _ => false,
+            },
+            Expr::Function(FunctionCall {
+                name: FunctionName::Contains,
+                args,
+            }) => {
                 if args.len() >= 2 {
                     let text_val = self.evaluate_contract_expr_value(&args[0], contract, params);
                     let search_val = self.evaluate_contract_expr_value(&args[1], contract, params);
 
-                    if let (ColumnValue::String(text), ColumnValue::String(search)) = (text_val, search_val) {
+                    if let (ColumnValue::String(text), ColumnValue::String(search)) =
+                        (text_val, search_val)
+                    {
                         return self.fulltext_index.contains(&text, &search);
                     }
                 }
@@ -372,16 +387,26 @@ impl QueryExecutor {
         }
     }
 
-    fn evaluate_contract_expr_value(&self, expr: &Expr, contract: &Contract, params: &QueryParams) -> ColumnValue {
+    fn evaluate_contract_expr_value(
+        &self,
+        expr: &Expr,
+        contract: &Contract,
+        params: &QueryParams,
+    ) -> ColumnValue {
         match expr {
             Expr::Column(col) => self.get_contract_column(contract, &col.column),
             Expr::Literal(lit) => self.literal_to_value(lit),
             Expr::Parameter(name) => self.param_to_value(params, name),
-            Expr::Function(FunctionCall { name: FunctionName::Bm25Score, args }) => {
+            Expr::Function(FunctionCall {
+                name: FunctionName::Bm25Score,
+                args,
+            }) => {
                 if args.len() >= 2 {
                     if let (Expr::Column(col), Expr::Parameter(param_name)) = (&args[0], &args[1]) {
                         let text = self.get_contract_column(contract, &col.column);
-                        if let (ColumnValue::String(text), Some(query)) = (text, params.get_string(param_name)) {
+                        if let (ColumnValue::String(text), Some(query)) =
+                            (text, params.get_string(param_name))
+                        {
                             let score = self.fulltext_index.bm25_score(&text, query);
                             return ColumnValue::Float(score as f64);
                         }
@@ -397,23 +422,40 @@ impl QueryExecutor {
         match column.to_lowercase().as_str() {
             "id" => ColumnValue::String(contract.id.0.to_string()),
             "document_id" => ColumnValue::String(contract.document_id.0.to_string()),
-            "contract_number" => contract.contract_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null),
+            "contract_number" => contract
+                .contract_number
+                .clone()
+                .map(ColumnValue::String)
+                .unwrap_or(ColumnValue::Null),
             "title" => ColumnValue::String(contract.title.clone()),
             "contract_type" => ColumnValue::String(format!("{:?}", contract.contract_type)),
             "effective_date" => ColumnValue::Date(contract.effective_date),
-            "expiration_date" => contract.expiration_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null),
-            "execution_date" => contract.execution_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null),
-            "total_value" => contract.total_value.map(ColumnValue::Decimal).unwrap_or(ColumnValue::Null),
-            "currency" => contract.currency.as_ref().map(|c| ColumnValue::String(format!("{:?}", c))).unwrap_or(ColumnValue::Null),
+            "expiration_date" => contract
+                .expiration_date
+                .map(ColumnValue::Date)
+                .unwrap_or(ColumnValue::Null),
+            "execution_date" => contract
+                .execution_date
+                .map(ColumnValue::Date)
+                .unwrap_or(ColumnValue::Null),
+            "total_value" => contract
+                .total_value
+                .map(ColumnValue::Decimal)
+                .unwrap_or(ColumnValue::Null),
+            "currency" => contract
+                .currency
+                .as_ref()
+                .map(|c| ColumnValue::String(format!("{:?}", c)))
+                .unwrap_or(ColumnValue::Null),
             "validation_status" => ColumnValue::String(format!("{:?}", contract.validation_status)),
             "confidence_score" => ColumnValue::Float(contract.confidence_score as f64),
             "extracted_text" => ColumnValue::String(contract.extracted_text.clone()),
             // Party name (first party if exists)
-            "party_name" | "vendor_name" => {
-                contract.parties.first()
-                    .map(|p| ColumnValue::String(p.name.clone()))
-                    .unwrap_or(ColumnValue::Null)
-            }
+            "party_name" | "vendor_name" => contract
+                .parties
+                .first()
+                .map(|p| ColumnValue::String(p.name.clone()))
+                .unwrap_or(ColumnValue::Null),
             _ => ColumnValue::Null,
         }
     }
@@ -429,32 +471,75 @@ impl QueryExecutor {
 
             results.sort_by(|a, b| {
                 let cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
-                if ascending { cmp } else { cmp.reverse() }
+                if ascending {
+                    cmp
+                } else {
+                    cmp.reverse()
+                }
             });
         }
     }
 
-    fn project_contract(&self, contract: &Contract, select: &[SelectItem], score: f64) -> ResultRow {
+    fn project_contract(
+        &self,
+        contract: &Contract,
+        select: &[SelectItem],
+        score: f64,
+    ) -> ResultRow {
         let mut columns = HashMap::new();
 
         for item in select {
             match &item.expr {
                 Expr::Wildcard => {
                     // Add all columns
-                    columns.insert("id".to_string(), ColumnValue::String(contract.id.0.to_string()));
-                    columns.insert("contract_number".to_string(),
-                        contract.contract_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null));
-                    columns.insert("title".to_string(), ColumnValue::String(contract.title.clone()));
-                    columns.insert("contract_type".to_string(), ColumnValue::String(format!("{:?}", contract.contract_type)));
-                    columns.insert("effective_date".to_string(), ColumnValue::Date(contract.effective_date));
-                    columns.insert("expiration_date".to_string(),
-                        contract.expiration_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null));
-                    columns.insert("total_value".to_string(),
-                        contract.total_value.map(ColumnValue::Decimal).unwrap_or(ColumnValue::Null));
-                    columns.insert("confidence_score".to_string(), ColumnValue::Float(contract.confidence_score as f64));
+                    columns.insert(
+                        "id".to_string(),
+                        ColumnValue::String(contract.id.0.to_string()),
+                    );
+                    columns.insert(
+                        "contract_number".to_string(),
+                        contract
+                            .contract_number
+                            .clone()
+                            .map(ColumnValue::String)
+                            .unwrap_or(ColumnValue::Null),
+                    );
+                    columns.insert(
+                        "title".to_string(),
+                        ColumnValue::String(contract.title.clone()),
+                    );
+                    columns.insert(
+                        "contract_type".to_string(),
+                        ColumnValue::String(format!("{:?}", contract.contract_type)),
+                    );
+                    columns.insert(
+                        "effective_date".to_string(),
+                        ColumnValue::Date(contract.effective_date),
+                    );
+                    columns.insert(
+                        "expiration_date".to_string(),
+                        contract
+                            .expiration_date
+                            .map(ColumnValue::Date)
+                            .unwrap_or(ColumnValue::Null),
+                    );
+                    columns.insert(
+                        "total_value".to_string(),
+                        contract
+                            .total_value
+                            .map(ColumnValue::Decimal)
+                            .unwrap_or(ColumnValue::Null),
+                    );
+                    columns.insert(
+                        "confidence_score".to_string(),
+                        ColumnValue::Float(contract.confidence_score as f64),
+                    );
                     // Add first party name if available
                     if let Some(party) = contract.parties.first() {
-                        columns.insert("party_name".to_string(), ColumnValue::String(party.name.clone()));
+                        columns.insert(
+                            "party_name".to_string(),
+                            ColumnValue::String(party.name.clone()),
+                        );
                     }
                 }
                 Expr::Column(col) => {
@@ -462,8 +547,14 @@ impl QueryExecutor {
                     let value = self.get_contract_column(contract, &col.column);
                     columns.insert(name, value);
                 }
-                Expr::Function(FunctionCall { name: FunctionName::Bm25Score, .. }) => {
-                    let name = item.alias.clone().unwrap_or_else(|| "bm25_score".to_string());
+                Expr::Function(FunctionCall {
+                    name: FunctionName::Bm25Score,
+                    ..
+                }) => {
+                    let name = item
+                        .alias
+                        .clone()
+                        .unwrap_or_else(|| "bm25_score".to_string());
                     columns.insert(name, ColumnValue::Float(score));
                 }
                 _ => {}
@@ -536,19 +627,24 @@ impl QueryExecutor {
         Ok(invoices.into_iter().map(|inv| (inv, 0.0)).collect())
     }
 
-    fn find_vector_param(&self, query: &FenQuery, params: &QueryParams) -> Result<Vec<f32>, StorageError> {
+    fn find_vector_param(
+        &self,
+        query: &FenQuery,
+        params: &QueryParams,
+    ) -> Result<Vec<f32>, StorageError> {
         // Look for VECTOR_DISTANCE function calls and extract the parameter name
         fn find_in_expr(expr: &Expr) -> Option<String> {
             match expr {
-                Expr::Function(FunctionCall { name: FunctionName::VectorDistance, args }) => {
-                    args.get(1).and_then(|arg| {
-                        if let Expr::Parameter(name) = arg {
-                            Some(name.clone())
-                        } else {
-                            None
-                        }
-                    })
-                }
+                Expr::Function(FunctionCall {
+                    name: FunctionName::VectorDistance,
+                    args,
+                }) => args.get(1).and_then(|arg| {
+                    if let Expr::Parameter(name) = arg {
+                        Some(name.clone())
+                    } else {
+                        None
+                    }
+                }),
                 Expr::BinaryOp { left, right, .. } => {
                     find_in_expr(left).or_else(|| find_in_expr(right))
                 }
@@ -557,21 +653,32 @@ impl QueryExecutor {
         }
 
         // Search in SELECT, WHERE, ORDER BY
-        let param_name = query.select.iter()
+        let param_name = query
+            .select
+            .iter()
             .find_map(|s| find_in_expr(&s.expr))
             .or_else(|| query.filter.as_ref().and_then(|f| find_in_expr(&f.expr)))
-            .or_else(|| query.order_by.as_ref().and_then(|o| {
-                o.items.iter().find_map(|i| find_in_expr(&i.expr))
-            }))
+            .or_else(|| {
+                query
+                    .order_by
+                    .as_ref()
+                    .and_then(|o| o.items.iter().find_map(|i| find_in_expr(&i.expr)))
+            })
             .ok_or_else(|| StorageError::Query("No vector parameter found in query".to_string()))?;
 
         params
             .get_vector(&param_name)
             .map(|v| v.to_vec())
-            .ok_or_else(|| StorageError::Query(format!("Vector parameter '{}' not provided", param_name)))
+            .ok_or_else(|| {
+                StorageError::Query(format!("Vector parameter '{}' not provided", param_name))
+            })
     }
 
-    fn find_text_param(&self, query: &FenQuery, params: &QueryParams) -> Result<String, StorageError> {
+    fn find_text_param(
+        &self,
+        query: &FenQuery,
+        params: &QueryParams,
+    ) -> Result<String, StorageError> {
         // Look for BM25_SCORE or CONTAINS function calls and extract the parameter name
         fn find_in_expr(expr: &Expr) -> Option<String> {
             match expr {
@@ -595,91 +702,111 @@ impl QueryExecutor {
             }
         }
 
-        let param_name = query.select.iter()
+        let param_name = query
+            .select
+            .iter()
             .find_map(|s| find_in_expr(&s.expr))
             .or_else(|| query.filter.as_ref().and_then(|f| find_in_expr(&f.expr)))
-            .or_else(|| query.order_by.as_ref().and_then(|o| {
-                o.items.iter().find_map(|i| find_in_expr(&i.expr))
-            }))
-            .ok_or_else(|| StorageError::Query("No text search parameter found in query".to_string()))?;
+            .or_else(|| {
+                query
+                    .order_by
+                    .as_ref()
+                    .and_then(|o| o.items.iter().find_map(|i| find_in_expr(&i.expr)))
+            })
+            .ok_or_else(|| {
+                StorageError::Query("No text search parameter found in query".to_string())
+            })?;
 
         params
             .get_string(&param_name)
             .map(|s| s.to_string())
-            .ok_or_else(|| StorageError::Query(format!("Text parameter '{}' not provided", param_name)))
+            .ok_or_else(|| {
+                StorageError::Query(format!("Text parameter '{}' not provided", param_name))
+            })
     }
 
-    fn evaluate_filter(&self, filter: &FilterExpr, invoice: &Invoice, params: &QueryParams) -> bool {
+    fn evaluate_filter(
+        &self,
+        filter: &FilterExpr,
+        invoice: &Invoice,
+        params: &QueryParams,
+    ) -> bool {
         self.evaluate_expr_bool(&filter.expr, invoice, params)
     }
 
     fn evaluate_expr_bool(&self, expr: &Expr, invoice: &Invoice, params: &QueryParams) -> bool {
         match expr {
-            Expr::BinaryOp { left, op, right } => {
-                match op {
-                    BinaryOperator::And => {
-                        self.evaluate_expr_bool(left, invoice, params)
-                            && self.evaluate_expr_bool(right, invoice, params)
-                    }
-                    BinaryOperator::Or => {
-                        self.evaluate_expr_bool(left, invoice, params)
-                            || self.evaluate_expr_bool(right, invoice, params)
-                    }
-                    BinaryOperator::Eq => {
-                        let left_val = self.evaluate_expr_value(left, invoice, params);
-                        let right_val = self.evaluate_expr_value(right, invoice, params);
-                        self.compare_values(&left_val, &right_val, |a, b| a == b)
-                    }
-                    BinaryOperator::NotEq => {
-                        let left_val = self.evaluate_expr_value(left, invoice, params);
-                        let right_val = self.evaluate_expr_value(right, invoice, params);
-                        self.compare_values(&left_val, &right_val, |a, b| a != b)
-                    }
-                    BinaryOperator::Lt => {
-                        let left_val = self.evaluate_expr_value(left, invoice, params);
-                        let right_val = self.evaluate_expr_value(right, invoice, params);
-                        self.compare_values_ord(&left_val, &right_val, |a, b| a < b)
-                    }
-                    BinaryOperator::LtEq => {
-                        let left_val = self.evaluate_expr_value(left, invoice, params);
-                        let right_val = self.evaluate_expr_value(right, invoice, params);
-                        self.compare_values_ord(&left_val, &right_val, |a, b| a <= b)
-                    }
-                    BinaryOperator::Gt => {
-                        let left_val = self.evaluate_expr_value(left, invoice, params);
-                        let right_val = self.evaluate_expr_value(right, invoice, params);
-                        self.compare_values_ord(&left_val, &right_val, |a, b| a > b)
-                    }
-                    BinaryOperator::GtEq => {
-                        let left_val = self.evaluate_expr_value(left, invoice, params);
-                        let right_val = self.evaluate_expr_value(right, invoice, params);
-                        self.compare_values_ord(&left_val, &right_val, |a, b| a >= b)
-                    }
-                    BinaryOperator::Like => {
-                        let left_val = self.evaluate_expr_value(left, invoice, params);
-                        let right_val = self.evaluate_expr_value(right, invoice, params);
-                        self.like_match(&left_val, &right_val, false)
-                    }
-                    BinaryOperator::ILike => {
-                        let left_val = self.evaluate_expr_value(left, invoice, params);
-                        let right_val = self.evaluate_expr_value(right, invoice, params);
-                        self.like_match(&left_val, &right_val, true)
-                    }
-                    _ => false,
+            Expr::BinaryOp { left, op, right } => match op {
+                BinaryOperator::And => {
+                    self.evaluate_expr_bool(left, invoice, params)
+                        && self.evaluate_expr_bool(right, invoice, params)
                 }
-            }
-            Expr::Function(FunctionCall { name: FunctionName::Contains, args }) => {
+                BinaryOperator::Or => {
+                    self.evaluate_expr_bool(left, invoice, params)
+                        || self.evaluate_expr_bool(right, invoice, params)
+                }
+                BinaryOperator::Eq => {
+                    let left_val = self.evaluate_expr_value(left, invoice, params);
+                    let right_val = self.evaluate_expr_value(right, invoice, params);
+                    self.compare_values(&left_val, &right_val, |a, b| a == b)
+                }
+                BinaryOperator::NotEq => {
+                    let left_val = self.evaluate_expr_value(left, invoice, params);
+                    let right_val = self.evaluate_expr_value(right, invoice, params);
+                    self.compare_values(&left_val, &right_val, |a, b| a != b)
+                }
+                BinaryOperator::Lt => {
+                    let left_val = self.evaluate_expr_value(left, invoice, params);
+                    let right_val = self.evaluate_expr_value(right, invoice, params);
+                    self.compare_values_ord(&left_val, &right_val, |a, b| a < b)
+                }
+                BinaryOperator::LtEq => {
+                    let left_val = self.evaluate_expr_value(left, invoice, params);
+                    let right_val = self.evaluate_expr_value(right, invoice, params);
+                    self.compare_values_ord(&left_val, &right_val, |a, b| a <= b)
+                }
+                BinaryOperator::Gt => {
+                    let left_val = self.evaluate_expr_value(left, invoice, params);
+                    let right_val = self.evaluate_expr_value(right, invoice, params);
+                    self.compare_values_ord(&left_val, &right_val, |a, b| a > b)
+                }
+                BinaryOperator::GtEq => {
+                    let left_val = self.evaluate_expr_value(left, invoice, params);
+                    let right_val = self.evaluate_expr_value(right, invoice, params);
+                    self.compare_values_ord(&left_val, &right_val, |a, b| a >= b)
+                }
+                BinaryOperator::Like => {
+                    let left_val = self.evaluate_expr_value(left, invoice, params);
+                    let right_val = self.evaluate_expr_value(right, invoice, params);
+                    self.like_match(&left_val, &right_val, false)
+                }
+                BinaryOperator::ILike => {
+                    let left_val = self.evaluate_expr_value(left, invoice, params);
+                    let right_val = self.evaluate_expr_value(right, invoice, params);
+                    self.like_match(&left_val, &right_val, true)
+                }
+                _ => false,
+            },
+            Expr::Function(FunctionCall {
+                name: FunctionName::Contains,
+                args,
+            }) => {
                 if args.len() >= 2 {
                     let text_val = self.evaluate_expr_value(&args[0], invoice, params);
                     let search_val = self.evaluate_expr_value(&args[1], invoice, params);
 
-                    if let (ColumnValue::String(text), ColumnValue::String(search)) = (text_val, search_val) {
+                    if let (ColumnValue::String(text), ColumnValue::String(search)) =
+                        (text_val, search_val)
+                    {
                         return self.fulltext_index.contains(&text, &search);
                     }
                 }
                 false
             }
-            Expr::Function(FunctionCall { name: FunctionName::VectorDistance, .. }) => {
+            Expr::Function(FunctionCall {
+                name: FunctionName::VectorDistance,
+                ..
+            }) => {
                 // VECTOR_DISTANCE is used for scoring, not boolean filtering
                 // It should be compared with a threshold like VECTOR_DISTANCE(...) < 0.3
                 true
@@ -688,20 +815,33 @@ impl QueryExecutor {
         }
     }
 
-    fn evaluate_expr_value(&self, expr: &Expr, invoice: &Invoice, params: &QueryParams) -> ColumnValue {
+    fn evaluate_expr_value(
+        &self,
+        expr: &Expr,
+        invoice: &Invoice,
+        params: &QueryParams,
+    ) -> ColumnValue {
         match expr {
             Expr::Column(col) => self.get_invoice_column(invoice, &col.column),
             Expr::Literal(lit) => self.literal_to_value(lit),
             Expr::Parameter(name) => self.param_to_value(params, name),
-            Expr::Function(FunctionCall { name: FunctionName::VectorDistance, .. }) => {
+            Expr::Function(FunctionCall {
+                name: FunctionName::VectorDistance,
+                ..
+            }) => {
                 // Return a placeholder - actual distance is calculated in scoring
                 ColumnValue::Float(0.0)
             }
-            Expr::Function(FunctionCall { name: FunctionName::Bm25Score, args }) => {
+            Expr::Function(FunctionCall {
+                name: FunctionName::Bm25Score,
+                args,
+            }) => {
                 if args.len() >= 2 {
                     if let (Expr::Column(col), Expr::Parameter(param_name)) = (&args[0], &args[1]) {
                         let text = self.get_invoice_column(invoice, &col.column);
-                        if let (ColumnValue::String(text), Some(query)) = (text, params.get_string(param_name)) {
+                        if let (ColumnValue::String(text), Some(query)) =
+                            (text, params.get_string(param_name))
+                        {
                             let score = self.fulltext_index.bm25_score(&text, query);
                             return ColumnValue::Float(score as f64);
                         }
@@ -719,10 +859,22 @@ impl QueryExecutor {
             "document_id" => ColumnValue::String(invoice.document_id.0.to_string()),
             "invoice_number" => ColumnValue::String(invoice.invoice_number.clone()),
             "invoice_date" => ColumnValue::Date(invoice.invoice_date),
-            "due_date" => invoice.due_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null),
-            "po_number" => invoice.po_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null),
+            "due_date" => invoice
+                .due_date
+                .map(ColumnValue::Date)
+                .unwrap_or(ColumnValue::Null),
+            "po_number" => invoice
+                .po_number
+                .clone()
+                .map(ColumnValue::String)
+                .unwrap_or(ColumnValue::Null),
             "vendor_name" => ColumnValue::String(invoice.vendor.name.clone()),
-            "vendor_tax_id" => invoice.vendor.tax_id.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null),
+            "vendor_tax_id" => invoice
+                .vendor
+                .tax_id
+                .clone()
+                .map(ColumnValue::String)
+                .unwrap_or(ColumnValue::Null),
             "bill_to_name" => ColumnValue::String(invoice.bill_to.name.clone()),
             "currency" => ColumnValue::String(format!("{:?}", invoice.currency)),
             "subtotal" => ColumnValue::Decimal(invoice.subtotal),
@@ -783,18 +935,29 @@ impl QueryExecutor {
         }
     }
 
-    fn like_match(&self, value: &ColumnValue, pattern: &ColumnValue, case_insensitive: bool) -> bool {
+    fn like_match(
+        &self,
+        value: &ColumnValue,
+        pattern: &ColumnValue,
+        case_insensitive: bool,
+    ) -> bool {
         match (value, pattern) {
             (ColumnValue::String(v), ColumnValue::String(p)) => {
-                let v = if case_insensitive { v.to_lowercase() } else { v.clone() };
-                let p = if case_insensitive { p.to_lowercase() } else { p.clone() };
+                let v = if case_insensitive {
+                    v.to_lowercase()
+                } else {
+                    v.clone()
+                };
+                let p = if case_insensitive {
+                    p.to_lowercase()
+                } else {
+                    p.clone()
+                };
 
                 // Simple LIKE pattern matching: % matches any sequence, _ matches single char
                 let regex_pattern = format!(
                     "^{}$",
-                    regex::escape(&p)
-                        .replace("%", ".*")
-                        .replace("_", ".")
+                    regex::escape(&p).replace("%", ".*").replace("_", ".")
                 );
 
                 regex::Regex::new(&regex_pattern)
@@ -834,7 +997,9 @@ impl QueryExecutor {
         if uses_text {
             // Calculate BM25 score
             if let Ok(search_terms) = self.find_text_param(query, params) {
-                let bm25 = self.fulltext_index.bm25_score(&invoice.extracted_text, &search_terms);
+                let bm25 = self
+                    .fulltext_index
+                    .bm25_score(&invoice.extracted_text, &search_terms);
                 // Normalize BM25 to [0, 1] range (approximate)
                 text_score = (bm25 as f64).min(10.0) / 10.0;
             }
@@ -863,7 +1028,11 @@ impl QueryExecutor {
 
             results.sort_by(|a, b| {
                 let cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
-                if ascending { cmp } else { cmp.reverse() }
+                if ascending {
+                    cmp
+                } else {
+                    cmp.reverse()
+                }
             });
         }
     }
@@ -875,25 +1044,55 @@ impl QueryExecutor {
             match &item.expr {
                 Expr::Wildcard => {
                     // Add all columns
-                    columns.insert("id".to_string(), ColumnValue::String(invoice.id.0.to_string()));
-                    columns.insert("invoice_number".to_string(), ColumnValue::String(invoice.invoice_number.clone()));
-                    columns.insert("invoice_date".to_string(), ColumnValue::Date(invoice.invoice_date));
-                    columns.insert("vendor_name".to_string(), ColumnValue::String(invoice.vendor.name.clone()));
-                    columns.insert("total_amount".to_string(), ColumnValue::Decimal(invoice.total_amount));
-                    columns.insert("confidence_score".to_string(), ColumnValue::Float(invoice.confidence_score as f64));
+                    columns.insert(
+                        "id".to_string(),
+                        ColumnValue::String(invoice.id.0.to_string()),
+                    );
+                    columns.insert(
+                        "invoice_number".to_string(),
+                        ColumnValue::String(invoice.invoice_number.clone()),
+                    );
+                    columns.insert(
+                        "invoice_date".to_string(),
+                        ColumnValue::Date(invoice.invoice_date),
+                    );
+                    columns.insert(
+                        "vendor_name".to_string(),
+                        ColumnValue::String(invoice.vendor.name.clone()),
+                    );
+                    columns.insert(
+                        "total_amount".to_string(),
+                        ColumnValue::Decimal(invoice.total_amount),
+                    );
+                    columns.insert(
+                        "confidence_score".to_string(),
+                        ColumnValue::Float(invoice.confidence_score as f64),
+                    );
                 }
                 Expr::Column(col) => {
                     let name = item.alias.clone().unwrap_or_else(|| col.column.clone());
                     let value = self.get_invoice_column(invoice, &col.column);
                     columns.insert(name, value);
                 }
-                Expr::Function(FunctionCall { name: FunctionName::VectorDistance, .. }) => {
-                    let name = item.alias.clone().unwrap_or_else(|| "vector_distance".to_string());
+                Expr::Function(FunctionCall {
+                    name: FunctionName::VectorDistance,
+                    ..
+                }) => {
+                    let name = item
+                        .alias
+                        .clone()
+                        .unwrap_or_else(|| "vector_distance".to_string());
                     // Use the base score as vector distance
                     columns.insert(name, ColumnValue::Float(1.0 - score));
                 }
-                Expr::Function(FunctionCall { name: FunctionName::Bm25Score, .. }) => {
-                    let name = item.alias.clone().unwrap_or_else(|| "bm25_score".to_string());
+                Expr::Function(FunctionCall {
+                    name: FunctionName::Bm25Score,
+                    ..
+                }) => {
+                    let name = item
+                        .alias
+                        .clone()
+                        .unwrap_or_else(|| "bm25_score".to_string());
                     columns.insert(name, ColumnValue::Float(score));
                 }
                 _ => {}

@@ -2,18 +2,18 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 use dashmap::DashMap;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
-use tantivy::schema::{Field, Schema, Value, STORED, TEXT, STRING};
+use tantivy::schema::{Field, Schema, Value, STORED, STRING, TEXT};
 use tantivy::{doc, Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument};
 use tokio::sync::RwLock;
 
-use fen_core::domain::{Contract, Invoice, InvoiceId, ContractId};
 use crate::error::StorageError;
+use fen_core::domain::{Contract, ContractId, Invoice, InvoiceId};
 
 /// Full-text search result
 #[derive(Debug, Clone)]
@@ -91,7 +91,8 @@ impl BM25Scorer {
         self.total_doc_length.fetch_add(doc_len, Ordering::SeqCst);
 
         // Track unique terms in this document for document frequency
-        let unique_terms: std::collections::HashSet<&str> = tokens.iter().map(|s| s.as_str()).collect();
+        let unique_terms: std::collections::HashSet<&str> =
+            tokens.iter().map(|s| s.as_str()).collect();
         for term in unique_terms {
             self.doc_frequencies
                 .entry(term.to_lowercase())
@@ -109,7 +110,8 @@ impl BM25Scorer {
         self.total_doc_length.fetch_sub(doc_len, Ordering::SeqCst);
 
         // Decrease document frequencies for unique terms
-        let unique_terms: std::collections::HashSet<&str> = tokens.iter().map(|s| s.as_str()).collect();
+        let unique_terms: std::collections::HashSet<&str> =
+            tokens.iter().map(|s| s.as_str()).collect();
         for term in unique_terms {
             if let Some(mut entry) = self.doc_frequencies.get_mut(&term.to_lowercase()) {
                 if *entry > 0 {
@@ -123,7 +125,11 @@ impl BM25Scorer {
     pub fn avg_doc_length(&self) -> f32 {
         let total = self.total_doc_length.load(Ordering::SeqCst) as f32;
         let count = self.doc_count.load(Ordering::SeqCst) as f32;
-        if count > 0.0 { total / count } else { 1.0 }
+        if count > 0.0 {
+            total / count
+        } else {
+            1.0
+        }
     }
 
     /// Get the total document count
@@ -138,7 +144,8 @@ impl BM25Scorer {
     /// Where N is total docs and df is document frequency
     fn idf(&self, term: &str) -> f32 {
         let n = self.doc_count() as f32;
-        let df = self.doc_frequencies
+        let df = self
+            .doc_frequencies
             .get(&term.to_lowercase())
             .map(|v| *v as f32)
             .unwrap_or(0.0);
@@ -203,7 +210,9 @@ impl BM25Scorer {
             .collect();
         let query_tokens = tokenize(query);
 
-        query_tokens.iter().all(|qt| text_tokens.contains(&qt.to_lowercase()))
+        query_tokens
+            .iter()
+            .all(|qt| text_tokens.contains(&qt.to_lowercase()))
     }
 }
 
@@ -216,7 +225,7 @@ impl Default for BM25Scorer {
 /// Simple tokenizer - splits on whitespace and punctuation, lowercases
 fn tokenize(text: &str) -> Vec<String> {
     text.split(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
-        .filter(|s| !s.is_empty() && s.len() >= 2)  // Filter out single chars and empty
+        .filter(|s| !s.is_empty() && s.len() >= 2) // Filter out single chars and empty
         .map(|s| s.to_lowercase())
         .collect()
 }
@@ -248,29 +257,30 @@ impl FullTextIndex {
 
     /// Create a new file-based full-text index
     pub fn new(path: &Path, config: FullTextConfig) -> Result<Self, StorageError> {
-        std::fs::create_dir_all(path).map_err(|e| {
-            StorageError::Index(format!("Failed to create index directory: {}", e))
-        })?;
+        std::fs::create_dir_all(path)
+            .map_err(|e| StorageError::Index(format!("Failed to create index directory: {}", e)))?;
 
         let schema = Self::build_schema();
-        let index = Index::create_in_dir(path, schema.clone()).map_err(|e| {
-            StorageError::Index(format!("Failed to create Tantivy index: {}", e))
-        })?;
+        let index = Index::create_in_dir(path, schema.clone())
+            .map_err(|e| StorageError::Index(format!("Failed to create Tantivy index: {}", e)))?;
 
         Self::from_index(index, schema, config)
     }
 
     /// Open an existing file-based full-text index
     pub fn open(path: &Path, config: FullTextConfig) -> Result<Self, StorageError> {
-        let index = Index::open_in_dir(path).map_err(|e| {
-            StorageError::Index(format!("Failed to open Tantivy index: {}", e))
-        })?;
+        let index = Index::open_in_dir(path)
+            .map_err(|e| StorageError::Index(format!("Failed to open Tantivy index: {}", e)))?;
 
         let schema = index.schema();
         Self::from_index(index, schema, config)
     }
 
-    fn from_index(index: Index, schema: Schema, config: FullTextConfig) -> Result<Self, StorageError> {
+    fn from_index(
+        index: Index,
+        schema: Schema,
+        config: FullTextConfig,
+    ) -> Result<Self, StorageError> {
         let writer = index
             .writer_with_num_threads(config.num_threads, config.writer_heap_size)
             .map_err(|e| StorageError::Index(format!("Failed to create index writer: {}", e)))?;
@@ -342,9 +352,9 @@ impl FullTextIndex {
             self.vendor_name_field => invoice.vendor.name.clone()
         );
 
-        writer.add_document(doc).map_err(|e| {
-            StorageError::Index(format!("Failed to index invoice: {}", e))
-        })?;
+        writer
+            .add_document(doc)
+            .map_err(|e| StorageError::Index(format!("Failed to index invoice: {}", e)))?;
 
         Ok(())
     }
@@ -367,9 +377,9 @@ impl FullTextIndex {
             self.vendor_name_field => contract.parties.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ")
         );
 
-        writer.add_document(doc).map_err(|e| {
-            StorageError::Index(format!("Failed to index contract: {}", e))
-        })?;
+        writer
+            .add_document(doc)
+            .map_err(|e| StorageError::Index(format!("Failed to index contract: {}", e)))?;
 
         Ok(())
     }
@@ -393,25 +403,33 @@ impl FullTextIndex {
     /// Commit pending changes and reload reader
     pub async fn commit(&self) -> Result<(), StorageError> {
         let mut writer = self.writer.write().await;
-        writer.commit().map_err(|e| {
-            StorageError::Index(format!("Failed to commit index: {}", e))
-        })?;
+        writer
+            .commit()
+            .map_err(|e| StorageError::Index(format!("Failed to commit index: {}", e)))?;
 
         // Reload the reader to see the committed changes
-        self.reader.reload().map_err(|e| {
-            StorageError::Index(format!("Failed to reload index reader: {}", e))
-        })?;
+        self.reader
+            .reload()
+            .map_err(|e| StorageError::Index(format!("Failed to reload index reader: {}", e)))?;
 
         Ok(())
     }
 
     /// Search invoices by text query
-    pub fn search_invoices(&self, query_str: &str, limit: usize) -> Result<Vec<SearchResult>, StorageError> {
+    pub fn search_invoices(
+        &self,
+        query_str: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>, StorageError> {
         self.search_with_filter(query_str, "invoice", limit)
     }
 
     /// Search contracts by text query
-    pub fn search_contracts(&self, query_str: &str, limit: usize) -> Result<Vec<SearchResult>, StorageError> {
+    pub fn search_contracts(
+        &self,
+        query_str: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>, StorageError> {
         self.search_with_filter(query_str, "contract", limit)
     }
 
@@ -419,15 +437,22 @@ impl FullTextIndex {
     pub fn search(&self, query_str: &str, limit: usize) -> Result<Vec<SearchResult>, StorageError> {
         let searcher = self.reader.searcher();
 
-        let query_parser = QueryParser::for_index(&self.index, vec![self.text_field, self.invoice_number_field, self.vendor_name_field]);
+        let query_parser = QueryParser::for_index(
+            &self.index,
+            vec![
+                self.text_field,
+                self.invoice_number_field,
+                self.vendor_name_field,
+            ],
+        );
 
-        let query = query_parser.parse_query(query_str).map_err(|e| {
-            StorageError::Query(format!("Failed to parse query: {}", e))
-        })?;
+        let query = query_parser
+            .parse_query(query_str)
+            .map_err(|e| StorageError::Query(format!("Failed to parse query: {}", e)))?;
 
-        let top_docs = searcher.search(&query, &TopDocs::with_limit(limit)).map_err(|e| {
-            StorageError::Query(format!("Search failed: {}", e))
-        })?;
+        let top_docs = searcher
+            .search(&query, &TopDocs::with_limit(limit))
+            .map_err(|e| StorageError::Query(format!("Search failed: {}", e)))?;
 
         let results = top_docs
             .into_iter()
@@ -441,7 +466,12 @@ impl FullTextIndex {
         Ok(results)
     }
 
-    fn search_with_filter(&self, query_str: &str, doc_type: &str, limit: usize) -> Result<Vec<SearchResult>, StorageError> {
+    fn search_with_filter(
+        &self,
+        query_str: &str,
+        doc_type: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>, StorageError> {
         let searcher = self.reader.searcher();
 
         // Combine user query with doc_type filter
@@ -449,16 +479,21 @@ impl FullTextIndex {
 
         let query_parser = QueryParser::for_index(
             &self.index,
-            vec![self.text_field, self.invoice_number_field, self.vendor_name_field, self.doc_type_field]
+            vec![
+                self.text_field,
+                self.invoice_number_field,
+                self.vendor_name_field,
+                self.doc_type_field,
+            ],
         );
 
-        let query = query_parser.parse_query(&full_query).map_err(|e| {
-            StorageError::Query(format!("Failed to parse query: {}", e))
-        })?;
+        let query = query_parser
+            .parse_query(&full_query)
+            .map_err(|e| StorageError::Query(format!("Failed to parse query: {}", e)))?;
 
-        let top_docs = searcher.search(&query, &TopDocs::with_limit(limit)).map_err(|e| {
-            StorageError::Query(format!("Search failed: {}", e))
-        })?;
+        let top_docs = searcher
+            .search(&query, &TopDocs::with_limit(limit))
+            .map_err(|e| StorageError::Query(format!("Search failed: {}", e)))?;
 
         let results = top_docs
             .into_iter()
@@ -500,7 +535,10 @@ impl FullTextIndex {
 
     /// Get corpus statistics
     pub fn corpus_stats(&self) -> (u64, f32) {
-        (self.bm25_scorer.doc_count(), self.bm25_scorer.avg_doc_length())
+        (
+            self.bm25_scorer.doc_count(),
+            self.bm25_scorer.avg_doc_length(),
+        )
     }
 }
 
@@ -641,7 +679,10 @@ mod tests {
 
         // "quick fox" should score higher than "lazy dog" because "quick" and "fox"
         // are less common in the corpus
-        assert!(score1 > score3, "Rare terms should score higher than common terms");
+        assert!(
+            score1 > score3,
+            "Rare terms should score higher than common terms"
+        );
     }
 
     #[test]
@@ -660,9 +701,12 @@ mod tests {
         let common_score = scorer.score(doc, "common");
 
         // Rare term should have higher IDF and thus higher score
-        assert!(rare_score > common_score,
+        assert!(
+            rare_score > common_score,
             "Rare terms (IDF higher) should score higher: rare={} vs common={}",
-            rare_score, common_score);
+            rare_score,
+            common_score
+        );
     }
 
     #[test]
@@ -683,9 +727,12 @@ mod tests {
         let score_single = scorer.score(doc_single, "test");
 
         // More occurrences should lead to higher score (but with saturation)
-        assert!(score_repeated > score_single,
+        assert!(
+            score_repeated > score_single,
             "Higher term frequency should increase score: repeated={} vs single={}",
-            score_repeated, score_single);
+            score_repeated,
+            score_single
+        );
     }
 
     #[tokio::test]

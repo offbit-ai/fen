@@ -112,11 +112,7 @@ impl Anomaly {
     }
 
     /// Set expected and actual values
-    pub fn with_values(
-        mut self,
-        expected: impl Into<String>,
-        actual: impl Into<String>,
-    ) -> Self {
+    pub fn with_values(mut self, expected: impl Into<String>, actual: impl Into<String>) -> Self {
         self.expected_value = Some(expected.into());
         self.actual_value = Some(actual.into());
         self
@@ -169,13 +165,13 @@ impl ValidationResult {
 
     /// Check if there are any critical anomalies
     pub fn has_critical(&self) -> bool {
-        self.anomalies.iter().any(|a| a.severity == Severity::Critical)
+        self.anomalies
+            .iter()
+            .any(|a| a.severity == Severity::Critical)
     }
 
     /// Check if there are any high severity anomalies
     pub fn has_high_severity(&self) -> bool {
-        self.anomalies
-            .iter()
-            .any(|a| a.severity >= Severity::High)
+        self.anomalies.iter().any(|a| a.severity >= Severity::High)
     }
 }

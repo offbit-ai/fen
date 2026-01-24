@@ -87,7 +87,10 @@ mod tests {
         let hub = NotificationHub::new();
         let tenant_id = TenantId::new();
 
-        hub.set_tenant_providers(tenant_id.clone(), vec!["email".to_string(), "webhook".to_string()]);
+        hub.set_tenant_providers(
+            tenant_id.clone(),
+            vec!["email".to_string(), "webhook".to_string()],
+        );
 
         let providers = hub.get_tenant_providers(&tenant_id);
         assert_eq!(providers, vec!["email", "webhook"]);

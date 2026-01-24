@@ -75,7 +75,7 @@ pub enum TokenKind<'a> {
     Cross,
 
     // Pipeline keywords
-    Pipe,       // |>
+    Pipe, // |>
     Validate,
     Analyze,
     CrossValidate,
@@ -274,15 +274,13 @@ impl<'a> Lexer<'a> {
                     self.input,
                 ))
             }
-            Err(nom::Err::Incomplete(_)) => {
-                Err(ParseError::new(
-                    ParseErrorKind::UnexpectedEof {
-                        expected: vec!["more input".to_string()],
-                    },
-                    Span::new(self.input.len(), self.input.len(), 1, 1),
-                    self.input,
-                ))
-            }
+            Err(nom::Err::Incomplete(_)) => Err(ParseError::new(
+                ParseErrorKind::UnexpectedEof {
+                    expected: vec!["more input".to_string()],
+                },
+                Span::new(self.input.len(), self.input.len(), 1, 1),
+                self.input,
+            )),
         }
     }
 
@@ -411,7 +409,10 @@ fn number(input: Input) -> IResult<Input, Token> {
 
     let s = *num_str.fragment();
     let i = s.parse::<i64>().map_err(|_| {
-        nom::Err::Error(nom::error::Error::new(input.clone(), nom::error::ErrorKind::Digit))
+        nom::Err::Error(nom::error::Error::new(
+            input.clone(),
+            nom::error::ErrorKind::Digit,
+        ))
     })?;
 
     Ok((input, Token::new(TokenKind::Integer(i), start, s.len())))
@@ -439,7 +440,10 @@ fn parameter(input: Input) -> IResult<Input, Token> {
     let name_str = *name.fragment();
     let len = 1 + name_str.len();
 
-    Ok((input, Token::new(TokenKind::Parameter(name_str), start, len)))
+    Ok((
+        input,
+        Token::new(TokenKind::Parameter(name_str), start, len),
+    ))
 }
 
 fn operator(input: Input) -> IResult<Input, Token> {
@@ -526,7 +530,10 @@ mod tests {
         let tokens = lexer.tokenize().unwrap();
 
         assert_eq!(tokens.len(), 2);
-        assert!(matches!(tokens[0].kind, TokenKind::Parameter("query_vector")));
+        assert!(matches!(
+            tokens[0].kind,
+            TokenKind::Parameter("query_vector")
+        ));
         assert!(matches!(tokens[1].kind, TokenKind::Parameter("limit")));
     }
 
@@ -560,7 +567,7 @@ mod tests {
              FROM invoices inv \
              WHERE score < 0.3 \
              ORDER BY score ASC \
-             LIMIT 10"
+             LIMIT 10",
         );
         let tokens = lexer.tokenize().unwrap();
 
@@ -609,9 +616,7 @@ mod tests {
 
     #[test]
     fn test_tokenize_pipe_in_query() {
-        let mut lexer = Lexer::new(
-            "SELECT * FROM invoices |> VALIDATE WITH ('rule1')"
-        );
+        let mut lexer = Lexer::new("SELECT * FROM invoices |> VALIDATE WITH ('rule1')");
         let tokens = lexer.tokenize().unwrap();
 
         // Should contain Pipe token

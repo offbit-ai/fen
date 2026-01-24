@@ -203,11 +203,23 @@ impl TableExtractor {
         // Shape derefs to [i64] slice
 
         if shape.len() >= 2 {
-            let num_queries = if shape.len() == 3 { shape[1] as usize } else { shape[0] as usize };
-            let stride = if shape.len() == 3 { shape[2] as usize } else { 5 };
+            let num_queries = if shape.len() == 3 {
+                shape[1] as usize
+            } else {
+                shape[0] as usize
+            };
+            let stride = if shape.len() == 3 {
+                shape[2] as usize
+            } else {
+                5
+            };
 
             for i in 0..num_queries {
-                let offset = if shape.len() == 3 { i * stride } else { i * stride };
+                let offset = if shape.len() == 3 {
+                    i * stride
+                } else {
+                    i * stride
+                };
                 if offset + 4 >= data.len() {
                     break;
                 }
@@ -216,7 +228,11 @@ impl TableExtractor {
                 let cy = data[offset + 1];
                 let w = data[offset + 2];
                 let h = data[offset + 3];
-                let conf = if offset + 4 < data.len() { data[offset + 4] } else { 1.0 };
+                let conf = if offset + 4 < data.len() {
+                    data[offset + 4]
+                } else {
+                    1.0
+                };
 
                 if conf > self.config.detection_threshold {
                     let x: f32 = (cx - w / 2.0) * img_width as f32;
@@ -312,8 +328,11 @@ impl TableExtractor {
     /// Preprocess cropped table for structure recognition
     fn preprocess_for_structure(&self, image: &DynamicImage) -> Result<Array4<f32>, MlError> {
         let target_size = 640u32;
-        let resized =
-            image.resize_exact(target_size, target_size, image::imageops::FilterType::Lanczos3);
+        let resized = image.resize_exact(
+            target_size,
+            target_size,
+            image::imageops::FilterType::Lanczos3,
+        );
         let rgb = resized.to_rgb8();
 
         let mut arr = Array4::<f32>::zeros((1, 3, target_size as usize, target_size as usize));
@@ -347,8 +366,16 @@ impl TableExtractor {
             if let Ok((shape, data)) = output.try_extract_tensor::<f32>() {
                 // Shape derefs to [i64] slice
                 if shape.len() >= 2 {
-                    let num_rows = if shape.len() == 3 { shape[1] as usize } else { shape[0] as usize };
-                    let stride = if shape.len() == 3 { shape[2] as usize } else { 3 };
+                    let num_rows = if shape.len() == 3 {
+                        shape[1] as usize
+                    } else {
+                        shape[0] as usize
+                    };
+                    let stride = if shape.len() == 3 {
+                        shape[2] as usize
+                    } else {
+                        3
+                    };
 
                     for i in 0..num_rows {
                         let offset = i * stride;
@@ -358,7 +385,11 @@ impl TableExtractor {
 
                         let y = data[offset];
                         let h = data[offset + 1];
-                        let conf = if offset + 2 < data.len() { data[offset + 2] } else { 1.0 };
+                        let conf = if offset + 2 < data.len() {
+                            data[offset + 2]
+                        } else {
+                            1.0
+                        };
 
                         if conf > self.config.cell_threshold {
                             rows.push(TableRow {
@@ -382,8 +413,16 @@ impl TableExtractor {
             if let Ok((shape, data)) = output.try_extract_tensor::<f32>() {
                 // Shape derefs to [i64] slice
                 if shape.len() >= 2 {
-                    let num_cols = if shape.len() == 3 { shape[1] as usize } else { shape[0] as usize };
-                    let stride = if shape.len() == 3 { shape[2] as usize } else { 3 };
+                    let num_cols = if shape.len() == 3 {
+                        shape[1] as usize
+                    } else {
+                        shape[0] as usize
+                    };
+                    let stride = if shape.len() == 3 {
+                        shape[2] as usize
+                    } else {
+                        3
+                    };
 
                     for i in 0..num_cols {
                         let offset = i * stride;
@@ -393,7 +432,11 @@ impl TableExtractor {
 
                         let x = data[offset];
                         let w = data[offset + 1];
-                        let conf = if offset + 2 < data.len() { data[offset + 2] } else { 1.0 };
+                        let conf = if offset + 2 < data.len() {
+                            data[offset + 2]
+                        } else {
+                            1.0
+                        };
 
                         if conf > self.config.cell_threshold {
                             columns.push(TableColumn {
@@ -442,7 +485,8 @@ impl TableExtractor {
             .collect();
 
         let rtree = {
-            let _span = tracing::info_span!("build_rtree", num_regions = %indexed_regions.len()).entered();
+            let _span =
+                tracing::info_span!("build_rtree", num_regions = %indexed_regions.len()).entered();
             RTree::bulk_load(indexed_regions)
         };
 
@@ -453,12 +497,8 @@ impl TableExtractor {
 
             for (col_idx, col) in structure.columns.iter().enumerate() {
                 // Cell bbox is intersection of row and column
-                let cell_bbox = BoundingBox::new(
-                    col.x_start,
-                    row.bbox.y,
-                    col.width(),
-                    row.bbox.height,
-                );
+                let cell_bbox =
+                    BoundingBox::new(col.x_start, row.bbox.y, col.width(), row.bbox.height);
 
                 // Find OCR text using spatial index - O(log n) query
                 let text = self.find_text_in_region_indexed(&cell_bbox, &rtree);
@@ -542,7 +582,11 @@ impl TableExtractor {
     }
 
     /// Find table caption near the table
-    fn find_table_caption(&self, ocr_result: &OcrResult, table_bbox: &BoundingBox) -> Option<String> {
+    fn find_table_caption(
+        &self,
+        ocr_result: &OcrResult,
+        table_bbox: &BoundingBox,
+    ) -> Option<String> {
         // Look for text just above the table that might be a caption
         let search_region = BoundingBox::new(
             table_bbox.x,
@@ -647,8 +691,11 @@ impl TableExtractor {
             let aligned_count = positions[1..]
                 .iter()
                 .filter(|p| {
-                    p.iter()
-                        .any(|&pos| first_positions.iter().any(|&fp| (pos as i32 - fp as i32).abs() < 5))
+                    p.iter().any(|&pos| {
+                        first_positions
+                            .iter()
+                            .any(|&fp| (pos as i32 - fp as i32).abs() < 5)
+                    })
                 })
                 .count();
 
@@ -720,12 +767,32 @@ mod tests {
         let mut table = ExtractedTable::new(BoundingBox::new(0.0, 0.0, 100.0, 100.0), 0.9);
         table.cells = vec![
             vec![
-                TableCell::new("Header 1".to_string(), BoundingBox::new(0.0, 0.0, 0.0, 0.0), 0, 0),
-                TableCell::new("Header 2".to_string(), BoundingBox::new(0.0, 0.0, 0.0, 0.0), 0, 1),
+                TableCell::new(
+                    "Header 1".to_string(),
+                    BoundingBox::new(0.0, 0.0, 0.0, 0.0),
+                    0,
+                    0,
+                ),
+                TableCell::new(
+                    "Header 2".to_string(),
+                    BoundingBox::new(0.0, 0.0, 0.0, 0.0),
+                    0,
+                    1,
+                ),
             ],
             vec![
-                TableCell::new("Data 1".to_string(), BoundingBox::new(0.0, 0.0, 0.0, 0.0), 1, 0),
-                TableCell::new("Data 2".to_string(), BoundingBox::new(0.0, 0.0, 0.0, 0.0), 1, 1),
+                TableCell::new(
+                    "Data 1".to_string(),
+                    BoundingBox::new(0.0, 0.0, 0.0, 0.0),
+                    1,
+                    0,
+                ),
+                TableCell::new(
+                    "Data 2".to_string(),
+                    BoundingBox::new(0.0, 0.0, 0.0, 0.0),
+                    1,
+                    1,
+                ),
             ],
         ];
         table.num_rows = 2;
@@ -742,12 +809,32 @@ mod tests {
         let mut table = ExtractedTable::new(BoundingBox::new(0.0, 0.0, 100.0, 100.0), 0.9);
         table.cells = vec![
             vec![
-                TableCell::new("Name".to_string(), BoundingBox::new(0.0, 0.0, 0.0, 0.0), 0, 0),
-                TableCell::new("Value".to_string(), BoundingBox::new(0.0, 0.0, 0.0, 0.0), 0, 1),
+                TableCell::new(
+                    "Name".to_string(),
+                    BoundingBox::new(0.0, 0.0, 0.0, 0.0),
+                    0,
+                    0,
+                ),
+                TableCell::new(
+                    "Value".to_string(),
+                    BoundingBox::new(0.0, 0.0, 0.0, 0.0),
+                    0,
+                    1,
+                ),
             ],
             vec![
-                TableCell::new("Item, 1".to_string(), BoundingBox::new(0.0, 0.0, 0.0, 0.0), 1, 0),
-                TableCell::new("100".to_string(), BoundingBox::new(0.0, 0.0, 0.0, 0.0), 1, 1),
+                TableCell::new(
+                    "Item, 1".to_string(),
+                    BoundingBox::new(0.0, 0.0, 0.0, 0.0),
+                    1,
+                    0,
+                ),
+                TableCell::new(
+                    "100".to_string(),
+                    BoundingBox::new(0.0, 0.0, 0.0, 0.0),
+                    1,
+                    1,
+                ),
             ],
         ];
 

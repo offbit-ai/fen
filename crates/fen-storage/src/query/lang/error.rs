@@ -93,10 +93,7 @@ impl ParseError {
         }
 
         let report = builder.finish();
-        report.write(
-            (&self.file_name, AriadneSource::from(&self.source)),
-            writer,
-        )
+        report.write((&self.file_name, AriadneSource::from(&self.source)), writer)
     }
 
     /// Get the error message without colors (for logging)
@@ -211,13 +208,22 @@ impl ParseErrorKind {
             Self::DuplicateAlias(a) => format!("duplicate alias '{}'", a),
 
             Self::UnknownFunction(f) => format!("unknown function '{}'", f),
-            Self::WrongArgumentCount { function, expected, found } => {
+            Self::WrongArgumentCount {
+                function,
+                expected,
+                found,
+            } => {
                 format!(
                     "function '{}' expects {} argument(s), found {}",
                     function, expected, found
                 )
             }
-            Self::InvalidArgumentType { function, position, expected, found } => {
+            Self::InvalidArgumentType {
+                function,
+                position,
+                expected,
+                found,
+            } => {
                 format!(
                     "invalid argument type for '{}' at position {}: expected {}, found {}",
                     function, position, expected, found
@@ -265,11 +271,18 @@ impl ParseErrorKind {
             Self::WrongArgumentCount { .. } => "wrong number of arguments".to_string(),
             Self::InvalidArgumentType { .. } => "invalid argument type".to_string(),
 
-            Self::UnknownColumn { column, suggestions, .. } => {
+            Self::UnknownColumn {
+                column,
+                suggestions,
+                ..
+            } => {
                 if suggestions.is_empty() {
                     format!("'{}' does not exist", column)
                 } else {
-                    format!("'{}' does not exist, did you mean '{}'?", column, suggestions[0])
+                    format!(
+                        "'{}' does not exist, did you mean '{}'?",
+                        column, suggestions[0]
+                    )
                 }
             }
             Self::UnknownTable(t) => format!("'{}' is not a valid table", t),
@@ -298,9 +311,7 @@ impl ParseErrorKind {
                     Some(format!("known functions: {}", known.join(", ")))
                 }
             }
-            Self::UnknownTable(_) => {
-                Some("valid tables are: invoices, contracts".to_string())
-            }
+            Self::UnknownTable(_) => Some("valid tables are: invoices, contracts".to_string()),
             Self::MissingFromClause => {
                 Some("add a FROM clause to specify the table to query".to_string())
             }
@@ -367,7 +378,14 @@ fn format_expected(expected: &[String]) -> String {
 }
 
 fn known_functions() -> Vec<&'static str> {
-    vec!["VECTOR_DISTANCE", "BM25_SCORE", "CONTAINS", "LOWER", "UPPER", "COALESCE"]
+    vec![
+        "VECTOR_DISTANCE",
+        "BM25_SCORE",
+        "CONTAINS",
+        "LOWER",
+        "UPPER",
+        "COALESCE",
+    ]
 }
 
 fn find_similar<'a>(target: &str, candidates: &[&'a str]) -> Option<&'a str> {
@@ -383,8 +401,12 @@ fn levenshtein(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
 
-    if a.is_empty() { return b.len(); }
-    if b.is_empty() { return a.len(); }
+    if a.is_empty() {
+        return b.len();
+    }
+    if b.is_empty() {
+        return a.len();
+    }
 
     let mut prev: Vec<usize> = (0..=b.len()).collect();
     let mut curr = vec![0; b.len() + 1];
@@ -393,9 +415,7 @@ fn levenshtein(a: &str, b: &str) -> usize {
         curr[0] = i + 1;
         for (j, cb) in b.iter().enumerate() {
             let cost = if ca == cb { 0 } else { 1 };
-            curr[j + 1] = (prev[j + 1] + 1)
-                .min(curr[j] + 1)
-                .min(prev[j] + cost);
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -432,7 +452,10 @@ mod tests {
     #[test]
     fn test_find_similar() {
         let functions = vec!["VECTOR_DISTANCE", "BM25_SCORE", "CONTAINS"];
-        assert_eq!(find_similar("VECTOR_DISTANC", &functions), Some("VECTOR_DISTANCE"));
+        assert_eq!(
+            find_similar("VECTOR_DISTANC", &functions),
+            Some("VECTOR_DISTANCE")
+        );
         assert_eq!(find_similar("BM25_SCOR", &functions), Some("BM25_SCORE")); // edit distance 1
         assert_eq!(find_similar("CONTANS", &functions), Some("CONTAINS")); // edit distance 1
         assert_eq!(find_similar("BM25", &functions), None); // edit distance 6 - too far

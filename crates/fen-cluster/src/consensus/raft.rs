@@ -281,7 +281,10 @@ impl RaftCoordinator {
         let total_members = members.len();
         let healthy_members = members.iter().filter(|m| m.is_healthy).count();
         let voting_members = members.iter().filter(|m| m.is_voter).count();
-        let healthy_voters = members.iter().filter(|m| m.is_voter && m.is_healthy).count();
+        let healthy_voters = members
+            .iter()
+            .filter(|m| m.is_voter && m.is_healthy)
+            .count();
 
         ClusterHealth {
             total_members,

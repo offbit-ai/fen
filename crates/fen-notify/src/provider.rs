@@ -310,7 +310,10 @@ impl ProviderConfig {
 
     /// Get a string setting.
     pub fn get_string(&self, key: &str) -> Option<String> {
-        self.settings.get(key).and_then(|v| v.as_str()).map(String::from)
+        self.settings
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(String::from)
     }
 
     /// Get a u64 setting.
@@ -378,7 +381,10 @@ mod tests {
             .with_setting("batch_interval", serde_json::json!(3600));
 
         assert!(config.enabled);
-        assert_eq!(config.get_string("smtp_host"), Some("mail.example.com".to_string()));
+        assert_eq!(
+            config.get_string("smtp_host"),
+            Some("mail.example.com".to_string())
+        );
         assert_eq!(config.get_u64("batch_interval"), Some(3600));
     }
 }

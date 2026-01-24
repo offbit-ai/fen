@@ -53,9 +53,7 @@ impl EmbeddingModel {
             return Err(MlError::ModelNotFound(model_path.display().to_string()));
         }
         if !tokenizer_path.exists() {
-            return Err(MlError::ModelNotFound(
-                tokenizer_path.display().to_string(),
-            ));
+            return Err(MlError::ModelNotFound(tokenizer_path.display().to_string()));
         }
 
         let session = Session::builder()?.commit_from_file(model_path)?;
@@ -159,19 +157,18 @@ impl EmbeddingModel {
                 .collect());
         }
 
-        let mut session = self
-            .session
-            .as_ref()
-            .unwrap()
-            .lock()
-            .map_err(|e| MlError::ModelLoading(format!("Failed to acquire session lock: {}", e)))?;
+        let mut session =
+            self.session.as_ref().unwrap().lock().map_err(|e| {
+                MlError::ModelLoading(format!("Failed to acquire session lock: {}", e))
+            })?;
         let tokenizer = self.tokenizer.as_ref().unwrap();
 
         let batch_size = texts.len();
 
         // Tokenize all texts at once - tokenizers crate handles padding automatically
         let encodings = {
-            let _span = tracing::info_span!("embedding_tokenization", batch_size = %batch_size).entered();
+            let _span =
+                tracing::info_span!("embedding_tokenization", batch_size = %batch_size).entered();
             tokenizer
                 .encode_batch(texts.to_vec(), true)
                 .map_err(|e| MlError::Tokenization(e.to_string()))?
@@ -292,7 +289,7 @@ impl EmbeddingModel {
         &self,
         full_text: &str,
         sections: &[(String, String, String)], // (id, type, text)
-        entities: &[(String, String)],          // (type, value)
+        entities: &[(String, String)],         // (type, value)
     ) -> Result<DocumentEmbeddings, MlError> {
         // Collect all texts for single batch processing
         let mut all_texts: Vec<&str> = Vec::with_capacity(1 + sections.len() + entities.len());
@@ -483,14 +480,22 @@ mod tests {
         let model = EmbeddingModel::new(config).unwrap();
 
         let sections = vec![
-            ("s1".to_string(), "header".to_string(), "Header text".to_string()),
-            ("s2".to_string(), "body".to_string(), "Body content".to_string()),
+            (
+                "s1".to_string(),
+                "header".to_string(),
+                "Header text".to_string(),
+            ),
+            (
+                "s2".to_string(),
+                "body".to_string(),
+                "Body content".to_string(),
+            ),
         ];
-        let entities = vec![
-            ("amount".to_string(), "$100.00".to_string()),
-        ];
+        let entities = vec![("amount".to_string(), "$100.00".to_string())];
 
-        let result = model.embed_document("Full document", &sections, &entities).unwrap();
+        let result = model
+            .embed_document("Full document", &sections, &entities)
+            .unwrap();
         assert_eq!(result.document.len(), 768);
         assert_eq!(result.sections.len(), 2);
         assert_eq!(result.entities.len(), 1);

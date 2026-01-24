@@ -82,7 +82,10 @@ impl NotificationHub {
     ///
     /// # Arguments
     /// * `provider_id` - The ID of the provider to unregister
-    pub fn unregister_provider(&self, provider_id: &str) -> Option<Arc<dyn NotificationDeliveryProvider>> {
+    pub fn unregister_provider(
+        &self,
+        provider_id: &str,
+    ) -> Option<Arc<dyn NotificationDeliveryProvider>> {
         self.providers.remove(provider_id).map(|(_, v)| v)
     }
 
@@ -346,7 +349,10 @@ mod tests {
         let hub = NotificationHub::new();
         let tenant = TenantId::new();
 
-        hub.set_tenant_providers(tenant.clone(), vec!["email".to_string(), "slack".to_string()]);
+        hub.set_tenant_providers(
+            tenant.clone(),
+            vec!["email".to_string(), "slack".to_string()],
+        );
 
         let providers = hub.get_tenant_providers(&tenant);
         assert_eq!(providers, vec!["email", "slack"]);

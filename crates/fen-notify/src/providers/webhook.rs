@@ -154,8 +154,8 @@ impl WebhookProvider {
         endpoint: &WebhookEndpoint,
         payload: &NotificationPayload,
     ) -> Result<(), DeliveryError> {
-        let body =
-            serde_json::to_vec(payload).map_err(|e| DeliveryError::DeliveryFailed(e.to_string()))?;
+        let body = serde_json::to_vec(payload)
+            .map_err(|e| DeliveryError::DeliveryFailed(e.to_string()))?;
 
         let mut attempt = 0;
         loop {

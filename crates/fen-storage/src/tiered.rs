@@ -73,7 +73,10 @@ impl TieredStorageConfig {
     }
 
     /// Create a development configuration with custom paths
-    pub fn development_with_paths(hot_path: impl Into<String>, warm_path: impl Into<String>) -> Self {
+    pub fn development_with_paths(
+        hot_path: impl Into<String>,
+        warm_path: impl Into<String>,
+    ) -> Self {
         Self {
             hot_backend: HotStorageBackend::embedded(hot_path),
             warm_backend: WarmStorageBackend::embedded(warm_path),
@@ -471,8 +474,8 @@ impl TieredStorage {
             return Ok(0);
         }
 
-        let cutoff_date = Utc::now().date_naive()
-            - chrono::Duration::days(self.config.hot_tier_days as i64);
+        let cutoff_date =
+            Utc::now().date_naive() - chrono::Duration::days(self.config.hot_tier_days as i64);
 
         let mut migrated = 0;
 
@@ -630,7 +633,10 @@ mod tests {
 
         // Search by embedding
         let query: Vec<f32> = (0..768).map(|i| i as f32 / 1000.0 + 0.001).collect();
-        let results = storage.search_invoices_by_embedding(&query, 10).await.unwrap();
+        let results = storage
+            .search_invoices_by_embedding(&query, 10)
+            .await
+            .unwrap();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.invoice_number, "INV-002");

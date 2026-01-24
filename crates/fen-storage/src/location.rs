@@ -189,8 +189,8 @@ impl TierDistribution {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fen_core::domain::Invoice;
     use chrono::NaiveDate;
+    use fen_core::domain::Invoice;
 
     #[test]
     fn test_register_and_get() {
@@ -239,11 +239,17 @@ mod tests {
         let index = DocumentLocationIndex::new();
 
         for i in 0..5 {
-            let inv = Invoice::new(&format!("HOT-{}", i), NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+            let inv = Invoice::new(
+                &format!("HOT-{}", i),
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            );
             index.register_invoice(inv.id, StorageTier::Hot);
         }
         for i in 0..3 {
-            let inv = Invoice::new(&format!("WARM-{}", i), NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+            let inv = Invoice::new(
+                &format!("WARM-{}", i),
+                NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            );
             index.register_invoice(inv.id, StorageTier::Warm);
         }
 

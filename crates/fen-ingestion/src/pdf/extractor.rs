@@ -45,7 +45,10 @@ impl PdfExtractor {
     }
 
     /// Extract text from a PDF file
-    pub fn extract_from_file(&self, path: impl AsRef<Path>) -> Result<ExtractedPdf, IngestionError> {
+    pub fn extract_from_file(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<ExtractedPdf, IngestionError> {
         let document = self
             .pdfium
             .load_pdf_from_file(path.as_ref(), None)
@@ -64,7 +67,10 @@ impl PdfExtractor {
         self.extract_from_document(&document)
     }
 
-    fn extract_from_document(&self, document: &PdfDocument) -> Result<ExtractedPdf, IngestionError> {
+    fn extract_from_document(
+        &self,
+        document: &PdfDocument,
+    ) -> Result<ExtractedPdf, IngestionError> {
         let mut full_text = String::new();
         let page_count = document.pages().len() as usize;
 
@@ -86,9 +92,15 @@ impl PdfExtractor {
         // Extract metadata using the tag-based API
         let meta = document.metadata();
         let metadata = PdfMetadataInfo {
-            title: meta.get(PdfDocumentMetadataTagType::Title).map(|t| t.value().to_string()),
-            author: meta.get(PdfDocumentMetadataTagType::Author).map(|t| t.value().to_string()),
-            creation_date: meta.get(PdfDocumentMetadataTagType::CreationDate).map(|t| t.value().to_string()),
+            title: meta
+                .get(PdfDocumentMetadataTagType::Title)
+                .map(|t| t.value().to_string()),
+            author: meta
+                .get(PdfDocumentMetadataTagType::Author)
+                .map(|t| t.value().to_string()),
+            creation_date: meta
+                .get(PdfDocumentMetadataTagType::CreationDate)
+                .map(|t| t.value().to_string()),
         };
 
         let trimmed_text = full_text.trim().to_string();
@@ -103,7 +115,10 @@ impl PdfExtractor {
     }
 
     /// Render PDF pages as images for ML processing
-    pub fn render_pages_from_bytes(&self, bytes: &[u8]) -> Result<Vec<RenderedPage>, IngestionError> {
+    pub fn render_pages_from_bytes(
+        &self,
+        bytes: &[u8],
+    ) -> Result<Vec<RenderedPage>, IngestionError> {
         let document = self
             .pdfium
             .load_pdf_from_byte_slice(bytes, None)
@@ -152,8 +167,9 @@ fn bitmap_to_image(bitmap: &PdfBitmap) -> Result<DynamicImage, IngestionError> {
     let buffer = bitmap.as_raw_bytes();
 
     // Create image from raw bytes
-    let img = RgbaImage::from_raw(width, height, buffer.to_vec())
-        .ok_or_else(|| IngestionError::PdfRender("Failed to create image from bitmap".to_string()))?;
+    let img = RgbaImage::from_raw(width, height, buffer.to_vec()).ok_or_else(|| {
+        IngestionError::PdfRender("Failed to create image from bitmap".to_string())
+    })?;
 
     Ok(DynamicImage::ImageRgba8(img))
 }

@@ -168,10 +168,9 @@ impl<'a> QueryParser<'a> {
             "contracts" => QueryTarget::Contracts,
             _ => {
                 let span = self.previous().span;
-                return Err(self.error(
-                    ParseErrorKind::UnknownTable(table_name),
-                    span,
-                ).with_help("valid tables are: invoices, contracts"));
+                return Err(self
+                    .error(ParseErrorKind::UnknownTable(table_name), span)
+                    .with_help("valid tables are: invoices, contracts"));
             }
         };
 
@@ -221,10 +220,9 @@ impl<'a> QueryParser<'a> {
             "contracts" => QueryTarget::Contracts,
             _ => {
                 let span = self.previous().span;
-                return Err(self.error(
-                    ParseErrorKind::UnknownTable(table_name),
-                    span,
-                ).with_help("valid tables are: invoices, contracts"));
+                return Err(self
+                    .error(ParseErrorKind::UnknownTable(table_name), span)
+                    .with_help("valid tables are: invoices, contracts"));
             }
         };
 
@@ -366,8 +364,11 @@ impl<'a> QueryParser<'a> {
         self.expect_keyword(TokenKind::Baseline)?;
 
         // Parse optional group_by field (defaults to "vendor_name")
-        let group_by = if self.check_ident() && !self.check(&TokenKind::Window)
-            && !self.check(&TokenKind::Threshold) && !self.check(&TokenKind::Metrics) {
+        let group_by = if self.check_ident()
+            && !self.check(&TokenKind::Window)
+            && !self.check(&TokenKind::Threshold)
+            && !self.check(&TokenKind::Metrics)
+        {
             let name = self.parse_identifier()?;
             name
         } else {
@@ -954,10 +955,7 @@ impl<'a> QueryParser<'a> {
 
             _ => {
                 let span = token.span;
-                Err(self.error(
-                    ParseErrorKind::ExpectedExpression,
-                    span,
-                ))
+                Err(self.error(ParseErrorKind::ExpectedExpression, span))
             }
         }
     }
@@ -1050,20 +1048,32 @@ impl<'a> QueryParser<'a> {
             // Return a synthetic EOF token
             static EOF_TOKEN: Token<'static> = Token {
                 kind: TokenKind::Eof,
-                span: Span { start: 0, end: 0, line: 1, column: 1 },
+                span: Span {
+                    start: 0,
+                    end: 0,
+                    line: 1,
+                    column: 1,
+                },
             };
             &EOF_TOKEN
         })
     }
 
     fn previous(&self) -> &Token<'a> {
-        self.tokens.get(self.pos.saturating_sub(1)).unwrap_or_else(|| {
-            static EOF_TOKEN: Token<'static> = Token {
-                kind: TokenKind::Eof,
-                span: Span { start: 0, end: 0, line: 1, column: 1 },
-            };
-            &EOF_TOKEN
-        })
+        self.tokens
+            .get(self.pos.saturating_sub(1))
+            .unwrap_or_else(|| {
+                static EOF_TOKEN: Token<'static> = Token {
+                    kind: TokenKind::Eof,
+                    span: Span {
+                        start: 0,
+                        end: 0,
+                        line: 1,
+                        column: 1,
+                    },
+                };
+                &EOF_TOKEN
+            })
     }
 
     fn advance(&mut self) {
@@ -1122,8 +1132,8 @@ impl<'a> QueryParser<'a> {
     // ========== Error construction ==========
 
     fn error(&self, kind: ParseErrorKind, span: Span) -> ParseError {
-        let mut err = ParseError::new(kind.clone(), span, self.source)
-            .with_file_name(&self.file_name);
+        let mut err =
+            ParseError::new(kind.clone(), span, self.source).with_file_name(&self.file_name);
 
         // Add automatic help based on error kind
         if let Some(help) = kind.help() {
@@ -1185,9 +1195,8 @@ mod tests {
 
     #[test]
     fn test_parse_function_call() {
-        let query = parse_query(
-            "SELECT VECTOR_DISTANCE(embedding, :vec) AS score FROM invoices"
-        ).unwrap();
+        let query =
+            parse_query("SELECT VECTOR_DISTANCE(embedding, :vec) AS score FROM invoices").unwrap();
 
         assert_eq!(query.select.len(), 1);
         if let Expr::Function(func) = &query.select[0].expr {
@@ -1200,9 +1209,7 @@ mod tests {
 
     #[test]
     fn test_parse_where_clause() {
-        let query = parse_query(
-            "SELECT id FROM invoices WHERE total_amount > 100"
-        ).unwrap();
+        let query = parse_query("SELECT id FROM invoices WHERE total_amount > 100").unwrap();
 
         assert!(query.filter.is_some());
     }
@@ -1211,17 +1218,17 @@ mod tests {
     fn test_parse_complex_where() {
         let query = parse_query(
             "SELECT id FROM invoices \
-             WHERE vendor_name = 'Acme' AND total_amount > 100 OR status = 'pending'"
-        ).unwrap();
+             WHERE vendor_name = 'Acme' AND total_amount > 100 OR status = 'pending'",
+        )
+        .unwrap();
 
         assert!(query.filter.is_some());
     }
 
     #[test]
     fn test_parse_order_by() {
-        let query = parse_query(
-            "SELECT id FROM invoices ORDER BY invoice_date DESC, id ASC"
-        ).unwrap();
+        let query =
+            parse_query("SELECT id FROM invoices ORDER BY invoice_date DESC, id ASC").unwrap();
 
         let order = query.order_by.unwrap();
         assert_eq!(order.items.len(), 2);
@@ -1231,9 +1238,7 @@ mod tests {
 
     #[test]
     fn test_parse_limit_offset() {
-        let query = parse_query(
-            "SELECT id FROM invoices LIMIT 10 OFFSET 20"
-        ).unwrap();
+        let query = parse_query("SELECT id FROM invoices LIMIT 10 OFFSET 20").unwrap();
 
         assert_eq!(query.limit, Some(10));
         assert_eq!(query.offset, Some(20));
@@ -1245,8 +1250,9 @@ mod tests {
             "SELECT id, VECTOR_DISTANCE(embedding, :vec) AS v_score, \
                     BM25_SCORE(text, :terms) AS t_score \
              FROM invoices \
-             ORDER BY 0.7 * v_score + 0.3 * t_score ASC"
-        ).unwrap();
+             ORDER BY 0.7 * v_score + 0.3 * t_score ASC",
+        )
+        .unwrap();
 
         let order = query.order_by.unwrap();
         assert_eq!(order.items.len(), 1);
@@ -1323,8 +1329,9 @@ mod tests {
         let query = parse_query(
             "SELECT inv.*, con.title \
              FROM invoices inv \
-             ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
 
         assert_eq!(query.from, QueryTarget::Invoices);
         assert_eq!(query.from_alias, Some("inv".to_string()));
@@ -1341,8 +1348,9 @@ mod tests {
             "SELECT inv.id, con.title \
              FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             WHERE inv.total_amount > 1000"
-        ).unwrap();
+             WHERE inv.total_amount > 1000",
+        )
+        .unwrap();
 
         assert!(query.zip.is_some());
         assert!(query.filter.is_some());
@@ -1355,8 +1363,9 @@ mod tests {
     fn test_parse_inner_zip() {
         let query = parse_query(
             "SELECT * FROM invoices inv \
-             INNER ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             INNER ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
 
         let zip = query.zip.unwrap();
         assert_eq!(zip.mode, ZipMode::Inner);
@@ -1366,8 +1375,9 @@ mod tests {
     fn test_parse_left_zip() {
         let query = parse_query(
             "SELECT * FROM invoices inv \
-             LEFT ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             LEFT ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
 
         let zip = query.zip.unwrap();
         assert_eq!(zip.mode, ZipMode::Left);
@@ -1377,8 +1387,9 @@ mod tests {
     fn test_parse_cross_zip() {
         let query = parse_query(
             "SELECT * FROM invoices inv \
-             CROSS ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             CROSS ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
 
         let zip = query.zip.unwrap();
         assert_eq!(zip.mode, ZipMode::Cross);
@@ -1388,8 +1399,9 @@ mod tests {
     fn test_parse_zip_without_alias() {
         let query = parse_query(
             "SELECT * FROM invoices \
-             ZIP contracts ON vendor_name = party_name"
-        ).unwrap();
+             ZIP contracts ON vendor_name = party_name",
+        )
+        .unwrap();
 
         assert_eq!(query.from_alias, None);
 
@@ -1406,8 +1418,9 @@ mod tests {
              ZIP contracts con ON inv.vendor_name = con.party_name AND inv.currency = con.currency \
              WHERE inv.total_amount > 1000 \
              ORDER BY inv.invoice_date DESC \
-             LIMIT 50"
-        ).unwrap();
+             LIMIT 50",
+        )
+        .unwrap();
 
         let zip = query.zip.unwrap();
         assert_eq!(zip.table, QueryTarget::Contracts);
@@ -1421,17 +1434,16 @@ mod tests {
         let regular = parse_query("SELECT id FROM invoices").unwrap();
         assert!(!regular.is_zip_query());
 
-        let zip_query = parse_query(
-            "SELECT * FROM invoices ZIP contracts ON vendor_name = party_name"
-        ).unwrap();
+        let zip_query =
+            parse_query("SELECT * FROM invoices ZIP contracts ON vendor_name = party_name")
+                .unwrap();
         assert!(zip_query.is_zip_query());
     }
 
     #[test]
     fn test_error_zip_unknown_table() {
-        let result = parse_query(
-            "SELECT * FROM invoices ZIP unknown_table ON vendor_name = party_name"
-        );
+        let result =
+            parse_query("SELECT * FROM invoices ZIP unknown_table ON vendor_name = party_name");
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1440,9 +1452,8 @@ mod tests {
 
     #[test]
     fn test_error_zip_missing_on() {
-        let result = parse_query(
-            "SELECT * FROM invoices ZIP contracts WHERE vendor_name = party_name"
-        );
+        let result =
+            parse_query("SELECT * FROM invoices ZIP contracts WHERE vendor_name = party_name");
         assert!(result.is_err());
 
         let err = result.unwrap_err();
@@ -1453,9 +1464,7 @@ mod tests {
 
     #[test]
     fn test_parse_pipe_validate() {
-        let query = parse_query(
-            "SELECT * FROM invoices |> VALIDATE"
-        ).unwrap();
+        let query = parse_query("SELECT * FROM invoices |> VALIDATE").unwrap();
 
         assert!(query.has_pipeline());
         let pipeline = query.pipeline.unwrap();
@@ -1465,9 +1474,9 @@ mod tests {
 
     #[test]
     fn test_parse_pipe_validate_with_rules() {
-        let query = parse_query(
-            "SELECT * FROM invoices |> VALIDATE WITH ('math_check', 'date_check')"
-        ).unwrap();
+        let query =
+            parse_query("SELECT * FROM invoices |> VALIDATE WITH ('math_check', 'date_check')")
+                .unwrap();
 
         assert!(query.has_pipeline());
         let pipeline = query.pipeline.unwrap();
@@ -1484,9 +1493,7 @@ mod tests {
 
     #[test]
     fn test_parse_pipe_validate_fail_fast() {
-        let query = parse_query(
-            "SELECT * FROM invoices |> VALIDATE FAIL_FAST"
-        ).unwrap();
+        let query = parse_query("SELECT * FROM invoices |> VALIDATE FAIL_FAST").unwrap();
 
         let pipeline = query.pipeline.unwrap();
         if let PipelineOp::Validate { rules, fail_fast } = &pipeline[0] {
@@ -1499,9 +1506,7 @@ mod tests {
 
     #[test]
     fn test_parse_pipe_analyze() {
-        let query = parse_query(
-            "SELECT * FROM invoices |> ANALYZE"
-        ).unwrap();
+        let query = parse_query("SELECT * FROM invoices |> ANALYZE").unwrap();
 
         let pipeline = query.pipeline.unwrap();
         assert!(matches!(pipeline[0], PipelineOp::Analyze { .. }));
@@ -1510,11 +1515,16 @@ mod tests {
     #[test]
     fn test_parse_pipe_analyze_with_options() {
         let query = parse_query(
-            "SELECT * FROM invoices |> ANALYZE WITH ('anomaly_detector') INCLUDE_SCORES"
-        ).unwrap();
+            "SELECT * FROM invoices |> ANALYZE WITH ('anomaly_detector') INCLUDE_SCORES",
+        )
+        .unwrap();
 
         let pipeline = query.pipeline.unwrap();
-        if let PipelineOp::Analyze { analyzers, include_scores } = &pipeline[0] {
+        if let PipelineOp::Analyze {
+            analyzers,
+            include_scores,
+        } = &pipeline[0]
+        {
             assert!(analyzers.is_some());
             assert!(*include_scores);
         } else {
@@ -1527,8 +1537,9 @@ mod tests {
         let query = parse_query(
             "SELECT * FROM invoices WHERE total_amount > 1000 \
              |> VALIDATE WITH ('math_check') \
-             |> ANALYZE"
-        ).unwrap();
+             |> ANALYZE",
+        )
+        .unwrap();
 
         let pipeline = query.pipeline.unwrap();
         assert_eq!(pipeline.len(), 2);
@@ -1542,8 +1553,9 @@ mod tests {
             "SELECT inv.*, con.title \
              FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             |> CROSS_VALIDATE ON (inv.total_amount, con.total_value)"
-        ).unwrap();
+             |> CROSS_VALIDATE ON (inv.total_amount, con.total_value)",
+        )
+        .unwrap();
 
         let pipeline = query.pipeline.unwrap();
         assert_eq!(pipeline.len(), 1);
@@ -1563,8 +1575,9 @@ mod tests {
         let query = parse_query(
             "SELECT * FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             |> CROSS_VALIDATE ON (inv.total_amount, con.total_value) TOLERANCE 0.05"
-        ).unwrap();
+             |> CROSS_VALIDATE ON (inv.total_amount, con.total_value) TOLERANCE 0.05",
+        )
+        .unwrap();
 
         let pipeline = query.pipeline.unwrap();
         if let PipelineOp::CrossValidate { fields, tolerance } = &pipeline[0] {
@@ -1579,11 +1592,16 @@ mod tests {
     fn test_parse_pipe_aggregate() {
         let query = parse_query(
             "SELECT * FROM invoices \
-             |> AGGREGATE BY vendor_name INTO SUM(total_amount) AS total"
-        ).unwrap();
+             |> AGGREGATE BY vendor_name INTO SUM(total_amount) AS total",
+        )
+        .unwrap();
 
         let pipeline = query.pipeline.unwrap();
-        if let PipelineOp::Aggregate { group_by, aggregations } = &pipeline[0] {
+        if let PipelineOp::Aggregate {
+            group_by,
+            aggregations,
+        } = &pipeline[0]
+        {
             assert_eq!(group_by.len(), 1);
             assert_eq!(aggregations.len(), 1);
             assert_eq!(aggregations[0].alias, "total");
@@ -1603,8 +1621,9 @@ mod tests {
              LIMIT 100 \
              |> VALIDATE WITH ('math_check', 'date_check') \
              |> CROSS_VALIDATE ON (inv.total_amount, con.total_value) TOLERANCE 0.01 \
-             |> ANALYZE"
-        ).unwrap();
+             |> ANALYZE",
+        )
+        .unwrap();
 
         assert!(query.is_zip_query());
         assert!(query.filter.is_some());

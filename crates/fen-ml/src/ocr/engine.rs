@@ -49,9 +49,7 @@ impl OcrEngine {
         let recognition_path = recognition_model_path.as_ref();
 
         if !detection_path.exists() {
-            return Err(MlError::ModelNotFound(
-                detection_path.display().to_string(),
-            ));
+            return Err(MlError::ModelNotFound(detection_path.display().to_string()));
         }
         if !recognition_path.exists() {
             return Err(MlError::ModelNotFound(
@@ -87,23 +85,19 @@ impl OcrEngine {
         let (width, height) = image.dimensions();
 
         // Resize if needed
-        let (new_width, new_height) = if width > self.config.max_dimension
-            || height > self.config.max_dimension
-        {
-            let scale = self.config.max_dimension as f32 / width.max(height) as f32;
-            (
-                (width as f32 * scale) as u32,
-                (height as f32 * scale) as u32,
-            )
-        } else {
-            (width, height)
-        };
+        let (new_width, new_height) =
+            if width > self.config.max_dimension || height > self.config.max_dimension {
+                let scale = self.config.max_dimension as f32 / width.max(height) as f32;
+                (
+                    (width as f32 * scale) as u32,
+                    (height as f32 * scale) as u32,
+                )
+            } else {
+                (width, height)
+            };
 
-        let resized = image.resize_exact(
-            new_width,
-            new_height,
-            image::imageops::FilterType::Lanczos3,
-        );
+        let resized =
+            image.resize_exact(new_width, new_height, image::imageops::FilterType::Lanczos3);
         let rgb = resized.to_rgb8();
 
         // Convert to NCHW format with normalization
@@ -199,8 +193,16 @@ impl OcrEngine {
         // Shape derefs to [i64] slice
 
         if shape.len() >= 2 {
-            let num_boxes = if shape.len() == 3 { shape[1] as usize } else { shape[0] as usize };
-            let stride = if shape.len() == 3 { shape[2] as usize } else { 5 };
+            let num_boxes = if shape.len() == 3 {
+                shape[1] as usize
+            } else {
+                shape[0] as usize
+            };
+            let stride = if shape.len() == 3 {
+                shape[2] as usize
+            } else {
+                5
+            };
 
             for i in 0..num_boxes {
                 let offset = i * stride;
@@ -212,7 +214,11 @@ impl OcrEngine {
                 let y = data[offset + 1];
                 let w = data[offset + 2];
                 let h = data[offset + 3];
-                let conf = if offset + 4 < data.len() { data[offset + 4] } else { 1.0 };
+                let conf = if offset + 4 < data.len() {
+                    data[offset + 4]
+                } else {
+                    1.0
+                };
 
                 if conf > self.config.confidence_threshold {
                     boxes.push(BoundingBox::new(
@@ -232,7 +238,11 @@ impl OcrEngine {
     }
 
     /// Non-Maximum Suppression to remove overlapping boxes
-    fn non_max_suppression(&self, mut boxes: Vec<BoundingBox>, iou_threshold: f32) -> Vec<BoundingBox> {
+    fn non_max_suppression(
+        &self,
+        mut boxes: Vec<BoundingBox>,
+        iou_threshold: f32,
+    ) -> Vec<BoundingBox> {
         // Sort by area (larger boxes first)
         boxes.sort_by(|a, b| b.area().partial_cmp(&a.area()).unwrap());
 
@@ -249,21 +259,18 @@ impl OcrEngine {
     }
 
     /// Recognize text in a region (single)
-    fn recognize_text(
-        &self,
-        input: Array4<f32>,
-    ) -> Result<(String, f32), MlError> {
+    fn recognize_text(&self, input: Array4<f32>) -> Result<(String, f32), MlError> {
         let results = self.recognize_text_batch(&[input])?;
-        Ok(results.into_iter().next().unwrap_or_else(|| (String::new(), 0.0)))
+        Ok(results
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| (String::new(), 0.0)))
     }
 
     /// Recognize text in multiple regions with batched inference
     /// This is significantly faster than processing regions one at a time
     #[tracing::instrument(skip(self, inputs), fields(batch_size = %inputs.len()))]
-    fn recognize_text_batch(
-        &self,
-        inputs: &[Array4<f32>],
-    ) -> Result<Vec<(String, f32)>, MlError> {
+    fn recognize_text_batch(&self, inputs: &[Array4<f32>]) -> Result<Vec<(String, f32)>, MlError> {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
@@ -402,17 +409,10 @@ impl OcrEngine {
 
             // Log-softmax for numerical stability
             let max_val = frame.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-            let log_sum_exp: f32 = frame
-                .iter()
-                .map(|&x| (x - max_val).exp())
-                .sum::<f32>()
-                .ln()
-                + max_val;
+            let log_sum_exp: f32 =
+                frame.iter().map(|&x| (x - max_val).exp()).sum::<f32>().ln() + max_val;
 
-            let frame_log_probs: Vec<f32> = frame
-                .iter()
-                .map(|&x| x - log_sum_exp)
-                .collect();
+            let frame_log_probs: Vec<f32> = frame.iter().map(|&x| x - log_sum_exp).collect();
 
             log_probs.push(frame_log_probs);
         }
@@ -498,7 +498,9 @@ impl OcrEngine {
 
                 // Process blank
                 let blank_log_prob = frame.get(blank_idx).copied().unwrap_or(f32::NEG_INFINITY);
-                let entry = new_beams.entry(prefix.clone()).or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
+                let entry = new_beams
+                    .entry(prefix.clone())
+                    .or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
                 entry.0 = self.log_add(entry.0, log_p + blank_log_prob);
 
                 // Process each character
@@ -517,17 +519,23 @@ impl OcrEngine {
                             // Same character: can only extend if previous was blank
                             let mut new_prefix = prefix.clone();
                             new_prefix.push(c);
-                            let entry = new_beams.entry(new_prefix).or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
+                            let entry = new_beams
+                                .entry(new_prefix)
+                                .or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
                             entry.1 = self.log_add(entry.1, *log_pb + c_log_prob);
 
                             // Or stay with current prefix
-                            let entry = new_beams.entry(prefix.clone()).or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
+                            let entry = new_beams
+                                .entry(prefix.clone())
+                                .or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
                             entry.1 = self.log_add(entry.1, *log_pnb + c_log_prob);
                         } else {
                             // Different character: can always extend
                             let mut new_prefix = prefix.clone();
                             new_prefix.push(c);
-                            let entry = new_beams.entry(new_prefix).or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
+                            let entry = new_beams
+                                .entry(new_prefix)
+                                .or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
                             entry.1 = self.log_add(entry.1, log_p + c_log_prob);
                         }
                     }
@@ -631,7 +639,9 @@ impl OcrProvider for OcrEngine {
 
         // Step 3: Preprocess all regions for batch recognition
         let recognition_inputs: Vec<Array4<f32>> = {
-            let _span = tracing::info_span!("ocr_recognition_preprocess", num_regions = %boxes.len()).entered();
+            let _span =
+                tracing::info_span!("ocr_recognition_preprocess", num_regions = %boxes.len())
+                    .entered();
             boxes
                 .iter()
                 .filter_map(|bbox| self.preprocess_for_recognition(image, bbox).ok())

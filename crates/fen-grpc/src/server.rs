@@ -1,11 +1,11 @@
 //! gRPC server for handling shard service requests.
 
 use crate::proto::{
-    shard_service_server::ShardService, AbortRequest, AbortResponse, CommitRequest,
-    CommitResponse, DeleteDocumentRequest, DeleteDocumentResponse, GetDocumentRequest,
-    GetDocumentResponse, HealthCheckRequest, HealthCheckResponse, PrepareRequest,
-    PrepareResponse, QueryDocumentsRequest, QueryDocumentsResponse, ShardInfoRequest,
-    ShardInfoResponse, StoreDocumentRequest, StoreDocumentResponse, TransactionStatusRequest,
+    shard_service_server::ShardService, AbortRequest, AbortResponse, CommitRequest, CommitResponse,
+    DeleteDocumentRequest, DeleteDocumentResponse, GetDocumentRequest, GetDocumentResponse,
+    HealthCheckRequest, HealthCheckResponse, PrepareRequest, PrepareResponse,
+    QueryDocumentsRequest, QueryDocumentsResponse, ShardInfoRequest, ShardInfoResponse,
+    StoreDocumentRequest, StoreDocumentResponse, TransactionStatusRequest,
     TransactionStatusResponse, VectorSearchRequest, VectorSearchResponse,
 };
 use async_trait::async_trait;
@@ -72,10 +72,7 @@ pub trait ShardServiceHandler: Send + Sync + 'static {
     ) -> Result<HealthCheckResponse, Status>;
 
     /// Get shard info.
-    async fn get_shard_info(
-        &self,
-        request: ShardInfoRequest,
-    ) -> Result<ShardInfoResponse, Status>;
+    async fn get_shard_info(&self, request: ShardInfoRequest) -> Result<ShardInfoResponse, Status>;
 }
 
 /// gRPC server for shard service.
@@ -323,10 +320,7 @@ impl ShardServiceHandler for StubHandler {
         })
     }
 
-    async fn get_shard_info(
-        &self,
-        request: ShardInfoRequest,
-    ) -> Result<ShardInfoResponse, Status> {
+    async fn get_shard_info(&self, request: ShardInfoRequest) -> Result<ShardInfoResponse, Status> {
         let shard_id = request.shard_id.unwrap_or(crate::proto::ShardId { id: 0 });
 
         Ok(ShardInfoResponse {

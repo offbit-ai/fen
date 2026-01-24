@@ -31,9 +31,7 @@ impl AppState {
         tracing::info!("Ingestion pipeline initialized");
 
         // Initialize rule engine
-        let rule_engine = Arc::new(
-            RuleEngine::new(config.rules_path.as_deref()).await?,
-        );
+        let rule_engine = Arc::new(RuleEngine::new(config.rules_path.as_deref()).await?);
         tracing::info!("Rule engine initialized");
 
         Ok(Self {

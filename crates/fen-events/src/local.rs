@@ -246,10 +246,7 @@ mod tests {
         let bus = Arc::new(LocalEventBus::new());
         let consumer = LocalEventConsumer::new(bus.clone());
 
-        consumer
-            .subscribe(&["topic-a", "topic-b"])
-            .await
-            .unwrap();
+        consumer.subscribe(&["topic-a", "topic-b"]).await.unwrap();
 
         bus.publish("topic-a", b"key-a", b"payload-a")
             .await

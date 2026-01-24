@@ -9,8 +9,8 @@ use rust_decimal_macros::dec;
 
 use fen_core::domain::{
     party::{Address, Contact},
-    ClauseType, Contract, ContractClause, ContractType, Currency, DocumentId, Invoice,
-    InvoiceId, LineItem, Party, PartyId,
+    ClauseType, Contract, ContractClause, ContractType, Currency, DocumentId, Invoice, InvoiceId,
+    LineItem, Party, PartyId,
 };
 use fen_core::ValidationStatus;
 
@@ -46,8 +46,8 @@ impl Default for InvoiceFixture {
                 LineItem::new(1, "Widget A", dec!(10), dec!(25.00)),
                 LineItem::new(2, "Service B", dec!(5), dec!(100.00)),
             ],
-            subtotal: dec!(750.00),    // 10*25 + 5*100
-            tax_amount: dec!(75.00),   // 10%
+            subtotal: dec!(750.00),  // 10*25 + 5*100
+            tax_amount: dec!(75.00), // 10%
             discount_amount: dec!(0),
             total_amount: dec!(825.00), // 750 + 75
             currency: Currency::USD,
@@ -267,13 +267,13 @@ impl Default for ContractFixture {
         Self {
             title: "Test Service Agreement".to_string(),
             contract_type: ContractType::ServiceAgreement,
-            parties: vec![
-                Party::new("Acme Corp"),
-                Party::new("Client Inc"),
-            ],
+            parties: vec![Party::new("Acme Corp"), Party::new("Client Inc")],
             clauses: vec![
                 ContractClause::new(ClauseType::PaymentTerms, "Net 30 payment terms apply"),
-                ContractClause::new(ClauseType::Custom("SLA".to_string()), "99.9% uptime guaranteed"),
+                ContractClause::new(
+                    ClauseType::Custom("SLA".to_string()),
+                    "99.9% uptime guaranteed",
+                ),
             ],
             effective_date: today,
             expiration_date: Some(today + chrono::Duration::days(365)),

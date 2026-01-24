@@ -146,8 +146,14 @@ impl FenQuery {
     /// Check if this query uses vector search
     pub fn uses_vector_search(&self) -> bool {
         self.select.iter().any(|s| s.uses_vector_distance())
-            || self.filter.as_ref().map_or(false, |f| f.uses_vector_distance())
-            || self.order_by.as_ref().map_or(false, |o| o.uses_vector_distance())
+            || self
+                .filter
+                .as_ref()
+                .map_or(false, |f| f.uses_vector_distance())
+            || self
+                .order_by
+                .as_ref()
+                .map_or(false, |o| o.uses_vector_distance())
     }
 
     /// Check if this query uses BM25 text search
@@ -248,10 +254,7 @@ pub enum Expr {
         right: Box<Expr>,
     },
     /// Unary operation (e.g., NOT, -)
-    UnaryOp {
-        op: UnaryOperator,
-        expr: Box<Expr>,
-    },
+    UnaryOp { op: UnaryOperator, expr: Box<Expr> },
     /// Function call
     Function(FunctionCall),
     /// Wildcard (*)
@@ -259,10 +262,7 @@ pub enum Expr {
     /// Qualified wildcard (table.*)
     QualifiedWildcard(String),
     /// IS NULL / IS NOT NULL check
-    IsNull {
-        expr: Box<Expr>,
-        negated: bool,
-    },
+    IsNull { expr: Box<Expr>, negated: bool },
     /// NOT expression (logical negation)
     Not(Box<Expr>),
 }
@@ -552,7 +552,8 @@ impl QueryParams {
     }
 
     pub fn with_string(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.values.insert(name.into(), ParamValue::String(value.into()));
+        self.values
+            .insert(name.into(), ParamValue::String(value.into()));
         self
     }
 
@@ -629,10 +630,24 @@ pub mod invoice_columns {
 
     pub fn all() -> &'static [&'static str] {
         &[
-            ID, DOCUMENT_ID, INVOICE_NUMBER, INVOICE_DATE, DUE_DATE, PO_NUMBER,
-            VENDOR_NAME, VENDOR_TAX_ID, BILL_TO_NAME, CURRENCY, SUBTOTAL,
-            TAX_AMOUNT, DISCOUNT_AMOUNT, TOTAL_AMOUNT, VALIDATION_STATUS,
-            CONFIDENCE_SCORE, EXTRACTED_TEXT, EMBEDDING,
+            ID,
+            DOCUMENT_ID,
+            INVOICE_NUMBER,
+            INVOICE_DATE,
+            DUE_DATE,
+            PO_NUMBER,
+            VENDOR_NAME,
+            VENDOR_TAX_ID,
+            BILL_TO_NAME,
+            CURRENCY,
+            SUBTOTAL,
+            TAX_AMOUNT,
+            DISCOUNT_AMOUNT,
+            TOTAL_AMOUNT,
+            VALIDATION_STATUS,
+            CONFIDENCE_SCORE,
+            EXTRACTED_TEXT,
+            EMBEDDING,
         ]
     }
 }
@@ -656,9 +671,19 @@ pub mod contract_columns {
 
     pub fn all() -> &'static [&'static str] {
         &[
-            ID, DOCUMENT_ID, CONTRACT_NUMBER, TITLE, CONTRACT_TYPE,
-            EFFECTIVE_DATE, EXPIRATION_DATE, EXECUTION_DATE, TOTAL_VALUE,
-            CURRENCY, VALIDATION_STATUS, CONFIDENCE_SCORE, EXTRACTED_TEXT,
+            ID,
+            DOCUMENT_ID,
+            CONTRACT_NUMBER,
+            TITLE,
+            CONTRACT_TYPE,
+            EFFECTIVE_DATE,
+            EXPIRATION_DATE,
+            EXECUTION_DATE,
+            TOTAL_VALUE,
+            CURRENCY,
+            VALIDATION_STATUS,
+            CONFIDENCE_SCORE,
+            EXTRACTED_TEXT,
             EMBEDDING,
         ]
     }

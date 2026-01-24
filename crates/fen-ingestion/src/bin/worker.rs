@@ -16,7 +16,9 @@
 
 use clap::Parser;
 use fen_core::domain::Invoice;
-use fen_events::{topics, EventConsumer, EventProducer, LocalEventBus, LocalEventConsumer, RawEvent};
+use fen_events::{
+    topics, EventConsumer, EventProducer, LocalEventBus, LocalEventConsumer, RawEvent,
+};
 use fen_ingestion::IngestionPipeline;
 use fen_storage::config::{HotStorageBackend, WarmStorageBackend};
 use fen_storage::tiered::{TieredStorage, TieredStorageConfig};
@@ -36,7 +38,11 @@ const DEAD_LETTER_TOPIC: &str = "fen.document.dlq";
 #[command(about = "Kafka consumer for document ingestion and processing")]
 struct Args {
     /// Kafka bootstrap servers
-    #[arg(long, env = "KAFKA_BOOTSTRAP_SERVERS", default_value = "localhost:9092")]
+    #[arg(
+        long,
+        env = "KAFKA_BOOTSTRAP_SERVERS",
+        default_value = "localhost:9092"
+    )]
     kafka_brokers: String,
 
     /// Consumer group ID
@@ -44,7 +50,11 @@ struct Args {
     consumer_group: String,
 
     /// Coordinator address for shard routing
-    #[arg(long, env = "COORDINATOR_ADDR", default_value = "http://localhost:9002")]
+    #[arg(
+        long,
+        env = "COORDINATOR_ADDR",
+        default_value = "http://localhost:9002"
+    )]
     coordinator_addr: String,
 
     /// Storage path for local storage
@@ -302,14 +312,16 @@ async fn run_worker(
             let key_str = String::from_utf8_lossy(key).to_string();
 
             // Try to extract document info for error handling
-            let (document_id, tenant_id) = match serde_json::from_slice::<DocumentIngestedEvent>(&event.payload) {
-                Ok(ingested) => (ingested.document_id.clone(), ingested.tenant_id.clone()),
-                Err(_) => (key_str.clone(), "unknown".to_string()),
-            };
+            let (document_id, tenant_id) =
+                match serde_json::from_slice::<DocumentIngestedEvent>(&event.payload) {
+                    Ok(ingested) => (ingested.document_id.clone(), ingested.tenant_id.clone()),
+                    Err(_) => (key_str.clone(), "unknown".to_string()),
+                };
 
             match process_document(&event, &pipeline).await {
                 Ok((ingested, invoice, processing_time_ms)) => {
-                    let processed_event = create_processed_event(&ingested, invoice, processing_time_ms);
+                    let processed_event =
+                        create_processed_event(&ingested, invoice, processing_time_ms);
 
                     // Serialize with bincode (compact binary format)
                     let payload = bincode::serialize(&processed_event)
@@ -441,32 +453,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     });
 
     // Create consumer and producer
-    let (consumer, producer): (Arc<dyn EventConsumer>, Arc<dyn EventProducer>) =
-        if args.use_local_bus {
-            let bus = Arc::new(LocalEventBus::new());
-            let consumer = Arc::new(LocalEventConsumer::new(bus.clone()));
-            (consumer, bus)
-        } else {
-            #[cfg(feature = "kafka")]
-            {
-                let config = KafkaConfig {
-                    bootstrap_servers: args.kafka_brokers.clone(),
-                    group_id: Some(args.consumer_group.clone()),
-                    ..Default::default()
-                };
+    let (consumer, producer): (Arc<dyn EventConsumer>, Arc<dyn EventProducer>) = if args
+        .use_local_bus
+    {
+        let bus = Arc::new(LocalEventBus::new());
+        let consumer = Arc::new(LocalEventConsumer::new(bus.clone()));
+        (consumer, bus)
+    } else {
+        #[cfg(feature = "kafka")]
+        {
+            let config = KafkaConfig {
+                bootstrap_servers: args.kafka_brokers.clone(),
+                group_id: Some(args.consumer_group.clone()),
+                ..Default::default()
+            };
 
-                let consumer = Arc::new(KafkaConsumer::new(config.clone())?);
-                let producer = Arc::new(KafkaProducer::new(config)?);
-                (consumer, producer)
-            }
-            #[cfg(not(feature = "kafka"))]
-            {
-                error!(
-                    "Kafka feature not enabled. Use --use-local-bus or enable the 'kafka' feature."
-                );
-                std::process::exit(1);
-            }
-        };
+            let consumer = Arc::new(KafkaConsumer::new(config.clone())?);
+            let producer = Arc::new(KafkaProducer::new(config)?);
+            (consumer, producer)
+        }
+        #[cfg(not(feature = "kafka"))]
+        {
+            error!("Kafka feature not enabled. Use --use-local-bus or enable the 'kafka' feature.");
+            std::process::exit(1);
+        }
+    };
 
     // Run worker
     run_worker(consumer, producer, pipeline, state).await?;

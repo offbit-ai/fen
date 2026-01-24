@@ -69,9 +69,7 @@ pub struct RawEvent {
 impl RawEvent {
     /// Get the key as a UTF-8 string if present.
     pub fn key_str(&self) -> Option<&str> {
-        self.key
-            .as_ref()
-            .and_then(|k| std::str::from_utf8(k).ok())
+        self.key.as_ref().and_then(|k| std::str::from_utf8(k).ok())
     }
 
     /// Get a header value.

@@ -42,19 +42,35 @@ impl IntoResponse for ApiError {
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone()),
             ApiError::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal server error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal_error", msg.clone())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal_error",
+                    msg.clone(),
+                )
             }
             ApiError::Ingestion(e) => {
                 tracing::error!(error = %e, "Ingestion error");
-                (StatusCode::UNPROCESSABLE_ENTITY, "ingestion_error", e.to_string())
+                (
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                    "ingestion_error",
+                    e.to_string(),
+                )
             }
             ApiError::Storage(e) => {
                 tracing::error!(error = %e, "Storage error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "storage_error", e.to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "storage_error",
+                    e.to_string(),
+                )
             }
             ApiError::Rule(e) => {
                 tracing::error!(error = %e, "Rule error");
-                (StatusCode::INTERNAL_SERVER_ERROR, "rule_error", e.to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "rule_error",
+                    e.to_string(),
+                )
             }
         };
 

@@ -82,15 +82,25 @@ impl MlInvoiceParser {
         // Look in key-value pairs
         for kv in &layout.key_value_pairs {
             let key_lower = kv.key.to_lowercase();
-            if key_lower.contains("invoice") && (key_lower.contains("no") || key_lower.contains("#") || key_lower.contains("number")) {
+            if key_lower.contains("invoice")
+                && (key_lower.contains("no")
+                    || key_lower.contains("#")
+                    || key_lower.contains("number"))
+            {
                 return kv.value.clone();
             }
         }
 
         // Fallback to regex
-        self.regex_parser.parse(text, DocumentId::new())
+        self.regex_parser
+            .parse(text, DocumentId::new())
             .map(|inv| inv.invoice_number)
-            .unwrap_or_else(|_| format!("UNKNOWN-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap()))
+            .unwrap_or_else(|_| {
+                format!(
+                    "UNKNOWN-{}",
+                    uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+                )
+            })
     }
 
     fn extract_date(&self, layout: &LayoutResult, _text: &str) -> NaiveDate {
@@ -174,7 +184,8 @@ impl MlInvoiceParser {
         }
 
         // Fallback to regex
-        self.regex_parser.parse(text, DocumentId::new())
+        self.regex_parser
+            .parse(text, DocumentId::new())
             .map(|inv| inv.total_amount)
             .unwrap_or(Decimal::ZERO)
     }
@@ -214,13 +225,18 @@ impl MlInvoiceParser {
         // Look in key-value pairs
         for kv in &layout.key_value_pairs {
             let key_lower = kv.key.to_lowercase();
-            if key_lower.contains("from") || key_lower.contains("vendor") || key_lower.contains("supplier") || key_lower.contains("seller") {
+            if key_lower.contains("from")
+                || key_lower.contains("vendor")
+                || key_lower.contains("supplier")
+                || key_lower.contains("seller")
+            {
                 return Party::new(kv.value.clone());
             }
         }
 
         // Fallback to regex
-        self.regex_parser.parse(text, DocumentId::new())
+        self.regex_parser
+            .parse(text, DocumentId::new())
             .map(|inv| inv.vendor)
             .unwrap_or_else(|_| Party::unknown())
     }
@@ -229,7 +245,11 @@ impl MlInvoiceParser {
         // Look in key-value pairs
         for kv in &layout.key_value_pairs {
             let key_lower = kv.key.to_lowercase();
-            if key_lower.contains("bill to") || key_lower.contains("customer") || key_lower.contains("client") || key_lower.contains("buyer") {
+            if key_lower.contains("bill to")
+                || key_lower.contains("customer")
+                || key_lower.contains("client")
+                || key_lower.contains("buyer")
+            {
                 return Party::new(kv.value.clone());
             }
         }
@@ -245,7 +265,8 @@ impl MlInvoiceParser {
         }
 
         // Fallback
-        self.regex_parser.parse(text, DocumentId::new())
+        self.regex_parser
+            .parse(text, DocumentId::new())
             .ok()
             .and_then(|inv| inv.po_number)
     }
@@ -286,7 +307,8 @@ impl MlInvoiceParser {
         }
 
         // Fallback to regex
-        self.regex_parser.parse(text, DocumentId::new())
+        self.regex_parser
+            .parse(text, DocumentId::new())
             .map(|inv| inv.line_items)
             .unwrap_or_default()
     }
@@ -305,9 +327,13 @@ impl MlInvoiceParser {
             .join(" ");
 
         // Look for typical line item table headers
-        let has_description = header_text.contains("description") || header_text.contains("item") || header_text.contains("product");
+        let has_description = header_text.contains("description")
+            || header_text.contains("item")
+            || header_text.contains("product");
         let has_quantity = header_text.contains("qty") || header_text.contains("quantity");
-        let has_amount = header_text.contains("amount") || header_text.contains("total") || header_text.contains("price");
+        let has_amount = header_text.contains("amount")
+            || header_text.contains("total")
+            || header_text.contains("price");
 
         has_description && (has_quantity || has_amount)
     }
@@ -328,7 +354,8 @@ impl MlInvoiceParser {
 
         for (i, cell) in header_row.iter().enumerate() {
             let lower = cell.text.to_lowercase();
-            if lower.contains("description") || lower.contains("item") || lower.contains("product") {
+            if lower.contains("description") || lower.contains("item") || lower.contains("product")
+            {
                 desc_col = Some(i);
             } else if lower.contains("qty") || lower.contains("quantity") {
                 qty_col = Some(i);
@@ -397,7 +424,11 @@ impl MlInvoiceParser {
 
         // Factor in key-value pair extraction
         if !layout.key_value_pairs.is_empty() {
-            let avg_kv_conf: f32 = layout.key_value_pairs.iter().map(|kv| kv.confidence).sum::<f32>()
+            let avg_kv_conf: f32 = layout
+                .key_value_pairs
+                .iter()
+                .map(|kv| kv.confidence)
+                .sum::<f32>()
                 / layout.key_value_pairs.len() as f32;
             score += avg_kv_conf;
             factors += 1;
@@ -405,8 +436,8 @@ impl MlInvoiceParser {
 
         // Factor in table extraction
         if !tables.is_empty() {
-            let avg_table_conf: f32 = tables.iter().map(|t| t.confidence).sum::<f32>()
-                / tables.len() as f32;
+            let avg_table_conf: f32 =
+                tables.iter().map(|t| t.confidence).sum::<f32>() / tables.len() as f32;
             score += avg_table_conf;
             factors += 1;
         }
@@ -428,22 +459,12 @@ impl Default for MlInvoiceParser {
 /// Parse various date formats
 fn parse_date(s: &str) -> Option<NaiveDate> {
     let formats = [
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%m-%d-%Y",
-        "%m-%d-%y",
-        "%Y-%m-%d",
+        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y", "%m-%d-%Y", "%m-%d-%y", "%Y-%m-%d",
         "%Y/%m/%d",
     ];
 
     // Remove currency symbols and extra whitespace
-    let cleaned = s
-        .trim()
-        .replace('$', "")
-        .replace('€', "")
-        .replace('£', "");
+    let cleaned = s.trim().replace('$', "").replace('€', "").replace('£', "");
 
     for fmt in formats {
         if let Ok(date) = NaiveDate::parse_from_str(&cleaned, fmt) {

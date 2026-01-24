@@ -187,11 +187,12 @@ impl EmailProvider {
         let subject = self.format_subject(payloads);
 
         for recipient in &config.recipients {
-            let recipient_mailbox: Mailbox = recipient
-                .parse()
-                .map_err(|e: lettre::address::AddressError| {
-                    DeliveryError::Configuration(format!("Invalid recipient: {}", e))
-                })?;
+            let recipient_mailbox: Mailbox =
+                recipient
+                    .parse()
+                    .map_err(|e: lettre::address::AddressError| {
+                        DeliveryError::Configuration(format!("Invalid recipient: {}", e))
+                    })?;
 
             let email = Message::builder()
                 .from(self.from_address.clone())
@@ -382,8 +383,7 @@ impl NotificationDeliveryProvider for EmailProvider {
         }
 
         for (tenant_id, tenant_payloads) in by_tenant {
-            let owned: Vec<NotificationPayload> =
-                tenant_payloads.into_iter().cloned().collect();
+            let owned: Vec<NotificationPayload> = tenant_payloads.into_iter().cloned().collect();
             self.send_digest(&tenant_id, &owned).await?;
         }
 

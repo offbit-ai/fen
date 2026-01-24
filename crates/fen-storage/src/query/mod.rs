@@ -6,13 +6,13 @@ mod zip_executor;
 
 pub use cache::QueryCache;
 pub use engine::{QueryEngine, QueryEngineConfig, QueryResult};
-pub use executor::{ExecutionResult, ExecutorConfig, QueryExecutor, ResultRow, ColumnValue};
+pub use executor::{ColumnValue, ExecutionResult, ExecutorConfig, QueryExecutor, ResultRow};
 pub use lang::{
-    parse_query, FenQuery, QueryParams, QueryParser, QueryError, ParseError, ParseErrorKind,
-    JsonQuery, JsonQueryBuilder, JsonCondition, JsonPipelineOp, JsonZipClause,
-    ZipClause, ZipMode,
+    parse_query, FenQuery, JsonCondition, JsonPipelineOp, JsonQuery, JsonQueryBuilder,
+    JsonZipClause, ParseError, ParseErrorKind, QueryError, QueryParams, QueryParser, ZipClause,
+    ZipMode,
 };
 pub use zip_executor::{
-    ZipExecutor, ZipResult, ZipPair, ZipMetadata, PipelineResults,
-    CrossValidationIssue, CrossValidationIssueType, AggregateValue,
+    AggregateValue, CrossValidationIssue, CrossValidationIssueType, PipelineResults, ZipExecutor,
+    ZipMetadata, ZipPair, ZipResult,
 };

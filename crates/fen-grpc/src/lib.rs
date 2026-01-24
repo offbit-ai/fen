@@ -23,8 +23,8 @@
 //! ```
 
 pub mod client;
-pub mod server;
 pub mod pool;
+pub mod server;
 
 // Re-export generated protobuf types
 pub mod proto {
@@ -39,7 +39,7 @@ pub use server::{ShardServer, ShardServiceHandler};
 pub use proto::{
     shard_service_client::ShardServiceClient,
     shard_service_server::{ShardService, ShardServiceServer},
-    CommitRequest, CommitResponse, GetDocumentRequest, GetDocumentResponse,
-    HealthCheckRequest, HealthCheckResponse, PrepareRequest, PrepareResponse,
-    StoreDocumentRequest, StoreDocumentResponse,
+    CommitRequest, CommitResponse, GetDocumentRequest, GetDocumentResponse, HealthCheckRequest,
+    HealthCheckResponse, PrepareRequest, PrepareResponse, StoreDocumentRequest,
+    StoreDocumentResponse,
 };

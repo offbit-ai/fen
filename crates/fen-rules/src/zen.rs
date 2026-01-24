@@ -96,7 +96,10 @@ impl Drop for ZenEngineHandle {
 }
 
 /// Worker function that runs in a dedicated thread
-fn run_worker(decision_content: DecisionContent, mut request_rx: mpsc::UnboundedReceiver<RuleRequest>) {
+fn run_worker(
+    decision_content: DecisionContent,
+    mut request_rx: mpsc::UnboundedReceiver<RuleRequest>,
+) {
     // Create the decision from content - this is !Send so must stay on this thread
     let decision: ZenDecision = decision_content.into();
 

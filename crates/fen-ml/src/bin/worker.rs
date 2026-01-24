@@ -14,7 +14,9 @@
 
 use clap::Parser;
 use fen_core::domain::Invoice;
-use fen_events::{topics, EventConsumer, EventProducer, LocalEventBus, LocalEventConsumer, RawEvent};
+use fen_events::{
+    topics, EventConsumer, EventProducer, LocalEventBus, LocalEventConsumer, RawEvent,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -63,7 +65,11 @@ struct BaselineComputedEvent {
 #[command(about = "Kafka consumer for vendor baseline computation")]
 struct Args {
     /// Kafka bootstrap servers
-    #[arg(long, env = "KAFKA_BOOTSTRAP_SERVERS", default_value = "localhost:9092")]
+    #[arg(
+        long,
+        env = "KAFKA_BOOTSTRAP_SERVERS",
+        default_value = "localhost:9092"
+    )]
     kafka_brokers: String,
 
     /// Consumer group ID
@@ -193,10 +199,16 @@ fn extract_metrics(invoice: &Invoice) -> Vec<(String, f64)> {
     }
 
     // Extract line_item_count
-    metrics.push(("line_item_count".to_string(), invoice.line_items.len() as f64));
+    metrics.push((
+        "line_item_count".to_string(),
+        invoice.line_items.len() as f64,
+    ));
 
     // Extract confidence_score
-    metrics.push(("confidence_score".to_string(), invoice.confidence_score as f64));
+    metrics.push((
+        "confidence_score".to_string(),
+        invoice.confidence_score as f64,
+    ));
 
     metrics
 }
@@ -365,7 +377,10 @@ async fn health_server(port: u16, state: Arc<WorkerState>) {
                 }
             }),
         )
-        .route("/ready", get(|| async { Json(serde_json::json!({"ready": true})) }));
+        .route(
+            "/ready",
+            get(|| async { Json(serde_json::json!({"ready": true})) }),
+        );
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     info!(addr = %addr, "Starting health server");
@@ -399,29 +414,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         health_server(args.health_port, health_state).await;
     });
 
-    let (consumer, producer): (Arc<dyn EventConsumer>, Arc<dyn EventProducer>) = if args.use_local_bus {
-        let bus = Arc::new(LocalEventBus::new());
-        let consumer = Arc::new(LocalEventConsumer::new(bus.clone()));
-        (consumer, bus)
-    } else {
-        #[cfg(feature = "kafka")]
-        {
-            let config = KafkaConfig {
-                bootstrap_servers: args.kafka_brokers.clone(),
-                group_id: Some(args.consumer_group.clone()),
-                ..Default::default()
-            };
+    let (consumer, producer): (Arc<dyn EventConsumer>, Arc<dyn EventProducer>) =
+        if args.use_local_bus {
+            let bus = Arc::new(LocalEventBus::new());
+            let consumer = Arc::new(LocalEventConsumer::new(bus.clone()));
+            (consumer, bus)
+        } else {
+            #[cfg(feature = "kafka")]
+            {
+                let config = KafkaConfig {
+                    bootstrap_servers: args.kafka_brokers.clone(),
+                    group_id: Some(args.consumer_group.clone()),
+                    ..Default::default()
+                };
 
-            let consumer = Arc::new(KafkaConsumer::new(config.clone())?);
-            let producer = Arc::new(KafkaProducer::new(config)?);
-            (consumer, producer)
-        }
-        #[cfg(not(feature = "kafka"))]
-        {
-            tracing::error!("Kafka feature not enabled. Use --use-local-bus or enable the 'kafka' feature.");
-            std::process::exit(1);
-        }
-    };
+                let consumer = Arc::new(KafkaConsumer::new(config.clone())?);
+                let producer = Arc::new(KafkaProducer::new(config)?);
+                (consumer, producer)
+            }
+            #[cfg(not(feature = "kafka"))]
+            {
+                tracing::error!(
+                    "Kafka feature not enabled. Use --use-local-bus or enable the 'kafka' feature."
+                );
+                std::process::exit(1);
+            }
+        };
 
     run_worker(consumer, producer, state, args.min_samples).await?;
 

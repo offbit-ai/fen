@@ -125,12 +125,19 @@ use tokio::sync::RwLock;
 use crate::error::StorageError;
 use crate::fulltext::FullTextIndex;
 use crate::hot::RedbStorage;
+use crate::query::executor::{ColumnValue, ExecutorConfig, QueryExecutor};
+use crate::query::lang::json::{
+    JsonAggFunction, JsonCondition, JsonExpr, JsonPipelineOp, JsonValue,
+};
+use crate::query::lang::{
+    BinaryOperator, ColumnRef, Expr, FenQuery, Literal, QueryParams, QueryTarget, SelectItem,
+    ZipMode,
+};
 use crate::warm::LanceStorage;
-use crate::query::executor::{QueryExecutor, ColumnValue, ExecutorConfig};
-use crate::query::lang::{FenQuery, QueryParams, Expr, ColumnRef, BinaryOperator, Literal, QueryTarget, ZipMode, SelectItem};
-use crate::query::lang::json::{JsonPipelineOp, JsonCondition, JsonExpr, JsonValue, JsonAggFunction};
 
-use fen_core::domain::{Invoice, Contract, Anomaly, AnomalyType, ValidationResult, Severity, DocumentId};
+use fen_core::domain::{
+    Anomaly, AnomalyType, Contract, DocumentId, Invoice, Severity, ValidationResult,
+};
 
 /// Result of a ZIP query containing both invoices and contracts
 #[derive(Debug, Clone)]
@@ -262,17 +269,20 @@ impl SplitWhereClause {
 
     /// Add an invoice condition
     fn add_invoice_condition(&mut self, expr: Expr) {
-        self.invoice_conditions = Self::combine_with_and(self.invoice_conditions.take(), Some(expr));
+        self.invoice_conditions =
+            Self::combine_with_and(self.invoice_conditions.take(), Some(expr));
     }
 
     /// Add a contract condition
     fn add_contract_condition(&mut self, expr: Expr) {
-        self.contract_conditions = Self::combine_with_and(self.contract_conditions.take(), Some(expr));
+        self.contract_conditions =
+            Self::combine_with_and(self.contract_conditions.take(), Some(expr));
     }
 
     /// Add a cross-table condition
     fn add_cross_table_condition(&mut self, expr: Expr) {
-        self.cross_table_conditions = Self::combine_with_and(self.cross_table_conditions.take(), Some(expr));
+        self.cross_table_conditions =
+            Self::combine_with_and(self.cross_table_conditions.take(), Some(expr));
     }
 }
 
@@ -292,12 +302,8 @@ impl ZipExecutor {
         fulltext_index: Arc<FullTextIndex>,
         config: ExecutorConfig,
     ) -> Self {
-        let query_executor = QueryExecutor::new(
-            hot_storage.clone(),
-            warm_storage,
-            fulltext_index,
-            config,
-        );
+        let query_executor =
+            QueryExecutor::new(hot_storage.clone(), warm_storage, fulltext_index, config);
 
         Self {
             query_executor,
@@ -321,7 +327,12 @@ impl ZipExecutor {
         let mut split = SplitWhereClause::default();
 
         if let Some(filter_expr) = filter {
-            self.categorize_condition(&filter_expr.expr, primary_alias, secondary_alias, &mut split);
+            self.categorize_condition(
+                &filter_expr.expr,
+                primary_alias,
+                secondary_alias,
+                &mut split,
+            );
         }
 
         split
@@ -345,12 +356,14 @@ impl ZipExecutor {
                     }
                     BinaryOperator::Or => {
                         // OR conditions must be kept together - check which tables they reference
-                        let tables = self.get_referenced_tables(expr, primary_alias, secondary_alias);
+                        let tables =
+                            self.get_referenced_tables(expr, primary_alias, secondary_alias);
                         self.add_condition_to_split(expr.clone(), &tables, split);
                     }
                     _ => {
                         // Comparison operators - check which tables are referenced
-                        let tables = self.get_referenced_tables(expr, primary_alias, secondary_alias);
+                        let tables =
+                            self.get_referenced_tables(expr, primary_alias, secondary_alias);
                         self.add_condition_to_split(expr.clone(), &tables, split);
                     }
                 }
@@ -455,9 +468,18 @@ impl ZipExecutor {
     fn is_invoice_column(&self, column: &str) -> bool {
         matches!(
             column,
-            "invoice_number" | "invoice_date" | "due_date" | "total_amount"
-                | "subtotal" | "tax_amount" | "vendor_name" | "po_number"
-                | "contract_id" | "contract_number" | "line_items" | "validation_status"
+            "invoice_number"
+                | "invoice_date"
+                | "due_date"
+                | "total_amount"
+                | "subtotal"
+                | "tax_amount"
+                | "vendor_name"
+                | "po_number"
+                | "contract_id"
+                | "contract_number"
+                | "line_items"
+                | "validation_status"
         )
     }
 
@@ -465,9 +487,16 @@ impl ZipExecutor {
     fn is_contract_column(&self, column: &str) -> bool {
         matches!(
             column,
-            "title" | "effective_date" | "expiration_date" | "total_value"
-                | "contract_value" | "party_name" | "parties" | "clauses"
-                | "contract_type" | "payment_terms"
+            "title"
+                | "effective_date"
+                | "expiration_date"
+                | "total_value"
+                | "contract_value"
+                | "party_name"
+                | "parties"
+                | "clauses"
+                | "contract_type"
+                | "payment_terms"
         )
     }
 
@@ -554,7 +583,9 @@ impl ZipExecutor {
                     if let Some(ColumnValue::String(id)) = row.columns.get("id") {
                         if let Ok(uuid) = uuid::Uuid::parse_str(id) {
                             let invoice_id = fen_core::domain::InvoiceId(uuid);
-                            if let Ok(Some(invoice)) = self.hot_storage.get_invoice(&invoice_id).await {
+                            if let Ok(Some(invoice)) =
+                                self.hot_storage.get_invoice(&invoice_id).await
+                            {
                                 invoice_pairs.push(ZipPair {
                                     invoice: Some(invoice),
                                     contract: None,
@@ -573,7 +604,9 @@ impl ZipExecutor {
                     if let Some(ColumnValue::String(id)) = row.columns.get("id") {
                         if let Ok(uuid) = uuid::Uuid::parse_str(id) {
                             let contract_id = fen_core::domain::ContractId(uuid);
-                            if let Ok(Some(contract)) = self.hot_storage.get_contract(&contract_id).await {
+                            if let Ok(Some(contract)) =
+                                self.hot_storage.get_contract(&contract_id).await
+                            {
                                 contract_pairs.push(ZipPair {
                                     invoice: None,
                                     contract: Some(contract),
@@ -626,9 +659,15 @@ impl ZipExecutor {
 
         // Determine which filter applies to which table based on primary table type
         let (invoice_filter, contract_filter) = if query.from == QueryTarget::Invoices {
-            (split.invoice_conditions.clone(), split.contract_conditions.clone())
+            (
+                split.invoice_conditions.clone(),
+                split.contract_conditions.clone(),
+            )
         } else {
-            (split.invoice_conditions.clone(), split.contract_conditions.clone())
+            (
+                split.invoice_conditions.clone(),
+                split.contract_conditions.clone(),
+            )
         };
 
         // Build queries for both tables with their specific filters
@@ -646,7 +685,10 @@ impl ZipExecutor {
 
         // Execute both queries
         let primary_result = self.query_executor.execute(&primary_query, params).await?;
-        let secondary_result = self.query_executor.execute(&secondary_query, params).await?;
+        let secondary_result = self
+            .query_executor
+            .execute(&secondary_query, params)
+            .await?;
 
         // Fetch full documents based on table types
         let (invoices, contracts) = if query.from == QueryTarget::Invoices {
@@ -728,18 +770,18 @@ impl ZipExecutor {
         use crate::query::lang::FilterExpr;
 
         // Build select items - just fetch IDs for now
-        let select = vec![
-            SelectItem {
-                expr: Expr::Column(ColumnRef {
-                    table: Some(table.as_str().to_string()),
-                    column: "id".to_string(),
-                }),
-                alias: None,
-            },
-        ];
+        let select = vec![SelectItem {
+            expr: Expr::Column(ColumnRef {
+                table: Some(table.as_str().to_string()),
+                column: "id".to_string(),
+            }),
+            alias: None,
+        }];
 
         // Wrap the filter expression if provided
-        let filter = table_filter.as_ref().map(|expr| FilterExpr::new(expr.clone()));
+        let filter = table_filter
+            .as_ref()
+            .map(|expr| FilterExpr::new(expr.clone()));
 
         Ok(FenQuery {
             from: table,
@@ -749,7 +791,7 @@ impl ZipExecutor {
             order_by: None,
             limit: original.limit,
             offset: original.offset,
-            zip: None, // Don't recurse
+            zip: None,      // Don't recurse
             pipeline: None, // Pipeline handled at top level
         })
     }
@@ -783,7 +825,8 @@ impl ZipExecutor {
                     BinaryOperator::Lt => {
                         let left_val = self.eval_pair_expr(pair, left);
                         let right_val = self.eval_pair_expr(pair, right);
-                        self.compare_values_ord(&left_val, &right_val) == Some(std::cmp::Ordering::Less)
+                        self.compare_values_ord(&left_val, &right_val)
+                            == Some(std::cmp::Ordering::Less)
                     }
                     BinaryOperator::LtEq => {
                         let left_val = self.eval_pair_expr(pair, left);
@@ -796,7 +839,8 @@ impl ZipExecutor {
                     BinaryOperator::Gt => {
                         let left_val = self.eval_pair_expr(pair, left);
                         let right_val = self.eval_pair_expr(pair, right);
-                        self.compare_values_ord(&left_val, &right_val) == Some(std::cmp::Ordering::Greater)
+                        self.compare_values_ord(&left_val, &right_val)
+                            == Some(std::cmp::Ordering::Greater)
                     }
                     BinaryOperator::GtEq => {
                         let left_val = self.eval_pair_expr(pair, left);
@@ -840,16 +884,14 @@ impl ZipExecutor {
 
                 None
             }
-            Expr::Literal(lit) => {
-                match lit {
-                    Literal::String(s) => Some(s.clone()),
-                    Literal::Integer(i) => Some(i.to_string()),
-                    Literal::Float(f) => Some(f.to_string()),
-                    Literal::Boolean(b) => Some(b.to_string()),
-                    Literal::Null => None,
-                    Literal::Array(_) => None,
-                }
-            }
+            Expr::Literal(lit) => match lit {
+                Literal::String(s) => Some(s.clone()),
+                Literal::Integer(i) => Some(i.to_string()),
+                Literal::Float(f) => Some(f.to_string()),
+                Literal::Boolean(b) => Some(b.to_string()),
+                Literal::Null => None,
+                Literal::Array(_) => None,
+            },
             _ => None,
         }
     }
@@ -878,7 +920,9 @@ impl ZipExecutor {
         match field {
             "id" => Some(contract.id.to_string()),
             "title" => Some(contract.title.clone()),
-            "total_value" | "contract_value" => contract.total_value.as_ref().map(|v| v.to_string()),
+            "total_value" | "contract_value" => {
+                contract.total_value.as_ref().map(|v| v.to_string())
+            }
             "party_name" => contract.parties.first().map(|p| p.name.clone()),
             "effective_date" => Some(contract.effective_date.to_string()),
             "expiration_date" => contract.expiration_date.map(|d| d.to_string()),
@@ -898,7 +942,11 @@ impl ZipExecutor {
     }
 
     /// Compare two optional values for ordering
-    fn compare_values_ord(&self, a: &Option<String>, b: &Option<String>) -> Option<std::cmp::Ordering> {
+    fn compare_values_ord(
+        &self,
+        a: &Option<String>,
+        b: &Option<String>,
+    ) -> Option<std::cmp::Ordering> {
         match (a, b) {
             (Some(a), Some(b)) => {
                 // Try to parse as numbers first
@@ -1047,7 +1095,12 @@ impl ZipExecutor {
     }
 
     /// Evaluate an expression for an invoice-contract pair
-    fn eval_expr_for_pair(&self, expr: &Expr, invoice: &Invoice, contract: &Contract) -> Option<String> {
+    fn eval_expr_for_pair(
+        &self,
+        expr: &Expr,
+        invoice: &Invoice,
+        contract: &Contract,
+    ) -> Option<String> {
         match expr {
             Expr::Column(col) => {
                 let table = col.table.as_deref().unwrap_or("");
@@ -1060,23 +1113,15 @@ impl ZipExecutor {
                     ("inv" | "invoices", "contract_id") => {
                         invoice.contract_id.map(|id| id.to_string())
                     }
-                    ("inv" | "invoices", "contract_number") => {
-                        invoice.contract_number.clone()
-                    }
-                    ("inv" | "invoices", "po_number") => {
-                        invoice.po_number.clone()
-                    }
-                    ("inv" | "invoices", "currency") => {
-                        Some(format!("{:?}", invoice.currency))
-                    }
+                    ("inv" | "invoices", "contract_number") => invoice.contract_number.clone(),
+                    ("inv" | "invoices", "po_number") => invoice.po_number.clone(),
+                    ("inv" | "invoices", "currency") => Some(format!("{:?}", invoice.currency)),
                     // Contract fields
                     ("con" | "contracts", "party_name") | ("", "party_name") => {
                         contract.parties.first().map(|p| p.name.clone())
                     }
                     ("con" | "contracts", "id") => Some(contract.id.to_string()),
-                    ("con" | "contracts", "contract_number") => {
-                        contract.contract_number.clone()
-                    }
+                    ("con" | "contracts", "contract_number") => contract.contract_number.clone(),
                     ("con" | "contracts", "currency") => {
                         contract.currency.map(|c| format!("{:?}", c))
                     }
@@ -1090,11 +1135,7 @@ impl ZipExecutor {
     }
 
     /// Execute cross-validation checks on ZIP pairs
-    pub fn cross_validate(
-        &self,
-        pairs: &[ZipPair],
-        checks: &[&str],
-    ) -> Vec<CrossValidationIssue> {
+    pub fn cross_validate(&self, pairs: &[ZipPair], checks: &[&str]) -> Vec<CrossValidationIssue> {
         let mut issues = Vec::new();
 
         for pair in pairs {
@@ -1106,8 +1147,10 @@ impl ZipExecutor {
             for check in checks {
                 match *check {
                     "amount" | "amount_within_contract" => {
-                        let invoice_total: f64 = invoice.total_amount.to_string().parse().unwrap_or(0.0);
-                        let contract_amount: f64 = contract.total_value
+                        let invoice_total: f64 =
+                            invoice.total_amount.to_string().parse().unwrap_or(0.0);
+                        let contract_amount: f64 = contract
+                            .total_value
                             .as_ref()
                             .and_then(|v| v.to_string().parse().ok())
                             .unwrap_or(f64::MAX);
@@ -1253,31 +1296,44 @@ impl ZipExecutor {
         for op in pipeline {
             match op {
                 JsonPipelineOp::Validate { rules, fail_fast } => {
-                    let validation_results = self.execute_validate(&result.pairs, rules.as_deref(), *fail_fast);
+                    let validation_results =
+                        self.execute_validate(&result.pairs, rules.as_deref(), *fail_fast);
                     pipeline_results.validation = Some(validation_results);
                 }
 
-                JsonPipelineOp::Analyze { analyzers, include_scores: _ } => {
+                JsonPipelineOp::Analyze {
+                    analyzers,
+                    include_scores: _,
+                } => {
                     let metrics: Vec<&str> = analyzers
                         .as_ref()
                         .map(|a| a.iter().map(|s| s.as_str()).collect())
-                        .unwrap_or_else(|| vec![
-                            "total_invoice_amount",
-                            "average_invoice_amount",
-                            "invoice_count",
-                            "contract_count",
-                            "pair_count",
-                        ]);
+                        .unwrap_or_else(|| {
+                            vec![
+                                "total_invoice_amount",
+                                "average_invoice_amount",
+                                "invoice_count",
+                                "contract_count",
+                                "pair_count",
+                            ]
+                        });
                     let aggregates = self.analyze(&result.pairs, &metrics);
                     pipeline_results.aggregates.extend(aggregates);
                 }
 
-                JsonPipelineOp::CrossValidate { field_mapping, tolerance } => {
-                    let issues = self.execute_cross_validate(&result.pairs, field_mapping, *tolerance);
+                JsonPipelineOp::CrossValidate {
+                    field_mapping,
+                    tolerance,
+                } => {
+                    let issues =
+                        self.execute_cross_validate(&result.pairs, field_mapping, *tolerance);
                     pipeline_results.cross_validation_issues.extend(issues);
                 }
 
-                JsonPipelineOp::Aggregate { group_by: _, aggregations } => {
+                JsonPipelineOp::Aggregate {
+                    group_by: _,
+                    aggregations,
+                } => {
                     let aggregates = self.execute_aggregate(&result.pairs, aggregations);
                     pipeline_results.aggregates.extend(aggregates);
                 }
@@ -1290,8 +1346,10 @@ impl ZipExecutor {
                 JsonPipelineOp::Filter { condition } => {
                     result.pairs = self.execute_filter(result.pairs, condition);
                     result.metadata.pair_count = result.pairs.len();
-                    result.metadata.invoice_count = result.pairs.iter().filter(|p| p.invoice.is_some()).count();
-                    result.metadata.contract_count = result.pairs.iter().filter(|p| p.contract.is_some()).count();
+                    result.metadata.invoice_count =
+                        result.pairs.iter().filter(|p| p.invoice.is_some()).count();
+                    result.metadata.contract_count =
+                        result.pairs.iter().filter(|p| p.contract.is_some()).count();
                 }
 
                 JsonPipelineOp::Sort { order_by } => {
@@ -1340,11 +1398,13 @@ impl ZipExecutor {
                     match rule.as_str() {
                         "math_check" => {
                             // Check if line items sum to total
-                            let line_total: f64 = invoice.line_items
+                            let line_total: f64 = invoice
+                                .line_items
                                 .iter()
                                 .map(|li| li.total.to_string().parse::<f64>().unwrap_or(0.0))
                                 .sum();
-                            let invoice_total: f64 = invoice.total_amount.to_string().parse().unwrap_or(0.0);
+                            let invoice_total: f64 =
+                                invoice.total_amount.to_string().parse().unwrap_or(0.0);
 
                             if (line_total - invoice_total).abs() > 0.01 {
                                 anomalies.push(Anomaly {
@@ -1377,7 +1437,10 @@ impl ZipExecutor {
                                             due_date, invoice.invoice_date
                                         ),
                                         field_path: Some("due_date".to_string()),
-                                        expected_value: Some(format!(">= {}", invoice.invoice_date)),
+                                        expected_value: Some(format!(
+                                            ">= {}",
+                                            invoice.invoice_date
+                                        )),
                                         actual_value: Some(due_date.to_string()),
                                         confidence: 1.0,
                                         statistical_score: None,
@@ -1400,7 +1463,10 @@ impl ZipExecutor {
                                     document_id: DocumentId(invoice.id.0),
                                     anomaly_type: AnomalyType::MissingField,
                                     severity: Severity::High,
-                                    description: format!("Missing required fields: {}", missing.join(", ")),
+                                    description: format!(
+                                        "Missing required fields: {}",
+                                        missing.join(", ")
+                                    ),
                                     field_path: Some(missing.join(",")),
                                     expected_value: Some("non-empty".to_string()),
                                     actual_value: Some("empty".to_string()),
@@ -1449,8 +1515,10 @@ impl ZipExecutor {
             for (invoice_field, contract_field) in field_mapping {
                 match (invoice_field.as_str(), contract_field.as_str()) {
                     ("total_amount", "total_value") | ("amount", "value") => {
-                        let invoice_val: f64 = invoice.total_amount.to_string().parse().unwrap_or(0.0);
-                        let contract_val: f64 = contract.total_value
+                        let invoice_val: f64 =
+                            invoice.total_amount.to_string().parse().unwrap_or(0.0);
+                        let contract_val: f64 = contract
+                            .total_value
                             .as_ref()
                             .and_then(|v| v.to_string().parse().ok())
                             .unwrap_or(f64::MAX);
@@ -1554,13 +1622,15 @@ impl ZipExecutor {
                     AggregateValue::Average(avg)
                 }
                 JsonAggFunction::Min => {
-                    let min = values.iter()
+                    let min = values
+                        .iter()
                         .filter_map(|v| v.as_f64())
                         .fold(f64::INFINITY, f64::min);
                     AggregateValue::Min(if min.is_infinite() { 0.0 } else { min })
                 }
                 JsonAggFunction::Max => {
-                    let max = values.iter()
+                    let max = values
+                        .iter()
                         .filter_map(|v| v.as_f64())
                         .fold(f64::NEG_INFINITY, f64::max);
                     AggregateValue::Max(if max.is_infinite() { 0.0 } else { max })
@@ -1568,7 +1638,9 @@ impl ZipExecutor {
                 JsonAggFunction::First => {
                     if let Some(first) = values.first() {
                         match first {
-                            ExtractedValue::String(s) => AggregateValue::StringList(vec![s.clone()]),
+                            ExtractedValue::String(s) => {
+                                AggregateValue::StringList(vec![s.clone()])
+                            }
                             ExtractedValue::Float(f) => AggregateValue::Sum(*f),
                             ExtractedValue::Null => AggregateValue::Count(0),
                         }
@@ -1579,7 +1651,9 @@ impl ZipExecutor {
                 JsonAggFunction::Last => {
                     if let Some(last) = values.last() {
                         match last {
-                            ExtractedValue::String(s) => AggregateValue::StringList(vec![s.clone()]),
+                            ExtractedValue::String(s) => {
+                                AggregateValue::StringList(vec![s.clone()])
+                            }
                             ExtractedValue::Float(f) => AggregateValue::Sum(*f),
                             ExtractedValue::Null => AggregateValue::Count(0),
                         }
@@ -1588,7 +1662,8 @@ impl ZipExecutor {
                     }
                 }
                 JsonAggFunction::Collect => {
-                    let strings: Vec<String> = values.iter()
+                    let strings: Vec<String> = values
+                        .iter()
                         .filter_map(|v| match v {
                             ExtractedValue::String(s) => Some(s.clone()),
                             ExtractedValue::Float(f) => Some(f.to_string()),
@@ -1607,7 +1682,8 @@ impl ZipExecutor {
 
     /// Execute filter pipeline operation
     fn execute_filter(&self, pairs: Vec<ZipPair>, condition: &JsonCondition) -> Vec<ZipPair> {
-        pairs.into_iter()
+        pairs
+            .into_iter()
             .filter(|pair| self.evaluate_condition(pair, condition))
             .collect()
     }
@@ -1626,13 +1702,15 @@ impl ZipExecutor {
             JsonCondition::Or { conditions } => {
                 conditions.iter().any(|c| self.evaluate_condition(pair, c))
             }
-            JsonCondition::Not { condition } => {
-                !self.evaluate_condition(pair, condition)
-            }
+            JsonCondition::Not { condition } => !self.evaluate_condition(pair, condition),
             JsonCondition::IsNull { expr, negated } => {
                 let val = self.extract_value(pair, expr);
                 let is_null = matches!(val, ExtractedValue::Null);
-                if *negated { !is_null } else { is_null }
+                if *negated {
+                    !is_null
+                } else {
+                    is_null
+                }
             }
             _ => true, // Default to true for unsupported conditions
         }
@@ -1648,17 +1726,15 @@ impl ZipExecutor {
         use crate::query::lang::json::JsonCompareOp;
 
         match (left, right) {
-            (ExtractedValue::Float(l), ExtractedValue::Float(r)) => {
-                match op {
-                    JsonCompareOp::Eq => (l - r).abs() < f64::EPSILON,
-                    JsonCompareOp::NotEq => (l - r).abs() >= f64::EPSILON,
-                    JsonCompareOp::Lt => l < r,
-                    JsonCompareOp::LtEq => l <= r,
-                    JsonCompareOp::Gt => l > r,
-                    JsonCompareOp::GtEq => l >= r,
-                    _ => false,
-                }
-            }
+            (ExtractedValue::Float(l), ExtractedValue::Float(r)) => match op {
+                JsonCompareOp::Eq => (l - r).abs() < f64::EPSILON,
+                JsonCompareOp::NotEq => (l - r).abs() >= f64::EPSILON,
+                JsonCompareOp::Lt => l < r,
+                JsonCompareOp::LtEq => l <= r,
+                JsonCompareOp::Gt => l > r,
+                JsonCompareOp::GtEq => l >= r,
+                _ => false,
+            },
             (ExtractedValue::String(l), ExtractedValue::String(r)) => {
                 match op {
                     JsonCompareOp::Eq => l == r,
@@ -1686,7 +1762,11 @@ impl ZipExecutor {
     }
 
     /// Execute sort pipeline operation
-    fn execute_sort(&self, pairs: &mut [ZipPair], order_by: &[crate::query::lang::json::JsonOrderBy]) {
+    fn execute_sort(
+        &self,
+        pairs: &mut [ZipPair],
+        order_by: &[crate::query::lang::json::JsonOrderBy],
+    ) {
         if order_by.is_empty() {
             return;
         }
@@ -1700,22 +1780,20 @@ impl ZipExecutor {
                     (ExtractedValue::Float(fa), ExtractedValue::Float(fb)) => {
                         fa.partial_cmp(fb).unwrap_or(std::cmp::Ordering::Equal)
                     }
-                    (ExtractedValue::String(sa), ExtractedValue::String(sb)) => {
-                        sa.cmp(sb)
-                    }
+                    (ExtractedValue::String(sa), ExtractedValue::String(sb)) => sa.cmp(sb),
                     (ExtractedValue::Null, ExtractedValue::Null) => std::cmp::Ordering::Equal,
-                    (ExtractedValue::Null, _) => {
-                        match order.nulls {
-                            Some(crate::query::lang::json::JsonNullsOrder::First) => std::cmp::Ordering::Less,
-                            _ => std::cmp::Ordering::Greater,
+                    (ExtractedValue::Null, _) => match order.nulls {
+                        Some(crate::query::lang::json::JsonNullsOrder::First) => {
+                            std::cmp::Ordering::Less
                         }
-                    }
-                    (_, ExtractedValue::Null) => {
-                        match order.nulls {
-                            Some(crate::query::lang::json::JsonNullsOrder::First) => std::cmp::Ordering::Greater,
-                            _ => std::cmp::Ordering::Less,
+                        _ => std::cmp::Ordering::Greater,
+                    },
+                    (_, ExtractedValue::Null) => match order.nulls {
+                        Some(crate::query::lang::json::JsonNullsOrder::First) => {
+                            std::cmp::Ordering::Greater
                         }
-                    }
+                        _ => std::cmp::Ordering::Less,
+                    },
                     _ => std::cmp::Ordering::Equal,
                 };
 
@@ -1763,16 +1841,14 @@ impl ZipExecutor {
 
                 ExtractedValue::Null
             }
-            JsonExpr::Literal { value } => {
-                match value {
-                    JsonValue::String(s) => ExtractedValue::String(s.clone()),
-                    JsonValue::Int(i) => ExtractedValue::Float(*i as f64),
-                    JsonValue::Float(f) => ExtractedValue::Float(*f),
-                    JsonValue::Bool(b) => ExtractedValue::Float(if *b { 1.0 } else { 0.0 }),
-                    JsonValue::Null => ExtractedValue::Null,
-                    JsonValue::Array(_) => ExtractedValue::Null,
-                }
-            }
+            JsonExpr::Literal { value } => match value {
+                JsonValue::String(s) => ExtractedValue::String(s.clone()),
+                JsonValue::Int(i) => ExtractedValue::Float(*i as f64),
+                JsonValue::Float(f) => ExtractedValue::Float(*f),
+                JsonValue::Bool(b) => ExtractedValue::Float(if *b { 1.0 } else { 0.0 }),
+                JsonValue::Null => ExtractedValue::Null,
+                JsonValue::Array(_) => ExtractedValue::Null,
+            },
             _ => ExtractedValue::Null,
         }
     }
@@ -1796,12 +1872,25 @@ impl ZipExecutor {
                 Some(ExtractedValue::Float(amount))
             }
             "invoice_date" => Some(ExtractedValue::String(invoice.invoice_date.to_string())),
-            "due_date" => invoice.due_date.map(|d| ExtractedValue::String(d.to_string())),
+            "due_date" => invoice
+                .due_date
+                .map(|d| ExtractedValue::String(d.to_string())),
             "currency" => Some(ExtractedValue::String(format!("{:?}", invoice.currency))),
-            "validation_status" => Some(ExtractedValue::String(format!("{:?}", invoice.validation_status))),
-            "po_number" => invoice.po_number.as_ref().map(|s| ExtractedValue::String(s.clone())),
-            "contract_id" => invoice.contract_id.map(|id| ExtractedValue::String(id.to_string())),
-            "contract_number" => invoice.contract_number.as_ref().map(|s| ExtractedValue::String(s.clone())),
+            "validation_status" => Some(ExtractedValue::String(format!(
+                "{:?}",
+                invoice.validation_status
+            ))),
+            "po_number" => invoice
+                .po_number
+                .as_ref()
+                .map(|s| ExtractedValue::String(s.clone())),
+            "contract_id" => invoice
+                .contract_id
+                .map(|id| ExtractedValue::String(id.to_string())),
+            "contract_number" => invoice
+                .contract_number
+                .as_ref()
+                .map(|s| ExtractedValue::String(s.clone())),
             _ => None,
         }
     }
@@ -1812,17 +1901,29 @@ impl ZipExecutor {
             "id" => Some(ExtractedValue::String(contract.id.to_string())),
             "title" => Some(ExtractedValue::String(contract.title.clone())),
             "total_value" | "contract_value" => {
-                let amount: f64 = contract.total_value
+                let amount: f64 = contract
+                    .total_value
                     .as_ref()
                     .and_then(|a| a.to_string().parse().ok())
                     .unwrap_or(0.0);
                 Some(ExtractedValue::Float(amount))
             }
-            "party_name" => contract.parties.first().map(|p| ExtractedValue::String(p.name.clone())),
+            "party_name" => contract
+                .parties
+                .first()
+                .map(|p| ExtractedValue::String(p.name.clone())),
             "effective_date" => Some(ExtractedValue::String(contract.effective_date.to_string())),
-            "expiration_date" => contract.expiration_date.map(|d| ExtractedValue::String(d.to_string())),
-            "currency" => contract.currency.as_ref().map(|c| ExtractedValue::String(format!("{:?}", c))),
-            "contract_type" => Some(ExtractedValue::String(format!("{:?}", contract.contract_type))),
+            "expiration_date" => contract
+                .expiration_date
+                .map(|d| ExtractedValue::String(d.to_string())),
+            "currency" => contract
+                .currency
+                .as_ref()
+                .map(|c| ExtractedValue::String(format!("{:?}", c))),
+            "contract_type" => Some(ExtractedValue::String(format!(
+                "{:?}",
+                contract.contract_type
+            ))),
             _ => None,
         }
     }
@@ -1968,9 +2069,18 @@ mod tests {
     fn test_is_invoice_column() {
         // Create a dummy executor for testing - we'll test the helper methods
         let invoice_columns = [
-            "invoice_number", "invoice_date", "due_date", "total_amount",
-            "subtotal", "tax_amount", "vendor_name", "po_number",
-            "contract_id", "contract_number", "line_items", "validation_status",
+            "invoice_number",
+            "invoice_date",
+            "due_date",
+            "total_amount",
+            "subtotal",
+            "tax_amount",
+            "vendor_name",
+            "po_number",
+            "contract_id",
+            "contract_number",
+            "line_items",
+            "validation_status",
         ];
 
         for col in invoice_columns {
@@ -1978,11 +2088,21 @@ mod tests {
             assert!(
                 matches!(
                     col,
-                    "invoice_number" | "invoice_date" | "due_date" | "total_amount"
-                        | "subtotal" | "tax_amount" | "vendor_name" | "po_number"
-                        | "contract_id" | "contract_number" | "line_items" | "validation_status"
+                    "invoice_number"
+                        | "invoice_date"
+                        | "due_date"
+                        | "total_amount"
+                        | "subtotal"
+                        | "tax_amount"
+                        | "vendor_name"
+                        | "po_number"
+                        | "contract_id"
+                        | "contract_number"
+                        | "line_items"
+                        | "validation_status"
                 ),
-                "Column {} should be recognized as invoice column", col
+                "Column {} should be recognized as invoice column",
+                col
             );
         }
     }
@@ -1990,20 +2110,35 @@ mod tests {
     #[test]
     fn test_is_contract_column() {
         let contract_columns = [
-            "title", "effective_date", "expiration_date", "total_value",
-            "contract_value", "party_name", "parties", "clauses",
-            "contract_type", "payment_terms",
+            "title",
+            "effective_date",
+            "expiration_date",
+            "total_value",
+            "contract_value",
+            "party_name",
+            "parties",
+            "clauses",
+            "contract_type",
+            "payment_terms",
         ];
 
         for col in contract_columns {
             assert!(
                 matches!(
                     col,
-                    "title" | "effective_date" | "expiration_date" | "total_value"
-                        | "contract_value" | "party_name" | "parties" | "clauses"
-                        | "contract_type" | "payment_terms"
+                    "title"
+                        | "effective_date"
+                        | "expiration_date"
+                        | "total_value"
+                        | "contract_value"
+                        | "party_name"
+                        | "parties"
+                        | "clauses"
+                        | "contract_type"
+                        | "payment_terms"
                 ),
-                "Column {} should be recognized as contract column", col
+                "Column {} should be recognized as contract column",
+                col
             );
         }
     }
@@ -2064,10 +2199,7 @@ mod tests {
             (Some(a), Some(b)) if a == b
         ));
 
-        assert!(matches!(
-            (&None::<String>, &None::<String>),
-            (None, None)
-        ));
+        assert!(matches!((&None::<String>, &None::<String>), (None, None)));
 
         assert!(!matches!(
             (&Some("a".to_string()), &Some("b".to_string())),
@@ -2083,7 +2215,7 @@ mod tests {
 
         if let (Ok(a_num), Ok(b_num)) = (
             a.as_ref().unwrap().parse::<f64>(),
-            b.as_ref().unwrap().parse::<f64>()
+            b.as_ref().unwrap().parse::<f64>(),
         ) {
             assert_eq!(a_num.partial_cmp(&b_num), Some(std::cmp::Ordering::Less));
         }

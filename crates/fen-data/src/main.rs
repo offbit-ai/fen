@@ -28,13 +28,13 @@ use fen_grpc::{
     },
     ShardServer, ShardServiceHandler,
 };
+use prost_types::Timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use prost_types::Timestamp;
 use tonic::{transport::Server, Status};
 use tracing::{info, warn};
 
@@ -56,7 +56,11 @@ struct Args {
     grpc_addr: SocketAddr,
 
     /// Coordinator address for registration and heartbeats
-    #[arg(long, env = "COORDINATOR_ADDR", default_value = "http://localhost:9002")]
+    #[arg(
+        long,
+        env = "COORDINATOR_ADDR",
+        default_value = "http://localhost:9002"
+    )]
     coordinator_addr: String,
 
     /// Data directory for storage
@@ -177,7 +181,11 @@ impl ShardServiceHandler for DataNodeHandler {
     }
 
     async fn prepare(&self, request: PrepareRequest) -> Result<PrepareResponse, Status> {
-        let tx_id = request.transaction_id.as_ref().map(|t| t.id.as_str()).unwrap_or("unknown");
+        let tx_id = request
+            .transaction_id
+            .as_ref()
+            .map(|t| t.id.as_str())
+            .unwrap_or("unknown");
         info!(tx_id = %tx_id, "Prepare phase");
         Ok(PrepareResponse {
             vote_commit: true,
@@ -186,7 +194,11 @@ impl ShardServiceHandler for DataNodeHandler {
     }
 
     async fn commit(&self, request: CommitRequest) -> Result<CommitResponse, Status> {
-        let tx_id = request.transaction_id.as_ref().map(|t| t.id.as_str()).unwrap_or("unknown");
+        let tx_id = request
+            .transaction_id
+            .as_ref()
+            .map(|t| t.id.as_str())
+            .unwrap_or("unknown");
         info!(tx_id = %tx_id, "Commit phase");
         Ok(CommitResponse {
             success: true,
@@ -195,7 +207,11 @@ impl ShardServiceHandler for DataNodeHandler {
     }
 
     async fn abort(&self, request: AbortRequest) -> Result<AbortResponse, Status> {
-        let tx_id = request.transaction_id.as_ref().map(|t| t.id.as_str()).unwrap_or("unknown");
+        let tx_id = request
+            .transaction_id
+            .as_ref()
+            .map(|t| t.id.as_str())
+            .unwrap_or("unknown");
         info!(tx_id = %tx_id, "Abort phase");
         Ok(AbortResponse {
             success: true,
@@ -221,10 +237,7 @@ impl ShardServiceHandler for DataNodeHandler {
 
         if request.include_details {
             details.insert("node_id".to_string(), self.node_id.0.to_string());
-            details.insert(
-                "shard_count".to_string(),
-                self.shards.len().to_string(),
-            );
+            details.insert("shard_count".to_string(), self.shards.len().to_string());
             details.insert(
                 "shards".to_string(),
                 self.shards
@@ -242,10 +255,7 @@ impl ShardServiceHandler for DataNodeHandler {
         })
     }
 
-    async fn get_shard_info(
-        &self,
-        request: ShardInfoRequest,
-    ) -> Result<ShardInfoResponse, Status> {
+    async fn get_shard_info(&self, request: ShardInfoRequest) -> Result<ShardInfoResponse, Status> {
         let shard_id = request
             .shard_id
             .ok_or_else(|| Status::invalid_argument("Missing shard_id"))?;
@@ -347,7 +357,10 @@ impl CoordinatorClient {
         Ok(response)
     }
 
-    async fn heartbeat(&self, document_counts: HashMap<u32, u64>) -> anyhow::Result<HeartbeatResponse> {
+    async fn heartbeat(
+        &self,
+        document_counts: HashMap<u32, u64>,
+    ) -> anyhow::Result<HeartbeatResponse> {
         let url = format!("{}/cluster/heartbeat", self.base_url);
         let request = HeartbeatRequest {
             node_id: self.node_id.clone(),
@@ -411,10 +424,7 @@ async fn main() -> anyhow::Result<()> {
     let handler = Arc::new(handler);
 
     // Create gRPC server
-    let server = ShardServer::new(
-        DataNodeHandlerWrapper(handler.clone()),
-        node_id.clone(),
-    );
+    let server = ShardServer::new(DataNodeHandlerWrapper(handler.clone()), node_id.clone());
 
     // Determine advertised address
     let advertised_addr = args
@@ -467,8 +477,7 @@ async fn main() -> anyhow::Result<()> {
 
             // Get document counts
             let counts = heartbeat_handler.document_counts.read().await;
-            let doc_counts: HashMap<u32, u64> =
-                counts.iter().map(|(k, v)| (k.0, *v)).collect();
+            let doc_counts: HashMap<u32, u64> = counts.iter().map(|(k, v)| (k.0, *v)).collect();
             drop(counts);
 
             match heartbeat_client.heartbeat(doc_counts).await {
@@ -568,10 +577,7 @@ impl ShardServiceHandler for DataNodeHandlerWrapper {
         self.0.health_check(request).await
     }
 
-    async fn get_shard_info(
-        &self,
-        request: ShardInfoRequest,
-    ) -> Result<ShardInfoResponse, Status> {
+    async fn get_shard_info(&self, request: ShardInfoRequest) -> Result<ShardInfoResponse, Status> {
         self.0.get_shard_info(request).await
     }
 }
@@ -613,7 +619,9 @@ mod tests {
             embedding: vec![],
             metadata: HashMap::new(),
             transaction_id: None,
-            tenant_id: Some(TenantId { id: "tenant-001".to_string() }),
+            tenant_id: Some(TenantId {
+                id: "tenant-001".to_string(),
+            }),
         };
 
         let response = handler.store_document(request).await.unwrap();

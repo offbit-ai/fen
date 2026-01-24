@@ -86,13 +86,11 @@ impl IngestionTestEnv {
     pub async fn new() -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        let storage = Arc::new(
-            RedbStorage::in_memory().expect("Failed to create in-memory storage"),
-        );
+        let storage =
+            Arc::new(RedbStorage::in_memory().expect("Failed to create in-memory storage"));
 
-        let pipeline = Arc::new(
-            IngestionPipeline::new(storage.clone()).expect("Failed to create pipeline"),
-        );
+        let pipeline =
+            Arc::new(IngestionPipeline::new(storage.clone()).expect("Failed to create pipeline"));
 
         let rule_engine = Arc::new(RuleEngine::builtin_only());
 
@@ -109,13 +107,10 @@ impl IngestionTestEnv {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
         let db_path = temp_dir.path().join("test.redb");
-        let storage = Arc::new(
-            RedbStorage::new(&db_path).expect("Failed to create file storage"),
-        );
+        let storage = Arc::new(RedbStorage::new(&db_path).expect("Failed to create file storage"));
 
-        let pipeline = Arc::new(
-            IngestionPipeline::new(storage.clone()).expect("Failed to create pipeline"),
-        );
+        let pipeline =
+            Arc::new(IngestionPipeline::new(storage.clone()).expect("Failed to create pipeline"));
 
         let rule_engine = Arc::new(RuleEngine::builtin_only());
 
@@ -145,9 +140,7 @@ impl QueryTestEnv {
 
         let warm_path = temp_dir.path().join("warm");
 
-        let hot_storage = Arc::new(
-            RedbStorage::in_memory().expect("Failed to create hot storage"),
-        );
+        let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
 
         let warm_storage = fen_storage::LanceStorage::new(&warm_path)
             .await
@@ -189,9 +182,7 @@ impl QueryExecutorTestEnv {
         let warm_path = temp_dir.path().join("warm");
         let fulltext_path = temp_dir.path().join("fulltext");
 
-        let hot_storage = Arc::new(
-            RedbStorage::in_memory().expect("Failed to create hot storage"),
-        );
+        let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
 
         let warm_storage = Arc::new(tokio::sync::RwLock::new(
             fen_storage::LanceStorage::new(&warm_path)
@@ -221,7 +212,10 @@ impl QueryExecutorTestEnv {
     }
 
     /// Store an invoice with text indexing
-    pub async fn store_invoice(&self, invoice: &fen_core::domain::Invoice) -> Result<(), fen_storage::StorageError> {
+    pub async fn store_invoice(
+        &self,
+        invoice: &fen_core::domain::Invoice,
+    ) -> Result<(), fen_storage::StorageError> {
         use fen_storage::DocumentStore;
 
         // Store in hot storage
@@ -250,7 +244,8 @@ impl QueryExecutorTestEnv {
         // Store in warm storage with embedding
         {
             let mut warm = self.warm_storage.write().await;
-            warm.store_invoice_with_embedding(invoice, Some(embedding)).await?;
+            warm.store_invoice_with_embedding(invoice, Some(embedding))
+                .await?;
         }
 
         // Index text for full-text search
@@ -285,9 +280,7 @@ impl ZipExecutorTestEnv {
         let warm_path = temp_dir.path().join("warm");
         let fulltext_path = temp_dir.path().join("fulltext");
 
-        let hot_storage = Arc::new(
-            RedbStorage::in_memory().expect("Failed to create hot storage"),
-        );
+        let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
 
         let warm_storage = Arc::new(tokio::sync::RwLock::new(
             fen_storage::LanceStorage::new(&warm_path)
@@ -317,7 +310,10 @@ impl ZipExecutorTestEnv {
     }
 
     /// Store an invoice
-    pub async fn store_invoice(&self, invoice: &fen_core::domain::Invoice) -> Result<(), fen_storage::StorageError> {
+    pub async fn store_invoice(
+        &self,
+        invoice: &fen_core::domain::Invoice,
+    ) -> Result<(), fen_storage::StorageError> {
         use fen_storage::DocumentStore;
         self.hot_storage.store_invoice(invoice).await?;
         self.fulltext_index.index_invoice(invoice).await?;
@@ -326,7 +322,10 @@ impl ZipExecutorTestEnv {
     }
 
     /// Store a contract
-    pub async fn store_contract(&self, contract: &fen_core::domain::Contract) -> Result<(), fen_storage::StorageError> {
+    pub async fn store_contract(
+        &self,
+        contract: &fen_core::domain::Contract,
+    ) -> Result<(), fen_storage::StorageError> {
         use fen_storage::DocumentStore;
         self.hot_storage.store_contract(contract).await?;
         Ok(())

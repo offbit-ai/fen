@@ -27,17 +27,14 @@ static AMOUNT_PATTERN: Lazy<Regex> = Lazy::new(|| {
         .unwrap()
 });
 
-static INVOICE_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:INV|Invoice)[#\-:\s]*([A-Z0-9\-]+)").unwrap()
-});
+static INVOICE_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)(?:INV|Invoice)[#\-:\s]*([A-Z0-9\-]+)").unwrap());
 
-static EMAIL_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap()
-});
+static EMAIL_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap());
 
-static KV_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"([A-Za-z][A-Za-z\s]*?):\s*(.+)").unwrap()
-});
+static KV_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"([A-Za-z][A-Za-z\s]*?):\s*(.+)").unwrap());
 
 /// LayoutLMv3-based document understanding model
 pub struct LayoutModel {
@@ -149,8 +146,8 @@ impl LayoutModel {
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
         let attention_mask_tensor = TensorRef::from_array_view(&attention_mask)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
-        let bbox_tensor = TensorRef::from_array_view(&bbox)
-            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let bbox_tensor =
+            TensorRef::from_array_view(&bbox).map_err(|e| MlError::Preprocessing(e.to_string()))?;
         let pixel_values_tensor = TensorRef::from_array_view(&pixel_values)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
@@ -243,8 +240,7 @@ impl LayoutModel {
         }
 
         // Pixel values (resized and normalized image)
-        let resized =
-            image.resize_exact(img_size, img_size, image::imageops::FilterType::Lanczos3);
+        let resized = image.resize_exact(img_size, img_size, image::imageops::FilterType::Lanczos3);
         let rgb = resized.to_rgb8();
 
         let mut pixel_values = Array4::<f32>::zeros((1, 3, img_size as usize, img_size as usize));
@@ -365,8 +361,7 @@ impl LayoutModel {
         // Date patterns
         if lower.contains("date")
             || text.contains('/')
-            || text.contains('-')
-                && text.chars().filter(|c| c.is_ascii_digit()).count() >= 4
+            || text.contains('-') && text.chars().filter(|c| c.is_ascii_digit()).count() >= 4
         {
             return Some(EntityType::Date);
         }

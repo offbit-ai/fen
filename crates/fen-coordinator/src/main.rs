@@ -313,10 +313,8 @@ async fn cluster_status_handler(
     let nodes = state.data_nodes.read().await;
     let assignments = state.shard_assignments.read().await;
 
-    let shard_assignments: HashMap<u32, Vec<String>> = assignments
-        .iter()
-        .map(|(k, v)| (k.0, v.clone()))
-        .collect();
+    let shard_assignments: HashMap<u32, Vec<String>> =
+        assignments.iter().map(|(k, v)| (k.0, v.clone())).collect();
 
     Json(ClusterStatusResponse {
         node_id: state.node_id,
@@ -418,7 +416,10 @@ async fn main() -> anyhow::Result<()> {
     let peers: Vec<String> = if args.peer_addrs.is_empty() {
         vec![]
     } else {
-        args.peer_addrs.split(',').map(|s| s.trim().to_string()).collect()
+        args.peer_addrs
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect()
     };
 
     info!(peers = ?peers, "Cluster peers configured");
@@ -453,11 +454,7 @@ mod tests {
 
     #[test]
     fn test_args_parsing() {
-        let args = Args::parse_from([
-            "fen-coordinator",
-            "--node-id", "1",
-            "--num-shards", "8",
-        ]);
+        let args = Args::parse_from(["fen-coordinator", "--node-id", "1", "--num-shards", "8"]);
         assert_eq!(args.node_id, 1);
         assert_eq!(args.num_shards, 8);
     }

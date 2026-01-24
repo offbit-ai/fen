@@ -69,7 +69,11 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
     }
 
     /// Ingest a PDF document from bytes
-    pub async fn ingest_pdf(&self, bytes: &[u8], filename: &str) -> Result<Invoice, IngestionError> {
+    pub async fn ingest_pdf(
+        &self,
+        bytes: &[u8],
+        filename: &str,
+    ) -> Result<Invoice, IngestionError> {
         let document_id = DocumentId::new();
 
         tracing::info!(
@@ -91,7 +95,8 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
                 let extracted = pdf_extractor.extract_from_bytes(&bytes_owned)?;
 
                 // Only render pages if ML is enabled and text extraction was poor
-                let rendered = if use_ml && (!extracted.has_text || extracted.text.len() < min_text) {
+                let rendered = if use_ml && (!extracted.has_text || extracted.text.len() < min_text)
+                {
                     let pages = pdf_extractor.render_pages_from_bytes(&bytes_owned)?;
                     Some(pages.into_iter().map(|p| p.image).collect())
                 } else if use_ml {
@@ -118,7 +123,8 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
 
         // Parse invoice - use ML if available, otherwise regex
         let invoice = if let (Some(ml), Some(pages)) = (&self.ml_pipeline, rendered_pages) {
-            self.parse_with_ml(ml, &pages, &extracted, document_id).await?
+            self.parse_with_ml(ml, &pages, &extracted, document_id)
+                .await?
         } else {
             self.invoice_parser.parse(&extracted.text, document_id)?
         };

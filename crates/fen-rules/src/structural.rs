@@ -75,10 +75,7 @@ impl StructuralValidator {
                         "Due date is before invoice date",
                     )
                     .with_field("due_date")
-                    .with_values(
-                        format!(">= {}", invoice.invoice_date),
-                        due_date.to_string(),
-                    ),
+                    .with_values(format!(">= {}", invoice.invoice_date), due_date.to_string()),
                 );
             }
         }
@@ -99,22 +96,28 @@ impl StructuralValidator {
 
         // Check: Invoice number is not empty
         if invoice.invoice_number.is_empty() || invoice.invoice_number.starts_with("UNKNOWN") {
-            anomalies.push(Anomaly::new(
-                invoice.document_id,
-                AnomalyType::MissingField,
-                Severity::Medium,
-                "Invoice number could not be extracted",
-            ).with_field("invoice_number"));
+            anomalies.push(
+                Anomaly::new(
+                    invoice.document_id,
+                    AnomalyType::MissingField,
+                    Severity::Medium,
+                    "Invoice number could not be extracted",
+                )
+                .with_field("invoice_number"),
+            );
         }
 
         // Check: Vendor is not unknown
         if invoice.vendor.name == "Unknown" || invoice.vendor.name == "Unknown Vendor" {
-            anomalies.push(Anomaly::new(
-                invoice.document_id,
-                AnomalyType::MissingField,
-                Severity::Low,
-                "Vendor information could not be extracted",
-            ).with_field("vendor"));
+            anomalies.push(
+                Anomaly::new(
+                    invoice.document_id,
+                    AnomalyType::MissingField,
+                    Severity::Low,
+                    "Vendor information could not be extracted",
+                )
+                .with_field("vendor"),
+            );
         }
 
         // Check: Low confidence score warning
@@ -156,7 +159,12 @@ impl StructuralValidator {
     }
 
     /// Build a validation result from anomalies
-    pub fn build_result(&self, invoice: &Invoice, anomalies: Vec<Anomaly>, time_ms: u64) -> ValidationResult {
+    pub fn build_result(
+        &self,
+        invoice: &Invoice,
+        anomalies: Vec<Anomaly>,
+        time_ms: u64,
+    ) -> ValidationResult {
         let mut result = ValidationResult::new(invoice.document_id);
         result.validation_time_ms = time_ms;
 
@@ -178,7 +186,12 @@ mod tests {
     fn test_valid_invoice() {
         let validator = StructuralValidator::new();
         let mut invoice = Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
-        invoice.line_items = vec![LineItem::new(1, "Service", Decimal::new(1, 0), Decimal::new(100, 0))];
+        invoice.line_items = vec![LineItem::new(
+            1,
+            "Service",
+            Decimal::new(1, 0),
+            Decimal::new(100, 0),
+        )];
         invoice.subtotal = Decimal::new(100, 0);
         invoice.total_amount = Decimal::new(100, 0);
         invoice.confidence_score = 0.9;
@@ -193,12 +206,19 @@ mod tests {
     fn test_math_mismatch() {
         let validator = StructuralValidator::new();
         let mut invoice = Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
-        invoice.line_items = vec![LineItem::new(1, "Service", Decimal::new(1, 0), Decimal::new(100, 0))];
+        invoice.line_items = vec![LineItem::new(
+            1,
+            "Service",
+            Decimal::new(1, 0),
+            Decimal::new(100, 0),
+        )];
         invoice.subtotal = Decimal::new(200, 0); // Wrong!
         invoice.total_amount = Decimal::new(200, 0);
 
         let anomalies = validator.validate_invoice(&invoice);
 
-        assert!(anomalies.iter().any(|a| a.anomaly_type == AnomalyType::MathMismatch));
+        assert!(anomalies
+            .iter()
+            .any(|a| a.anomaly_type == AnomalyType::MathMismatch));
     }
 }

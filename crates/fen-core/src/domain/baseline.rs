@@ -423,11 +423,17 @@ mod tests {
     fn test_trend_detection() {
         // Increasing trend
         let increasing = vec![100.0, 150.0, 200.0, 250.0, 300.0];
-        assert_eq!(TrendIndicator::from_values(&increasing), TrendIndicator::Increasing);
+        assert_eq!(
+            TrendIndicator::from_values(&increasing),
+            TrendIndicator::Increasing
+        );
 
         // Decreasing trend
         let decreasing = vec![300.0, 250.0, 200.0, 150.0, 100.0];
-        assert_eq!(TrendIndicator::from_values(&decreasing), TrendIndicator::Decreasing);
+        assert_eq!(
+            TrendIndicator::from_values(&decreasing),
+            TrendIndicator::Decreasing
+        );
 
         // Stable trend
         let stable = vec![100.0, 102.0, 98.0, 101.0, 99.0];

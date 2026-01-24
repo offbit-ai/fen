@@ -71,7 +71,10 @@ pub enum TransactionState {
 impl TransactionState {
     /// Check if the transaction is in a terminal state.
     pub fn is_terminal(&self) -> bool {
-        matches!(self, TransactionState::Committed | TransactionState::Aborted)
+        matches!(
+            self,
+            TransactionState::Committed | TransactionState::Aborted
+        )
     }
 
     /// Check if the transaction requires recovery (stuck in committing).
@@ -272,7 +275,10 @@ impl TransactionCoordinator {
     }
 
     /// Begin a new transaction.
-    pub fn begin(&self, participant_shards: HashSet<ShardId>) -> Result<Transaction, TransactionError> {
+    pub fn begin(
+        &self,
+        participant_shards: HashSet<ShardId>,
+    ) -> Result<Transaction, TransactionError> {
         if self.transactions.len() >= self.config.max_concurrent_transactions {
             return Err(TransactionError::Internal(
                 "Maximum concurrent transactions reached".to_string(),
@@ -332,19 +338,15 @@ impl TransactionCoordinator {
         // Send prepare to all participants
         let mut prepare_results = Vec::new();
         for shard_id in &participants {
-            let participant = self
-                .participants
-                .get(shard_id)
-                .ok_or_else(|| TransactionError::CommunicationError {
+            let participant = self.participants.get(shard_id).ok_or_else(|| {
+                TransactionError::CommunicationError {
                     shard_id: shard_id.clone(),
                     reason: "Participant not registered".to_string(),
-                })?;
+                }
+            })?;
 
-            let result = tokio::time::timeout(
-                self.config.prepare_timeout,
-                participant.prepare(tx_id),
-            )
-            .await;
+            let result =
+                tokio::time::timeout(self.config.prepare_timeout, participant.prepare(tx_id)).await;
 
             match result {
                 Ok(Ok(())) => {
@@ -451,11 +453,9 @@ impl TransactionCoordinator {
                     }
                 };
 
-                let result = tokio::time::timeout(
-                    self.config.commit_timeout,
-                    participant.commit(tx_id),
-                )
-                .await;
+                let result =
+                    tokio::time::timeout(self.config.commit_timeout, participant.commit(tx_id))
+                        .await;
 
                 match result {
                     Ok(Ok(())) => {
@@ -537,8 +537,7 @@ impl TransactionCoordinator {
                 );
                 Err(TransactionError::CommitFailed(format!(
                     "{} participants failed to commit after {} retries",
-                    failed_count,
-                    self.config.max_commit_retries
+                    failed_count, self.config.max_commit_retries
                 )))
             }
             _ => unreachable!(),
@@ -740,7 +739,9 @@ mod tests {
             if self.should_commit {
                 Ok(())
             } else {
-                Err(TransactionError::CommitFailed("Test commit failure".to_string()))
+                Err(TransactionError::CommitFailed(
+                    "Test commit failure".to_string(),
+                ))
             }
         }
 

@@ -142,6 +142,6 @@ mod span;
 
 pub use ast::*;
 pub use error::{ParseError, ParseErrorKind, QueryError};
-pub use json::{JsonQuery, JsonQueryBuilder, JsonCondition, JsonPipelineOp, JsonZipClause};
+pub use json::{JsonCondition, JsonPipelineOp, JsonQuery, JsonQueryBuilder, JsonZipClause};
 pub use parser::{parse_query, QueryParser};
 pub use span::Span;

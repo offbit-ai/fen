@@ -49,7 +49,9 @@ pub use transaction::{
 };
 
 #[cfg(feature = "raft")]
-pub use consensus::raft::{ClusterHealth, ClusterMember, RaftConfig, RaftCoordinator, RaftError, RaftState};
+pub use consensus::raft::{
+    ClusterHealth, ClusterMember, RaftConfig, RaftCoordinator, RaftError, RaftState,
+};
 
 #[cfg(test)]
 mod tests {

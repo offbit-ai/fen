@@ -28,10 +28,18 @@ pub trait DocumentStore: Send + Sync {
     async fn delete_contract(&self, id: &ContractId) -> Result<bool, StorageError>;
 
     /// List invoices with pagination
-    async fn list_invoices(&self, limit: usize, offset: usize) -> Result<Vec<Invoice>, StorageError>;
+    async fn list_invoices(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<Invoice>, StorageError>;
 
     /// List contracts with pagination
-    async fn list_contracts(&self, limit: usize, offset: usize) -> Result<Vec<Contract>, StorageError>;
+    async fn list_contracts(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<Contract>, StorageError>;
 
     /// Count total invoices
     async fn count_invoices(&self) -> Result<usize, StorageError>;

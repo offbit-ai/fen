@@ -35,10 +35,7 @@ pub async fn ingest_document(
         let name = field.name().unwrap_or("").to_string();
 
         if name == "file" {
-            let filename = field
-                .file_name()
-                .unwrap_or("unknown.pdf")
-                .to_string();
+            let filename = field.file_name().unwrap_or("unknown.pdf").to_string();
 
             let data = field
                 .bytes()

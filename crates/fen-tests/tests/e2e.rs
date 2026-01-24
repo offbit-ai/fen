@@ -9,8 +9,8 @@ use fen_core::domain::{AnomalyType, Severity};
 use fen_core::ValidationStatus;
 use fen_storage::{DocumentStore, InvoiceFilter, StorageTier};
 use fen_tests::{
-    consistent_embedding, init_test_tracing, random_embedding, InvoiceFixture,
-    ContractFixture, IngestionTestEnv, QueryTestEnv, TestEnv, sample_invoice_text,
+    consistent_embedding, init_test_tracing, random_embedding, sample_invoice_text,
+    ContractFixture, IngestionTestEnv, InvoiceFixture, QueryTestEnv, TestEnv,
 };
 
 // ============================================================================
@@ -124,9 +124,7 @@ mod storage {
         let env = TestEnv::new().await;
 
         // Create
-        let invoice = InvoiceFixture::new()
-            .with_number("CRUD-001")
-            .build();
+        let invoice = InvoiceFixture::new().with_number("CRUD-001").build();
 
         env.storage.store_invoice(&invoice, None).await.unwrap();
 
@@ -150,9 +148,7 @@ mod storage {
         let env = TestEnv::new().await;
 
         // Create 10 invoices
-        let invoices = InvoiceFixture::new()
-            .with_number("PAGE")
-            .build_batch(10);
+        let invoices = InvoiceFixture::new().with_number("PAGE").build_batch(10);
 
         for invoice in &invoices {
             env.storage.store_invoice(invoice, None).await.unwrap();
@@ -178,9 +174,7 @@ mod storage {
     async fn test_contract_storage() {
         let env = TestEnv::new().await;
 
-        let contract = ContractFixture::new()
-            .with_title("Test Contract")
-            .build();
+        let contract = ContractFixture::new().with_title("Test Contract").build();
 
         env.storage.store_contract(&contract).await.unwrap();
 
@@ -195,9 +189,7 @@ mod storage {
         let env = TestEnv::new().await;
 
         // Recent invoice should go to hot tier
-        let recent = InvoiceFixture::new()
-            .with_number("HOT-001")
-            .build();
+        let recent = InvoiceFixture::new().with_number("HOT-001").build();
 
         env.storage.store_invoice(&recent, None).await.unwrap();
 
@@ -211,9 +203,7 @@ mod storage {
     async fn test_storage_with_embeddings() {
         let env = TestEnv::new().await;
 
-        let invoice = InvoiceFixture::new()
-            .with_number("EMB-001")
-            .build();
+        let invoice = InvoiceFixture::new().with_number("EMB-001").build();
 
         let embedding = random_embedding(768);
 
@@ -260,7 +250,8 @@ mod storage {
             currency: None,
         };
 
-        let results = env.storage
+        let results = env
+            .storage
             .search_invoices_hybrid(None, &filter, 10)
             .await
             .unwrap();
@@ -286,9 +277,7 @@ mod validation {
         init_test_tracing();
         let env = TestEnv::new().await;
 
-        let invoice = InvoiceFixture::new()
-            .with_number("VALID-001")
-            .build();
+        let invoice = InvoiceFixture::new().with_number("VALID-001").build();
 
         let result = env.rule_engine.validate_invoice(&invoice).await.unwrap();
 
@@ -310,7 +299,10 @@ mod validation {
 
         // Should detect math mismatch
         assert!(
-            result.anomalies.iter().any(|a| a.anomaly_type == AnomalyType::MathMismatch),
+            result
+                .anomalies
+                .iter()
+                .any(|a| a.anomaly_type == AnomalyType::MathMismatch),
             "Expected MathMismatch anomaly, found: {:?}",
             result.anomalies
         );
@@ -330,7 +322,10 @@ mod validation {
 
         // Should detect total mismatch
         assert!(
-            result.anomalies.iter().any(|a| a.anomaly_type == AnomalyType::MathMismatch),
+            result
+                .anomalies
+                .iter()
+                .any(|a| a.anomaly_type == AnomalyType::MathMismatch),
             "Expected MathMismatch anomaly for total, found: {:?}",
             result.anomalies
         );
@@ -349,7 +344,10 @@ mod validation {
         let result = env.rule_engine.validate_invoice(&invoice).await.unwrap();
 
         assert!(
-            result.anomalies.iter().any(|a| a.anomaly_type == AnomalyType::DateInconsistency),
+            result
+                .anomalies
+                .iter()
+                .any(|a| a.anomaly_type == AnomalyType::DateInconsistency),
             "Expected DateInconsistency anomaly, found: {:?}",
             result.anomalies
         );
@@ -368,7 +366,10 @@ mod validation {
         let result = env.rule_engine.validate_invoice(&invoice).await.unwrap();
 
         assert!(
-            result.anomalies.iter().any(|a| a.anomaly_type == AnomalyType::OutOfRange),
+            result
+                .anomalies
+                .iter()
+                .any(|a| a.anomaly_type == AnomalyType::OutOfRange),
             "Expected OutOfRange anomaly for negative total, found: {:?}",
             result.anomalies
         );
@@ -387,7 +388,10 @@ mod validation {
         let result = env.rule_engine.validate_invoice(&invoice).await.unwrap();
 
         assert!(
-            result.anomalies.iter().any(|a| a.anomaly_type == AnomalyType::MissingField),
+            result
+                .anomalies
+                .iter()
+                .any(|a| a.anomaly_type == AnomalyType::MissingField),
             "Expected MissingField anomaly for unknown vendor, found: {:?}",
             result.anomalies
         );
@@ -407,10 +411,11 @@ mod validation {
 
         // Should have a low severity warning about confidence
         assert!(
-            result.anomalies.iter().any(|a|
-                a.description.to_lowercase().contains("confidence") &&
-                a.severity == Severity::Low
-            ),
+            result
+                .anomalies
+                .iter()
+                .any(|a| a.description.to_lowercase().contains("confidence")
+                    && a.severity == Severity::Low),
             "Expected low confidence warning, found: {:?}",
             result.anomalies
         );
@@ -431,7 +436,8 @@ mod validation {
         let result = env.rule_engine.validate_invoice(&invoice).await.unwrap();
 
         // Should detect multiple issues
-        assert!(result.anomalies.len() >= 3,
+        assert!(
+            result.anomalies.len() >= 3,
             "Expected at least 3 anomalies, found: {}",
             result.anomalies.len()
         );
@@ -444,7 +450,10 @@ mod validation {
 
         let invoices = vec![
             InvoiceFixture::new().with_number("BATCH-001").build(),
-            InvoiceFixture::new().with_number("BATCH-002").with_math_error().build(),
+            InvoiceFixture::new()
+                .with_number("BATCH-002")
+                .with_math_error()
+                .build(),
             InvoiceFixture::new().with_number("BATCH-003").build(),
         ];
 
@@ -459,7 +468,10 @@ mod validation {
         assert!(!results[2].has_critical());
 
         // Second should have errors
-        assert!(results[1].anomalies.iter().any(|a| a.anomaly_type == AnomalyType::MathMismatch));
+        assert!(results[1]
+            .anomalies
+            .iter()
+            .any(|a| a.anomaly_type == AnomalyType::MathMismatch));
     }
 }
 
@@ -476,11 +488,12 @@ mod query {
         init_test_tracing();
         let env = QueryTestEnv::new().await;
 
-        let invoice = InvoiceFixture::new()
-            .with_number("QUERY-001")
-            .build();
+        let invoice = InvoiceFixture::new().with_number("QUERY-001").build();
 
-        env.query_engine.store_invoice(&invoice, None).await.unwrap();
+        env.query_engine
+            .store_invoice(&invoice, None)
+            .await
+            .unwrap();
 
         let result = env.query_engine.get_invoice(&invoice.id).await.unwrap();
         assert!(result.data.is_some());
@@ -492,11 +505,12 @@ mod query {
     async fn test_query_cache() {
         let env = QueryTestEnv::new().await;
 
-        let invoice = InvoiceFixture::new()
-            .with_number("CACHE-001")
-            .build();
+        let invoice = InvoiceFixture::new().with_number("CACHE-001").build();
 
-        env.query_engine.store_invoice(&invoice, None).await.unwrap();
+        env.query_engine
+            .store_invoice(&invoice, None)
+            .await
+            .unwrap();
 
         // First query - cache miss
         let result1 = env.query_engine.get_invoice(&invoice.id).await.unwrap();
@@ -513,7 +527,10 @@ mod query {
         let env = QueryTestEnv::new().await;
 
         let invoice = InvoiceFixture::new().build();
-        env.query_engine.store_invoice(&invoice, None).await.unwrap();
+        env.query_engine
+            .store_invoice(&invoice, None)
+            .await
+            .unwrap();
 
         let result = env.query_engine.get_invoice(&invoice.id).await.unwrap();
 
@@ -542,7 +559,8 @@ mod query {
 
         // Search with similar embedding
         let query_embedding = consistent_embedding("VEC-002", 768);
-        let results = env.query_engine
+        let results = env
+            .query_engine
             .search_invoices_by_embedding(&query_embedding, 3)
             .await
             .unwrap();
@@ -567,7 +585,10 @@ mod query {
             let invoice = InvoiceFixture::new()
                 .with_number(format!("LIST-{:03}", i))
                 .build();
-            env.query_engine.store_invoice(&invoice, None).await.unwrap();
+            env.query_engine
+                .store_invoice(&invoice, None)
+                .await
+                .unwrap();
         }
 
         let result = env.query_engine.list_invoices(10, 0).await.unwrap();
@@ -585,7 +606,10 @@ mod query {
             let invoice = InvoiceFixture::new()
                 .with_number(format!("COUNT-{:03}", i))
                 .build();
-            env.query_engine.store_invoice(&invoice, None).await.unwrap();
+            env.query_engine
+                .store_invoice(&invoice, None)
+                .await
+                .unwrap();
         }
 
         let result = env.query_engine.count_invoices().await.unwrap();
@@ -602,7 +626,10 @@ mod query {
             let invoice = InvoiceFixture::new()
                 .with_number(format!("TIER-{:03}", i))
                 .build();
-            env.query_engine.store_invoice(&invoice, None).await.unwrap();
+            env.query_engine
+                .store_invoice(&invoice, None)
+                .await
+                .unwrap();
         }
 
         let (hot, warm, cold) = env.query_engine.count_invoices_by_tier();
@@ -640,7 +667,11 @@ mod full_pipeline {
         let stored_invoice = stored.unwrap();
 
         // 3. Validate
-        let validation = env.rule_engine.validate_invoice(&stored_invoice).await.unwrap();
+        let validation = env
+            .rule_engine
+            .validate_invoice(&stored_invoice)
+            .await
+            .unwrap();
         tracing::info!(
             is_valid = %validation.is_valid,
             anomaly_count = %validation.anomalies.len(),
@@ -695,7 +726,10 @@ mod full_pipeline {
         // Verify status updated
         let retrieved = env.storage.get_invoice(&invoice.id).await.unwrap().unwrap();
         assert!(
-            matches!(retrieved.validation_status, ValidationStatus::Passed | ValidationStatus::PassedWithWarnings),
+            matches!(
+                retrieved.validation_status,
+                ValidationStatus::Passed | ValidationStatus::PassedWithWarnings
+            ),
             "Status should be updated: {:?}",
             retrieved.validation_status
         );
@@ -709,9 +743,15 @@ mod full_pipeline {
         // Create batch with some valid, some invalid
         let invoices = vec![
             InvoiceFixture::new().with_number("MIX-001").build(),
-            InvoiceFixture::new().with_number("MIX-002").with_math_error().build(),
+            InvoiceFixture::new()
+                .with_number("MIX-002")
+                .with_math_error()
+                .build(),
             InvoiceFixture::new().with_number("MIX-003").build(),
-            InvoiceFixture::new().with_number("MIX-004").with_date_error().build(),
+            InvoiceFixture::new()
+                .with_number("MIX-004")
+                .with_date_error()
+                .build(),
             InvoiceFixture::new().with_number("MIX-005").build(),
         ];
 
@@ -793,13 +833,14 @@ mod full_pipeline {
         let env = TestEnv::new().await;
 
         // Store and validate multiple invoices
-        let invoices = InvoiceFixture::new()
-            .with_number("QV")
-            .build_batch(5);
+        let invoices = InvoiceFixture::new().with_number("QV").build_batch(5);
 
         for invoice in &invoices {
             let embedding = consistent_embedding(&invoice.invoice_number, 768);
-            env.storage.store_invoice(invoice, Some(&embedding)).await.unwrap();
+            env.storage
+                .store_invoice(invoice, Some(&embedding))
+                .await
+                .unwrap();
 
             // Validate each
             let _result = env.rule_engine.validate_invoice(invoice).await.unwrap();
@@ -811,7 +852,8 @@ mod full_pipeline {
 
         // Vector search should work
         let query_emb = consistent_embedding("QV-001", 768);
-        let search_results = env.storage
+        let search_results = env
+            .storage
             .search_invoices_by_embedding(&query_emb, 3)
             .await
             .unwrap();
@@ -885,9 +927,7 @@ mod anomaly_scenarios {
         let env = TestEnv::new().await;
 
         // Create invoice with incorrect line item total
-        let mut invoice = InvoiceFixture::new()
-            .with_number("LINE-001")
-            .build();
+        let mut invoice = InvoiceFixture::new().with_number("LINE-001").build();
 
         // Manually set incorrect line item total
         if let Some(item) = invoice.line_items.first_mut() {
@@ -898,10 +938,13 @@ mod anomaly_scenarios {
 
         // Should detect line item calculation error
         assert!(
-            result.anomalies.iter().any(|a|
-                a.anomaly_type == AnomalyType::MathMismatch &&
-                a.field_path.as_ref().map_or(false, |f| f.contains("line_item"))
-            ),
+            result
+                .anomalies
+                .iter()
+                .any(|a| a.anomaly_type == AnomalyType::MathMismatch
+                    && a.field_path
+                        .as_ref()
+                        .map_or(false, |f| f.contains("line_item"))),
             "Expected line item math mismatch, found: {:?}",
             result.anomalies
         );
@@ -915,16 +958,17 @@ mod anomaly_scenarios {
         // Invoice with multiple issues of different severity
         let invoice = InvoiceFixture::new()
             .with_number("SEV-001")
-            .with_math_error()      // High severity
-            .with_low_confidence()   // Low severity
+            .with_math_error() // High severity
+            .with_low_confidence() // Low severity
             .build();
 
         let result = env.rule_engine.validate_invoice(&invoice).await.unwrap();
 
         // Should have anomalies of different severities
-        let has_high = result.anomalies.iter().any(|a|
-            a.severity == Severity::High || a.severity == Severity::Critical
-        );
+        let has_high = result
+            .anomalies
+            .iter()
+            .any(|a| a.severity == Severity::High || a.severity == Severity::Critical);
         let has_low = result.anomalies.iter().any(|a| a.severity == Severity::Low);
 
         assert!(has_high, "Should have high severity anomaly");
@@ -941,7 +985,7 @@ mod anomaly_scenarios {
 
         // Create invoice with many potential issues
         let invoice = InvoiceFixture::new()
-            .with_number("")  // Empty invoice number
+            .with_number("") // Empty invoice number
             .with_math_error()
             .with_date_error()
             .with_unknown_vendor()
@@ -954,10 +998,15 @@ mod anomaly_scenarios {
         let elapsed = start.elapsed();
 
         // Should complete quickly even with many checks
-        assert!(elapsed.as_millis() < 100, "Validation took too long: {:?}", elapsed);
+        assert!(
+            elapsed.as_millis() < 100,
+            "Validation took too long: {:?}",
+            elapsed
+        );
 
         // Should detect multiple issues
-        assert!(result.anomalies.len() >= 4,
+        assert!(
+            result.anomalies.len() >= 4,
             "Expected at least 4 anomalies, found: {}",
             result.anomalies.len()
         );
@@ -980,8 +1029,16 @@ mod anomaly_scenarios {
             .with_currency(fen_core::domain::Currency::EUR)
             .build();
 
-        let usd_result = env.rule_engine.validate_invoice(&usd_invoice).await.unwrap();
-        let eur_result = env.rule_engine.validate_invoice(&eur_invoice).await.unwrap();
+        let usd_result = env
+            .rule_engine
+            .validate_invoice(&usd_invoice)
+            .await
+            .unwrap();
+        let eur_result = env
+            .rule_engine
+            .validate_invoice(&eur_invoice)
+            .await
+            .unwrap();
 
         // Both should validate (currency shouldn't affect structural validation)
         assert_eq!(usd_result.anomalies.len(), eur_result.anomalies.len());
@@ -1010,9 +1067,7 @@ mod unified_query {
     /// Test SELECT with WHERE clause
     #[test]
     fn test_parse_select_with_where() {
-        let query = parse_query(
-            "SELECT id FROM invoices WHERE vendor_name = 'Acme Corp'"
-        ).unwrap();
+        let query = parse_query("SELECT id FROM invoices WHERE vendor_name = 'Acme Corp'").unwrap();
 
         assert!(query.filter.is_some());
     }
@@ -1020,9 +1075,9 @@ mod unified_query {
     /// Test SELECT with ORDER BY and LIMIT
     #[test]
     fn test_parse_select_with_order_limit() {
-        let query = parse_query(
-            "SELECT * FROM invoices ORDER BY invoice_date DESC LIMIT 10 OFFSET 5"
-        ).unwrap();
+        let query =
+            parse_query("SELECT * FROM invoices ORDER BY invoice_date DESC LIMIT 10 OFFSET 5")
+                .unwrap();
 
         assert!(query.order_by.is_some());
         assert_eq!(query.limit, Some(10));
@@ -1033,8 +1088,9 @@ mod unified_query {
     #[test]
     fn test_parse_vector_distance() {
         let query = parse_query(
-            "SELECT id, VECTOR_DISTANCE(embedding, :query_vector) AS score FROM invoices"
-        ).unwrap();
+            "SELECT id, VECTOR_DISTANCE(embedding, :query_vector) AS score FROM invoices",
+        )
+        .unwrap();
 
         assert!(query.uses_vector_search());
         let params = query.parameter_names();
@@ -1045,8 +1101,9 @@ mod unified_query {
     #[test]
     fn test_parse_bm25_score() {
         let query = parse_query(
-            "SELECT id, BM25_SCORE(extracted_text, :search_terms) AS relevance FROM invoices"
-        ).unwrap();
+            "SELECT id, BM25_SCORE(extracted_text, :search_terms) AS relevance FROM invoices",
+        )
+        .unwrap();
 
         assert!(query.uses_text_search());
         let params = query.parameter_names();
@@ -1056,9 +1113,8 @@ mod unified_query {
     /// Test CONTAINS function parsing
     #[test]
     fn test_parse_contains() {
-        let query = parse_query(
-            "SELECT id FROM invoices WHERE CONTAINS(extracted_text, :search)"
-        ).unwrap();
+        let query =
+            parse_query("SELECT id FROM invoices WHERE CONTAINS(extracted_text, :search)").unwrap();
 
         assert!(query.uses_contains());
     }
@@ -1127,8 +1183,9 @@ mod unified_query {
         let query = parse_query(
             "SELECT * FROM invoices \
              WHERE (vendor_name = 'Acme' OR vendor_name = 'Beta') \
-             AND total_amount > 1000"
-        ).unwrap();
+             AND total_amount > 1000",
+        )
+        .unwrap();
 
         assert!(query.filter.is_some());
     }
@@ -1138,8 +1195,9 @@ mod unified_query {
     fn test_parse_arithmetic_order_by() {
         let query = parse_query(
             "SELECT id, score1, score2 FROM invoices \
-             ORDER BY 0.7 * score1 + 0.3 * score2 ASC"
-        ).unwrap();
+             ORDER BY 0.7 * score1 + 0.3 * score2 ASC",
+        )
+        .unwrap();
 
         assert!(query.order_by.is_some());
         let order = query.order_by.unwrap();
@@ -1149,9 +1207,8 @@ mod unified_query {
     /// Test LIKE pattern matching
     #[test]
     fn test_parse_like_pattern() {
-        let query = parse_query(
-            "SELECT * FROM invoices WHERE invoice_number LIKE 'INV-%'"
-        ).unwrap();
+        let query =
+            parse_query("SELECT * FROM invoices WHERE invoice_number LIKE 'INV-%'").unwrap();
 
         assert!(query.filter.is_some());
     }
@@ -1159,9 +1216,7 @@ mod unified_query {
     /// Test NULL handling
     #[test]
     fn test_parse_null_check() {
-        let query = parse_query(
-            "SELECT * FROM invoices WHERE po_number IS NOT NULL"
-        ).unwrap();
+        let query = parse_query("SELECT * FROM invoices WHERE po_number IS NOT NULL").unwrap();
 
         assert!(query.filter.is_some());
     }
@@ -1169,11 +1224,14 @@ mod unified_query {
     /// Test contracts table query
     #[test]
     fn test_parse_contracts_query() {
-        let query = parse_query(
-            "SELECT id, title FROM contracts WHERE contract_type = 'ServiceAgreement'"
-        ).unwrap();
+        let query =
+            parse_query("SELECT id, title FROM contracts WHERE contract_type = 'ServiceAgreement'")
+                .unwrap();
 
-        assert!(matches!(query.from, fen_storage::query::lang::QueryTarget::Contracts));
+        assert!(matches!(
+            query.from,
+            fen_storage::query::lang::QueryTarget::Contracts
+        ));
     }
 }
 
@@ -1196,13 +1254,17 @@ mod zip_queries {
         let query = parse_query(
             "SELECT inv.*, con.title \
              FROM invoices inv \
-             ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
 
         assert!(query.is_zip_query());
         let zip = query.zip.as_ref().unwrap();
         assert_eq!(zip.mode, ZipMode::Inner);
-        assert!(matches!(zip.table, fen_storage::query::lang::QueryTarget::Contracts));
+        assert!(matches!(
+            zip.table,
+            fen_storage::query::lang::QueryTarget::Contracts
+        ));
     }
 
     /// Test ZIP query with LEFT mode
@@ -1211,8 +1273,9 @@ mod zip_queries {
         let query = parse_query(
             "SELECT inv.id, con.title \
              FROM invoices inv \
-             LEFT ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             LEFT ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
 
         let zip = query.zip.as_ref().unwrap();
         assert_eq!(zip.mode, ZipMode::Left);
@@ -1224,8 +1287,9 @@ mod zip_queries {
         let query = parse_query(
             "SELECT inv.id, con.title \
              FROM invoices inv \
-             INNER ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             INNER ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
 
         let zip = query.zip.as_ref().unwrap();
         assert_eq!(zip.mode, ZipMode::Inner);
@@ -1238,8 +1302,9 @@ mod zip_queries {
             "SELECT inv.invoice_number, con.title \
              FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             WHERE inv.total_amount > 1000"
-        ).unwrap();
+             WHERE inv.total_amount > 1000",
+        )
+        .unwrap();
 
         assert!(query.is_zip_query());
         assert!(query.filter.is_some());
@@ -1254,8 +1319,9 @@ mod zip_queries {
              ZIP contracts con ON inv.vendor_name = con.party_name \
              WHERE inv.total_amount > 1000 \
                  AND con.effective_date > '2024-01-01' \
-                 AND inv.total_amount < con.total_value"
-        ).unwrap();
+                 AND inv.total_amount < con.total_value",
+        )
+        .unwrap();
 
         assert!(query.is_zip_query());
         assert!(query.filter.is_some());
@@ -1272,8 +1338,9 @@ mod zip_queries {
         let query = parse_query(
             "SELECT inv.*, con.title \
              FROM invoices inv \
-             ZIP contracts con ON inv.contract_id = con.id"
-        ).unwrap();
+             ZIP contracts con ON inv.contract_id = con.id",
+        )
+        .unwrap();
 
         assert!(query.is_zip_query());
         let zip = query.zip.as_ref().unwrap();
@@ -1290,8 +1357,9 @@ mod zip_queries {
         let query = parse_query(
             "SELECT inv.invoice_number, con.title \
              FROM invoices inv \
-             ZIP contracts con ON inv.contract_number = con.contract_number"
-        ).unwrap();
+             ZIP contracts con ON inv.contract_number = con.contract_number",
+        )
+        .unwrap();
 
         assert!(query.is_zip_query());
         let zip = query.zip.as_ref().unwrap();
@@ -1307,8 +1375,9 @@ mod zip_queries {
         let query = parse_query(
             "SELECT * FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             WHERE inv.total_amount > 1000"
-        ).unwrap();
+             WHERE inv.total_amount > 1000",
+        )
+        .unwrap();
 
         // The filter should only reference invoice columns
         assert!(query.filter.is_some());
@@ -1320,8 +1389,9 @@ mod zip_queries {
         let query = parse_query(
             "SELECT * FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             WHERE con.effective_date > '2024-01-01'"
-        ).unwrap();
+             WHERE con.effective_date > '2024-01-01'",
+        )
+        .unwrap();
 
         assert!(query.filter.is_some());
     }
@@ -1332,8 +1402,9 @@ mod zip_queries {
         let query = parse_query(
             "SELECT * FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             WHERE inv.total_amount < con.total_value"
-        ).unwrap();
+             WHERE inv.total_amount < con.total_value",
+        )
+        .unwrap();
 
         // This should parse the cross-table condition
         assert!(query.filter.is_some());
@@ -1348,8 +1419,9 @@ mod zip_queries {
              ZIP contracts con ON inv.vendor_name = con.party_name \
              WHERE inv.total_amount > 1000 \
                  AND con.effective_date > '2024-01-01' \
-                 AND inv.total_amount < con.total_value"
-        ).unwrap();
+                 AND inv.total_amount < con.total_value",
+        )
+        .unwrap();
 
         assert!(query.is_zip_query());
         assert!(query.filter.is_some());
@@ -1367,8 +1439,9 @@ mod zip_queries {
              FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
              ORDER BY inv.total_amount DESC \
-             LIMIT 10"
-        ).unwrap();
+             LIMIT 10",
+        )
+        .unwrap();
 
         assert!(query.is_zip_query());
         assert!(query.order_by.is_some());
@@ -1380,27 +1453,33 @@ mod zip_queries {
     fn test_column_reference_detection() {
         // Invoice columns should be detected
         let invoice_cols = vec![
-            "invoice_number", "invoice_date", "due_date", "total_amount",
-            "subtotal", "tax_amount", "vendor_name", "po_number",
+            "invoice_number",
+            "invoice_date",
+            "due_date",
+            "total_amount",
+            "subtotal",
+            "tax_amount",
+            "vendor_name",
+            "po_number",
         ];
 
         for col in &invoice_cols {
-            let query = parse_query(&format!(
-                "SELECT {} FROM invoices", col
-            )).unwrap();
+            let query = parse_query(&format!("SELECT {} FROM invoices", col)).unwrap();
             assert!(!query.select.is_empty());
         }
 
         // Contract columns should be detected
         let contract_cols = vec![
-            "title", "effective_date", "expiration_date", "total_value",
-            "contract_type", "party_name",
+            "title",
+            "effective_date",
+            "expiration_date",
+            "total_value",
+            "contract_type",
+            "party_name",
         ];
 
         for col in &contract_cols {
-            let query = parse_query(&format!(
-                "SELECT {} FROM contracts", col
-            )).unwrap();
+            let query = parse_query(&format!("SELECT {} FROM contracts", col)).unwrap();
             assert!(!query.select.is_empty());
         }
     }
@@ -1449,11 +1528,16 @@ mod zip_queries {
         let query = parse_query(
             "SELECT inv.invoice_number, con.title \
              FROM invoices inv \
-             ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
         let params = QueryParams::new();
 
-        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+        let result = env
+            .zip_executor
+            .execute_zip_query(&query, &params)
+            .await
+            .unwrap();
 
         // Should match 2 invoices with the contract (Acme Corp)
         assert_eq!(result.pairs.len(), 2);
@@ -1496,11 +1580,16 @@ mod zip_queries {
         let query = parse_query(
             "SELECT inv.invoice_number, con.title \
              FROM invoices inv \
-             LEFT ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             LEFT ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
         let params = QueryParams::new();
 
-        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+        let result = env
+            .zip_executor
+            .execute_zip_query(&query, &params)
+            .await
+            .unwrap();
 
         // LEFT join should return all invoices
         assert_eq!(result.pairs.len(), 2);
@@ -1545,11 +1634,16 @@ mod zip_queries {
             "SELECT inv.invoice_number, con.title \
              FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             WHERE inv.total_amount > 1000"
-        ).unwrap();
+             WHERE inv.total_amount > 1000",
+        )
+        .unwrap();
         let params = QueryParams::new();
 
-        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+        let result = env
+            .zip_executor
+            .execute_zip_query(&query, &params)
+            .await
+            .unwrap();
 
         // Should only match the large invoice
         assert_eq!(result.pairs.len(), 1);
@@ -1597,11 +1691,16 @@ mod zip_queries {
             "SELECT inv.invoice_number, con.title \
              FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
-             WHERE inv.total_amount < con.total_value"
-        ).unwrap();
+             WHERE inv.total_amount < con.total_value",
+        )
+        .unwrap();
         let params = QueryParams::new();
 
-        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+        let result = env
+            .zip_executor
+            .execute_zip_query(&query, &params)
+            .await
+            .unwrap();
 
         // Only Beta Inc invoice (5000) should match (under 10000 contract value)
         assert_eq!(result.pairs.len(), 1);
@@ -1651,11 +1750,16 @@ mod zip_queries {
              FROM invoices inv \
              ZIP contracts con ON inv.vendor_name = con.party_name \
              WHERE inv.total_amount > 1000 \
-                 AND inv.total_amount < con.total_value"
-        ).unwrap();
+                 AND inv.total_amount < con.total_value",
+        )
+        .unwrap();
         let params = QueryParams::new();
 
-        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+        let result = env
+            .zip_executor
+            .execute_zip_query(&query, &params)
+            .await
+            .unwrap();
 
         // Only MIX-002 should match (> 1000 and < 50000)
         assert_eq!(result.pairs.len(), 1);
@@ -1683,11 +1787,16 @@ mod zip_queries {
 
         let query = parse_query(
             "SELECT * FROM invoices inv \
-             ZIP contracts con ON inv.vendor_name = con.party_name"
-        ).unwrap();
+             ZIP contracts con ON inv.vendor_name = con.party_name",
+        )
+        .unwrap();
         let params = QueryParams::new();
 
-        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+        let result = env
+            .zip_executor
+            .execute_zip_query(&query, &params)
+            .await
+            .unwrap();
 
         // Check metadata
         assert_eq!(result.metadata.pair_count, 1);
@@ -1712,7 +1821,11 @@ mod zip_queries {
         let query = parse_query("SELECT * FROM invoices").unwrap();
         let params = QueryParams::new();
 
-        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+        let result = env
+            .zip_executor
+            .execute_zip_query(&query, &params)
+            .await
+            .unwrap();
 
         // Should wrap as ZipPairs with no contract
         assert_eq!(result.pairs.len(), 1);
@@ -1724,7 +1837,7 @@ mod zip_queries {
 
 mod query_execution {
     use super::*;
-    use fen_storage::{parse_query, QueryParams, DocumentStore};
+    use fen_storage::{parse_query, DocumentStore, QueryParams};
     use fen_tests::QueryExecutorTestEnv;
     use rust_decimal_macros::dec;
 
@@ -1770,9 +1883,7 @@ mod query_execution {
             .build();
         env.store_invoice(&invoice).await.unwrap();
 
-        let query = parse_query(
-            "SELECT id, invoice_number, vendor_name FROM invoices"
-        ).unwrap();
+        let query = parse_query("SELECT id, invoice_number, vendor_name FROM invoices").unwrap();
         let params = QueryParams::new();
         let result = env.executor.execute(&query, &params).await.unwrap();
 
@@ -1814,9 +1925,9 @@ mod query_execution {
         env.store_invoice(&inv3).await.unwrap();
 
         // Query for Acme Corp only
-        let query = parse_query(
-            "SELECT id, invoice_number FROM invoices WHERE vendor_name = 'Acme Corp'"
-        ).unwrap();
+        let query =
+            parse_query("SELECT id, invoice_number FROM invoices WHERE vendor_name = 'Acme Corp'")
+                .unwrap();
         let params = QueryParams::new();
         let result = env.executor.execute(&query, &params).await.unwrap();
 
@@ -1856,8 +1967,9 @@ mod query_execution {
 
         // Query for invoices > 1000
         let query = parse_query(
-            "SELECT invoice_number, total_amount FROM invoices WHERE total_amount > 1000"
-        ).unwrap();
+            "SELECT invoice_number, total_amount FROM invoices WHERE total_amount > 1000",
+        )
+        .unwrap();
         let params = QueryParams::new();
         let result = env.executor.execute(&query, &params).await.unwrap();
 
@@ -1895,24 +2007,18 @@ mod query_execution {
     async fn test_execute_like() {
         let env = QueryExecutorTestEnv::new().await;
 
-        let inv1 = InvoiceFixture::new()
-            .with_number("INV-2024-001")
-            .build();
-        let inv2 = InvoiceFixture::new()
-            .with_number("INV-2024-002")
-            .build();
-        let inv3 = InvoiceFixture::new()
-            .with_number("PO-2024-001")
-            .build();
+        let inv1 = InvoiceFixture::new().with_number("INV-2024-001").build();
+        let inv2 = InvoiceFixture::new().with_number("INV-2024-002").build();
+        let inv3 = InvoiceFixture::new().with_number("PO-2024-001").build();
 
         env.store_invoice(&inv1).await.unwrap();
         env.store_invoice(&inv2).await.unwrap();
         env.store_invoice(&inv3).await.unwrap();
 
         // Query with LIKE pattern
-        let query = parse_query(
-            "SELECT invoice_number FROM invoices WHERE invoice_number LIKE 'INV-%'"
-        ).unwrap();
+        let query =
+            parse_query("SELECT invoice_number FROM invoices WHERE invoice_number LIKE 'INV-%'")
+                .unwrap();
         let params = QueryParams::new();
         let result = env.executor.execute(&query, &params).await.unwrap();
 
@@ -1948,11 +2054,11 @@ mod query_execution {
             "SELECT id, invoice_number, BM25_SCORE(extracted_text, :search) AS relevance \
              FROM invoices \
              ORDER BY relevance DESC \
-             LIMIT 10"
-        ).unwrap();
+             LIMIT 10",
+        )
+        .unwrap();
 
-        let params = QueryParams::new()
-            .with_string("search", "consulting services");
+        let params = QueryParams::new().with_string("search", "consulting services");
 
         let result = env.executor.execute(&query, &params).await.unwrap();
 
@@ -1986,11 +2092,11 @@ mod query_execution {
         // Query with CONTAINS
         let query = parse_query(
             "SELECT invoice_number FROM invoices \
-             WHERE CONTAINS(extracted_text, :search)"
-        ).unwrap();
+             WHERE CONTAINS(extracted_text, :search)",
+        )
+        .unwrap();
 
-        let params = QueryParams::new()
-            .with_string("search", "software");
+        let params = QueryParams::new().with_string("search", "software");
 
         let result = env.executor.execute(&query, &params).await.unwrap();
 
@@ -2022,9 +2128,15 @@ mod query_execution {
             .with_extracted_text("Legal contract agreement")
             .build();
 
-        env.store_invoice_with_embedding(&inv1, &embedding1).await.unwrap();
-        env.store_invoice_with_embedding(&inv2, &embedding2).await.unwrap();
-        env.store_invoice_with_embedding(&inv3, &embedding3).await.unwrap();
+        env.store_invoice_with_embedding(&inv1, &embedding1)
+            .await
+            .unwrap();
+        env.store_invoice_with_embedding(&inv2, &embedding2)
+            .await
+            .unwrap();
+        env.store_invoice_with_embedding(&inv3, &embedding3)
+            .await
+            .unwrap();
 
         // Search for similar to "consulting payment"
         let query_embedding = consistent_embedding("payment consulting invoice", EMBEDDING_DIM);
@@ -2033,11 +2145,11 @@ mod query_execution {
             "SELECT id, invoice_number, VECTOR_DISTANCE(embedding, :query_vec) AS distance \
              FROM invoices \
              ORDER BY distance ASC \
-             LIMIT 5"
-        ).unwrap();
+             LIMIT 5",
+        )
+        .unwrap();
 
-        let params = QueryParams::new()
-            .with_vector("query_vec", query_embedding.to_vec());
+        let params = QueryParams::new().with_vector("query_vec", query_embedding.to_vec());
 
         let result = env.executor.execute(&query, &params).await.unwrap();
 
@@ -2066,8 +2178,12 @@ mod query_execution {
             .with_extracted_text("Hardware maintenance and support")
             .build();
 
-        env.store_invoice_with_embedding(&inv1, &embedding1).await.unwrap();
-        env.store_invoice_with_embedding(&inv2, &embedding2).await.unwrap();
+        env.store_invoice_with_embedding(&inv1, &embedding1)
+            .await
+            .unwrap();
+        env.store_invoice_with_embedding(&inv2, &embedding2)
+            .await
+            .unwrap();
 
         // Hybrid query with both vector and text search
         let query_embedding = consistent_embedding("consulting services", EMBEDDING_DIM);
@@ -2078,8 +2194,9 @@ mod query_execution {
                     BM25_SCORE(extracted_text, :text) AS text_score \
              FROM invoices \
              ORDER BY 0.7 * vec_score + 0.3 * text_score ASC \
-             LIMIT 10"
-        ).unwrap();
+             LIMIT 10",
+        )
+        .unwrap();
 
         let params = QueryParams::new()
             .with_vector("vec", query_embedding.to_vec())
@@ -2121,14 +2238,17 @@ mod query_execution {
         // Complex WHERE with AND
         let query = parse_query(
             "SELECT invoice_number FROM invoices \
-             WHERE vendor_name = 'Acme Corp' AND total_amount > 1000"
-        ).unwrap();
+             WHERE vendor_name = 'Acme Corp' AND total_amount > 1000",
+        )
+        .unwrap();
         let params = QueryParams::new();
         let result = env.executor.execute(&query, &params).await.unwrap();
 
         // Should only return LOGIC-001 (Acme Corp with amount > 1000)
         assert_eq!(result.rows.len(), 1);
-        if let Some(fen_storage::ColumnValue::String(num)) = result.rows[0].columns.get("invoice_number") {
+        if let Some(fen_storage::ColumnValue::String(num)) =
+            result.rows[0].columns.get("invoice_number")
+        {
             assert_eq!(num, "LOGIC-001");
         }
     }
@@ -2145,12 +2265,10 @@ mod query_execution {
         env.store_invoice(&inv).await.unwrap();
 
         // Query with string parameter
-        let query = parse_query(
-            "SELECT invoice_number FROM invoices WHERE vendor_name = :vendor"
-        ).unwrap();
+        let query =
+            parse_query("SELECT invoice_number FROM invoices WHERE vendor_name = :vendor").unwrap();
 
-        let params = QueryParams::new()
-            .with_string("vendor", "Test Vendor");
+        let params = QueryParams::new().with_string("vendor", "Test Vendor");
 
         let result = env.executor.execute(&query, &params).await.unwrap();
         assert_eq!(result.rows.len(), 1);
@@ -2175,9 +2293,7 @@ mod query_execution {
     async fn test_execution_metadata() {
         let env = QueryExecutorTestEnv::new().await;
 
-        let inv = InvoiceFixture::new()
-            .with_number("META-001")
-            .build();
+        let inv = InvoiceFixture::new().with_number("META-001").build();
         env.store_invoice(&inv).await.unwrap();
 
         let query = parse_query("SELECT * FROM invoices").unwrap();

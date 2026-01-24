@@ -24,10 +24,7 @@ impl KafkaProducer {
             .set("bootstrap.servers", &config.bootstrap_servers)
             .set("message.timeout.ms", config.message_timeout_ms.to_string())
             .set("acks", &config.acks)
-            .set(
-                "enable.idempotence",
-                config.enable_idempotence.to_string(),
-            )
+            .set("enable.idempotence", config.enable_idempotence.to_string())
             .set("security.protocol", &config.security_protocol);
 
         if let Some(ref mechanism) = config.sasl_mechanism {

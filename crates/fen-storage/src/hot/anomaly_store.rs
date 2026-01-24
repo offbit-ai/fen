@@ -9,9 +9,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use redb::{Database, ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::{Deserialize, Serialize};
 
-use fen_core::domain::{
-    AnomalyId, AnomalyType, DocumentId, InvoiceId, Severity, StatisticalScore,
-};
+use fen_core::domain::{AnomalyId, AnomalyType, DocumentId, InvoiceId, Severity, StatisticalScore};
 
 use crate::error::StorageError;
 
@@ -162,8 +160,8 @@ impl AnomalyStore {
     /// Store an anomaly record
     pub async fn store_anomaly(&self, record: &AnomalyRecord) -> Result<(), StorageError> {
         let key = record.id.as_bytes();
-        let value = serde_json::to_vec(record)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_vec(record).map_err(|e| StorageError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {
@@ -176,9 +174,14 @@ impl AnomalyStore {
             let vendor_key = record.vendor_name.as_str();
 
             let mut index = match index_table.get(vendor_key)? {
-                Some(data) => serde_json::from_slice::<VendorAnomalyIndex>(data.value())
-                    .unwrap_or(VendorAnomalyIndex { anomaly_ids: vec![] }),
-                None => VendorAnomalyIndex { anomaly_ids: vec![] },
+                Some(data) => serde_json::from_slice::<VendorAnomalyIndex>(data.value()).unwrap_or(
+                    VendorAnomalyIndex {
+                        anomaly_ids: vec![],
+                    },
+                ),
+                None => VendorAnomalyIndex {
+                    anomaly_ids: vec![],
+                },
             };
 
             index.anomaly_ids.push(*key);
@@ -295,7 +298,10 @@ impl AnomalyStore {
     }
 
     /// Get all anomalies within a time window
-    pub async fn get_recent_anomalies(&self, days: u32) -> Result<Vec<AnomalyRecord>, StorageError> {
+    pub async fn get_recent_anomalies(
+        &self,
+        days: u32,
+    ) -> Result<Vec<AnomalyRecord>, StorageError> {
         let cutoff = Utc::now() - chrono::Duration::days(days as i64);
 
         let read_txn = self.db.begin_read()?;
@@ -450,10 +456,16 @@ mod tests {
         );
         store.store_anomaly(&other).await.unwrap();
 
-        let acme_anomalies = store.get_anomalies_for_vendor("Acme Corp", 30).await.unwrap();
+        let acme_anomalies = store
+            .get_anomalies_for_vendor("Acme Corp", 30)
+            .await
+            .unwrap();
         assert_eq!(acme_anomalies.len(), 5);
 
-        let other_anomalies = store.get_anomalies_for_vendor("Other Corp", 30).await.unwrap();
+        let other_anomalies = store
+            .get_anomalies_for_vendor("Other Corp", 30)
+            .await
+            .unwrap();
         assert_eq!(other_anomalies.len(), 1);
     }
 

@@ -29,10 +29,7 @@ impl KafkaConsumer {
             .set("bootstrap.servers", &config.bootstrap_servers)
             .set("group.id", &config.consumer_group)
             .set("auto.offset.reset", &config.auto_offset_reset)
-            .set(
-                "enable.auto.commit",
-                config.enable_auto_commit.to_string(),
-            )
+            .set("enable.auto.commit", config.enable_auto_commit.to_string())
             .set(
                 "auto.commit.interval.ms",
                 config.auto_commit_interval_ms.to_string(),
@@ -175,9 +172,9 @@ impl EventConsumer for KafkaConsumer {
         for topic in subscribed.iter() {
             // Get committed offsets
             if let Ok(committed) = self.consumer.committed(Duration::from_secs(5)) {
-                if let Ok(watermarks) = self
-                    .consumer
-                    .fetch_watermarks(topic, 0, Duration::from_secs(5))
+                if let Ok(watermarks) =
+                    self.consumer
+                        .fetch_watermarks(topic, 0, Duration::from_secs(5))
                 {
                     let high = watermarks.1;
                     let committed_offset = committed

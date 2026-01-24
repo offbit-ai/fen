@@ -26,8 +26,9 @@ impl RateLimitLayer {
     /// * `requests_per_second` - Maximum requests per second
     /// * `burst_size` - Maximum burst capacity
     pub fn new(requests_per_second: u32, burst_size: u32) -> Self {
-        let quota = Quota::per_second(NonZeroU32::new(requests_per_second).unwrap_or(NonZeroU32::MIN))
-            .allow_burst(NonZeroU32::new(burst_size).unwrap_or(NonZeroU32::MIN));
+        let quota =
+            Quota::per_second(NonZeroU32::new(requests_per_second).unwrap_or(NonZeroU32::MIN))
+                .allow_burst(NonZeroU32::new(burst_size).unwrap_or(NonZeroU32::MIN));
 
         let limiter = Arc::new(RateLimiter::direct(quota));
 
@@ -123,8 +124,9 @@ pub mod keyed {
     impl KeyedRateLimitLayer {
         /// Create a new keyed rate limiting layer
         pub fn new(requests_per_second: u32, burst_size: u32) -> Self {
-            let quota = Quota::per_second(NonZeroU32::new(requests_per_second).unwrap_or(NonZeroU32::MIN))
-                .allow_burst(NonZeroU32::new(burst_size).unwrap_or(NonZeroU32::MIN));
+            let quota =
+                Quota::per_second(NonZeroU32::new(requests_per_second).unwrap_or(NonZeroU32::MIN))
+                    .allow_burst(NonZeroU32::new(burst_size).unwrap_or(NonZeroU32::MIN));
 
             let limiter = Arc::new(RateLimiter::keyed(quota));
 

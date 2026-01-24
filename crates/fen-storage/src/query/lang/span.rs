@@ -21,7 +21,12 @@ pub struct Span {
 impl Span {
     /// Create a new span
     pub fn new(start: usize, end: usize, line: usize, column: usize) -> Self {
-        Self { start, end, line, column }
+        Self {
+            start,
+            end,
+            line,
+            column,
+        }
     }
 
     /// Create a span from a range with line/column info
@@ -65,7 +70,11 @@ impl Span {
             start: self.start.min(other.start),
             end: self.end.max(other.end),
             line: self.line.min(other.line),
-            column: if self.line <= other.line { self.column } else { other.column },
+            column: if self.line <= other.line {
+                self.column
+            } else {
+                other.column
+            },
         }
     }
 
@@ -82,7 +91,12 @@ impl Span {
 
 impl Default for Span {
     fn default() -> Self {
-        Self { start: 0, end: 0, line: 1, column: 1 }
+        Self {
+            start: 0,
+            end: 0,
+            line: 1,
+            column: 1,
+        }
     }
 }
 
@@ -165,7 +179,11 @@ impl Source {
     /// Get the column number (1-indexed) for a byte offset
     pub fn column_at(&self, offset: usize) -> usize {
         let line = self.line_at(offset);
-        let line_start = self.line_starts.get(line.saturating_sub(1)).copied().unwrap_or(0);
+        let line_start = self
+            .line_starts
+            .get(line.saturating_sub(1))
+            .copied()
+            .unwrap_or(0);
         offset - line_start + 1
     }
 
@@ -187,7 +205,8 @@ impl Source {
         }
 
         let start = self.line_starts[line - 1];
-        let end = self.line_starts
+        let end = self
+            .line_starts
             .get(line)
             .copied()
             .unwrap_or(self.code.len());
@@ -230,8 +249,8 @@ mod tests {
     fn test_source_column_tracking() {
         let src = Source::new("test.fen", "SELECT id\nFROM invoices");
 
-        assert_eq!(src.column_at(0), 1);  // S in SELECT
-        assert_eq!(src.column_at(7), 8);  // i in id
+        assert_eq!(src.column_at(0), 1); // S in SELECT
+        assert_eq!(src.column_at(7), 8); // i in id
         assert_eq!(src.column_at(10), 1); // F in FROM
         assert_eq!(src.column_at(15), 6); // i in invoices
     }

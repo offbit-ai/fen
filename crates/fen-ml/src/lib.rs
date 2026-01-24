@@ -14,7 +14,9 @@ pub mod table;
 
 pub use embedding::{DocumentEmbeddings, EmbeddingModel, EmbeddingModelConfig};
 pub use error::MlError;
-pub use layout::{LayoutLabel, LayoutModel, LayoutModelConfig, LayoutRegion, LayoutResult, NamedEntity};
+pub use layout::{
+    LayoutLabel, LayoutModel, LayoutModelConfig, LayoutRegion, LayoutResult, NamedEntity,
+};
 pub use ocr::{BoundingBox, OcrConfig, OcrEngine, OcrProvider, OcrResult, TextRegion};
 pub use table::{ExtractedTable, TableCell, TableExtractor, TableExtractorConfig};
 
@@ -130,7 +132,13 @@ impl DocumentIntelligence {
             .regions
             .iter()
             .enumerate()
-            .map(|(i, r)| (format!("section_{}", i), format!("{:?}", r.label), r.text.clone()))
+            .map(|(i, r)| {
+                (
+                    format!("section_{}", i),
+                    format!("{:?}", r.label),
+                    r.text.clone(),
+                )
+            })
             .collect();
 
         let entities: Vec<_> = layout_result
@@ -139,11 +147,9 @@ impl DocumentIntelligence {
             .map(|e| (format!("{:?}", e.entity_type), e.value.clone()))
             .collect();
 
-        let embeddings = self.embedding.embed_document(
-            &layout_result.text,
-            &sections,
-            &entities,
-        )?;
+        let embeddings =
+            self.embedding
+                .embed_document(&layout_result.text, &sections, &entities)?;
 
         let text = layout_result.text.clone();
         Ok(ProcessedDocument {

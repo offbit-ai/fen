@@ -49,8 +49,8 @@ impl Default for StatisticalConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            on_ingest: false,   // Disabled by default on ingest (performance)
-            on_validate: true,  // Enabled on explicit validation
+            on_ingest: false,  // Disabled by default on ingest (performance)
+            on_validate: true, // Enabled on explicit validation
             threshold: 2.0,
             metrics: vec!["total_amount".to_string()],
             window_days: 90,
@@ -109,7 +109,8 @@ impl AppConfig {
     pub fn from_env() -> Self {
         Self {
             bind_address: env::var("BIND_ADDRESS").unwrap_or_else(|_| "0.0.0.0:3000".to_string()),
-            database_path: env::var("DATABASE_PATH").unwrap_or_else(|_| "data/fen.redb".to_string()),
+            database_path: env::var("DATABASE_PATH")
+                .unwrap_or_else(|_| "data/fen.redb".to_string()),
             rules_path: env::var("RULES_PATH").ok().map(PathBuf::from),
             max_upload_size: env::var("MAX_UPLOAD_SIZE")
                 .ok()

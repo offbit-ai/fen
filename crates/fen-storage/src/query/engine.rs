@@ -235,7 +235,8 @@ impl QueryEngine {
             StorageTier::Hot => {
                 // Store in hot tier (redb)
                 self.hot_storage.store_invoice(invoice).await?;
-                self.location_index.register_invoice(&invoice.id, StorageTier::Hot);
+                self.location_index
+                    .register_invoice(&invoice.id, StorageTier::Hot);
 
                 // Also index in warm tier for vector search capability
                 if embedding.is_some() {
@@ -243,7 +244,8 @@ impl QueryEngine {
                     warm.store_invoice_with_embedding(invoice, embedding)
                         .await?;
                     // Mark as existing in warm tier too, but hot remains primary
-                    self.location_index.register_invoice(&invoice.id, StorageTier::Warm);
+                    self.location_index
+                        .register_invoice(&invoice.id, StorageTier::Warm);
                 }
             }
             StorageTier::Warm | StorageTier::Cold => {
@@ -368,7 +370,9 @@ impl QueryEngine {
         let start = Instant::now();
 
         let warm = self.warm_storage.read().await;
-        let results = warm.search_invoices_by_embedding(query_embedding, limit).await?;
+        let results = warm
+            .search_invoices_by_embedding(query_embedding, limit)
+            .await?;
 
         let count = results.len();
         let search_results: Vec<VectorSearchResult<Invoice>> = results
@@ -449,7 +453,8 @@ impl QueryEngine {
         let total = self.location_index.total_invoices();
 
         // Also get tier breakdown for metrics
-        let (hot_count, warm_count, _cold_count) = self.location_index.count_invoices_by_primary_tier();
+        let (hot_count, warm_count, _cold_count) =
+            self.location_index.count_invoices_by_primary_tier();
 
         Ok(QueryResult::new(
             total,
@@ -472,7 +477,8 @@ impl QueryEngine {
     pub async fn store_contract(&self, contract: &Contract) -> Result<(), StorageError> {
         // Contracts go to hot tier by default
         self.hot_storage.store_contract(contract).await?;
-        self.location_index.register_contract(&contract.id, StorageTier::Hot);
+        self.location_index
+            .register_contract(&contract.id, StorageTier::Hot);
         self.cache.invalidate_contract(&contract.id);
         Ok(())
     }

@@ -7,13 +7,13 @@
 //! - Pipeline operations (validate, analyze)
 //! - Full SQL-like query capabilities
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use super::ast::{
-    BinaryOperator, ColumnRef, Expr, FenQuery, FilterExpr, FunctionCall, FunctionName,
-    Literal, OrderByClause, OrderByItem, ParamValue, QueryParams, QueryTarget, SelectItem,
-    SortDirection, NullsOrder,
+    BinaryOperator, ColumnRef, Expr, FenQuery, FilterExpr, FunctionCall, FunctionName, Literal,
+    NullsOrder, OrderByClause, OrderByItem, ParamValue, QueryParams, QueryTarget, SelectItem,
+    SortDirection,
 };
 use super::error::{ParseError, ParseErrorKind};
 use super::span::Span;
@@ -221,19 +221,13 @@ pub enum JsonCondition {
     },
 
     /// AND of multiple conditions
-    And {
-        conditions: Vec<JsonCondition>,
-    },
+    And { conditions: Vec<JsonCondition> },
 
     /// OR of multiple conditions
-    Or {
-        conditions: Vec<JsonCondition>,
-    },
+    Or { conditions: Vec<JsonCondition> },
 
     /// NOT of a condition
-    Not {
-        condition: Box<JsonCondition>,
-    },
+    Not { condition: Box<JsonCondition> },
 
     /// Nested subquery condition (EXISTS, IN subquery)
     Exists {
@@ -269,14 +263,10 @@ pub enum JsonExpr {
     },
 
     /// Literal value
-    Literal {
-        value: JsonValue,
-    },
+    Literal { value: JsonValue },
 
     /// Parameter reference
-    Param {
-        name: String,
-    },
+    Param { name: String },
 
     /// Function call
     Function {
@@ -406,14 +396,10 @@ pub enum JsonPipelineOp {
     },
 
     /// Filter results (post-query)
-    Filter {
-        condition: JsonCondition,
-    },
+    Filter { condition: JsonCondition },
 
     /// Sort results (post-query)
-    Sort {
-        order_by: Vec<JsonOrderBy>,
-    },
+    Sort { order_by: Vec<JsonOrderBy> },
 
     /// Limit results (post-query)
     Take {
@@ -526,7 +512,7 @@ impl JsonQuery {
             order_by,
             limit: self.limit,
             offset: self.offset,
-            zip: None, // ZIP conversion handled separately
+            zip: None,      // ZIP conversion handled separately
             pipeline: None, // Pipeline conversion handled separately
         })
     }
@@ -560,7 +546,10 @@ impl JsonQuery {
 
     /// Check if this query has pipeline operations
     pub fn has_pipeline(&self) -> bool {
-        self.pipeline.as_ref().map(|p| !p.is_empty()).unwrap_or(false)
+        self.pipeline
+            .as_ref()
+            .map(|p| !p.is_empty())
+            .unwrap_or(false)
     }
 
     /// Get the primary table name
@@ -590,7 +579,11 @@ impl JsonSelectItem {
                 alias: None,
             }),
 
-            JsonSelectItem::Column { table, column, alias } => Ok(SelectItem {
+            JsonSelectItem::Column {
+                table,
+                column,
+                alias,
+            } => Ok(SelectItem {
                 expr: Expr::Column(ColumnRef {
                     table: table.clone(),
                     column: column.clone(),
@@ -658,7 +651,12 @@ impl JsonCondition {
                 })
             }
 
-            JsonCondition::Between { expr, low, high, negated } => {
+            JsonCondition::Between {
+                expr,
+                low,
+                high,
+                negated,
+            } => {
                 let expr_ast = expr.to_ast()?;
                 let low_ast = low.to_ast()?;
                 let high_ast = high.to_ast()?;
@@ -685,7 +683,11 @@ impl JsonCondition {
                 }
             }
 
-            JsonCondition::In { expr, values, negated } => {
+            JsonCondition::In {
+                expr,
+                values,
+                negated,
+            } => {
                 let expr_ast = expr.to_ast()?;
                 let value_asts: Vec<Expr> = values
                     .iter()
@@ -723,7 +725,12 @@ impl JsonCondition {
                 Ok(is_null)
             }
 
-            JsonCondition::Like { expr, pattern, case_insensitive, negated } => {
+            JsonCondition::Like {
+                expr,
+                pattern,
+                case_insensitive,
+                negated,
+            } => {
                 let expr_ast = expr.to_ast()?;
                 let op = if *case_insensitive {
                     BinaryOperator::ILike
@@ -806,7 +813,10 @@ impl JsonCondition {
                 Ok(Expr::Not(Box::new(inner)))
             }
 
-            JsonCondition::Exists { subquery: _, negated: _ } => {
+            JsonCondition::Exists {
+                subquery: _,
+                negated: _,
+            } => {
                 // Subqueries not fully supported in AST yet
                 Err(ParseError::new(
                     ParseErrorKind::UnsupportedFeature("EXISTS subquery".to_string()),
@@ -1012,11 +1022,9 @@ impl JsonQueryBuilder {
         args: Vec<JsonExpr>,
         alias: Option<String>,
     ) -> Self {
-        self.query.select.push(JsonSelectItem::Function {
-            name,
-            args,
-            alias,
-        });
+        self.query
+            .select
+            .push(JsonSelectItem::Function { name, args, alias });
         self
     }
 
@@ -1393,10 +1401,7 @@ mod tests {
             .build();
 
         assert!(query.is_zip_query());
-        assert_eq!(
-            query.zip.as_ref().unwrap().alias,
-            Some("con".to_string())
-        );
+        assert_eq!(query.zip.as_ref().unwrap().alias, Some("con".to_string()));
     }
 
     #[test]

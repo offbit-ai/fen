@@ -58,10 +58,13 @@ impl WebSocketProvider {
     ///
     /// Returns a receiver that will receive all notifications for the tenant.
     pub fn subscribe(&self, tenant_id: &TenantId) -> broadcast::Receiver<NotificationPayload> {
-        let sender = self.connections.entry(tenant_id.clone()).or_insert_with(|| {
-            let (tx, _) = broadcast::channel(self.channel_capacity);
-            tx
-        });
+        let sender = self
+            .connections
+            .entry(tenant_id.clone())
+            .or_insert_with(|| {
+                let (tx, _) = broadcast::channel(self.channel_capacity);
+                tx
+            });
         sender.subscribe()
     }
 

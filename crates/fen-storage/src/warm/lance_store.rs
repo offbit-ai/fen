@@ -2,8 +2,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use arrow_array::{
-    ArrayRef, FixedSizeListArray, Float32Array, Float64Array, RecordBatch,
-    RecordBatchIterator, StringArray,
+    ArrayRef, FixedSizeListArray, Float32Array, Float64Array, RecordBatch, RecordBatchIterator,
+    StringArray,
 };
 use arrow_schema::{DataType, Field, Schema};
 use futures::stream::TryStreamExt;
@@ -224,21 +224,25 @@ impl LanceStorage {
         let embedding_field = Arc::new(Field::new("item", DataType::Float32, true));
 
         let columns: Vec<ArrayRef> = vec![
-            Arc::new(StringArray::from(Vec::<&str>::new())),         // id
-            Arc::new(StringArray::from(Vec::<&str>::new())),         // document_id
-            Arc::new(StringArray::from(Vec::<&str>::new())),         // invoice_number
-            Arc::new(StringArray::from(Vec::<&str>::new())),         // invoice_date
+            Arc::new(StringArray::from(Vec::<&str>::new())), // id
+            Arc::new(StringArray::from(Vec::<&str>::new())), // document_id
+            Arc::new(StringArray::from(Vec::<&str>::new())), // invoice_number
+            Arc::new(StringArray::from(Vec::<&str>::new())), // invoice_date
             Arc::new(StringArray::from(Vec::<Option<&str>>::new())), // due_date
             Arc::new(StringArray::from(Vec::<Option<&str>>::new())), // vendor_name
             Arc::new(StringArray::from(Vec::<Option<&str>>::new())), // bill_to_name
-            Arc::new(StringArray::from(Vec::<&str>::new())),         // currency
-            Arc::new(Float64Array::from(Vec::<f64>::new())),         // subtotal
-            Arc::new(Float64Array::from(Vec::<f64>::new())),         // tax_amount
-            Arc::new(Float64Array::from(Vec::<f64>::new())),         // total_amount
-            Arc::new(Float32Array::from(Vec::<f32>::new())),         // confidence_score
-            Arc::new(StringArray::from(Vec::<&str>::new())),         // extracted_text
-            Arc::new(StringArray::from(Vec::<&str>::new())),         // data_json
-            Arc::new(FixedSizeListArray::new_null(embedding_field, EMBEDDING_DIM, 0)), // embedding
+            Arc::new(StringArray::from(Vec::<&str>::new())), // currency
+            Arc::new(Float64Array::from(Vec::<f64>::new())), // subtotal
+            Arc::new(Float64Array::from(Vec::<f64>::new())), // tax_amount
+            Arc::new(Float64Array::from(Vec::<f64>::new())), // total_amount
+            Arc::new(Float32Array::from(Vec::<f32>::new())), // confidence_score
+            Arc::new(StringArray::from(Vec::<&str>::new())), // extracted_text
+            Arc::new(StringArray::from(Vec::<&str>::new())), // data_json
+            Arc::new(FixedSizeListArray::new_null(
+                embedding_field,
+                EMBEDDING_DIM,
+                0,
+            )), // embedding
         ];
 
         RecordBatch::try_new(Arc::new(schema.clone()), columns)
@@ -277,16 +281,8 @@ impl LanceStorage {
         let data_json = serde_json::to_string(invoice)
             .map_err(|e| StorageError::Serialization(e.to_string()))?;
 
-        let subtotal = invoice
-            .subtotal
-            .to_string()
-            .parse::<f64>()
-            .unwrap_or(0.0);
-        let tax_amount = invoice
-            .tax_amount
-            .to_string()
-            .parse::<f64>()
-            .unwrap_or(0.0);
+        let subtotal = invoice.subtotal.to_string().parse::<f64>().unwrap_or(0.0);
+        let tax_amount = invoice.tax_amount.to_string().parse::<f64>().unwrap_or(0.0);
         let total_amount = invoice
             .total_amount
             .to_string()
@@ -297,9 +293,12 @@ impl LanceStorage {
 
         let embedding_array: ArrayRef = if let Some(emb) = embedding {
             let values = Float32Array::from(emb.to_vec());
-            Arc::new(
-                FixedSizeListArray::new(embedding_field, EMBEDDING_DIM, Arc::new(values), None),
-            )
+            Arc::new(FixedSizeListArray::new(
+                embedding_field,
+                EMBEDDING_DIM,
+                Arc::new(values),
+                None,
+            ))
         } else {
             Arc::new(FixedSizeListArray::new_null(
                 embedding_field,
@@ -623,8 +622,13 @@ mod tests {
             .unwrap();
 
         // Search with similar embedding
-        let query: Vec<f32> = (0..EMBEDDING_DIM).map(|i| i as f32 / 1000.0 + 0.001).collect();
-        let results: Vec<(Invoice, f32)> = storage.search_invoices_by_embedding(&query, 10).await.unwrap();
+        let query: Vec<f32> = (0..EMBEDDING_DIM)
+            .map(|i| i as f32 / 1000.0 + 0.001)
+            .collect();
+        let results: Vec<(Invoice, f32)> = storage
+            .search_invoices_by_embedding(&query, 10)
+            .await
+            .unwrap();
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.invoice_number, "INV-002");

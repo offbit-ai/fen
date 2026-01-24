@@ -206,7 +206,6 @@ impl ShardClient {
         let response = self.client.get_shard_info(request).await?;
         Ok(response.into_inner())
     }
-
 }
 
 /// Wrapper to implement RemoteShardClient trait.

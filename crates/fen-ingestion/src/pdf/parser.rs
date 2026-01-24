@@ -22,13 +22,14 @@ static DATE_PATTERNS: Lazy<[Regex; 3]> = Lazy::new(|| {
     [
         Regex::new(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})").unwrap(),
         Regex::new(r"(\d{4}[/-]\d{1,2}[/-]\d{1,2})").unwrap(),
-        Regex::new(r"(?i)(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}").unwrap(),
+        Regex::new(
+            r"(?i)(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}",
+        )
+        .unwrap(),
     ]
 });
 
-static AMOUNT_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\$\s*([\d,]+\.?\d*)").unwrap()
-});
+static AMOUNT_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\$\s*([\d,]+\.?\d*)").unwrap());
 
 static VENDOR_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)(?:from|vendor|supplier|billed\s+by)\s*:?\s*(.+?)(?:\n|$)").unwrap()
@@ -38,9 +39,8 @@ static PO_NUMBER_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)(?:po|purchase\s+order)\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap()
 });
 
-static LINE_ITEM_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?m)^(.{10,50}?)\s+\$\s*([\d,]+\.?\d*)").unwrap()
-});
+static LINE_ITEM_PATTERN: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?m)^(.{10,50}?)\s+\$\s*([\d,]+\.?\d*)").unwrap());
 
 /// Basic invoice parser using regex patterns
 /// In Phase 2, this will be replaced by LayoutLMv3
@@ -57,7 +57,9 @@ impl InvoiceParser {
         let invoice_number = self.extract_invoice_number(text);
 
         // Extract date (simplified - takes first date found)
-        let invoice_date = self.extract_date(text).unwrap_or_else(|| chrono::Local::now().date_naive());
+        let invoice_date = self
+            .extract_date(text)
+            .unwrap_or_else(|| chrono::Local::now().date_naive());
 
         // Extract total amount (takes largest amount as total)
         let total_amount = self.extract_total_amount(text);
@@ -100,7 +102,10 @@ impl InvoiceParser {
             }
         }
         // Generate a fallback invoice number
-        format!("UNKNOWN-{}", uuid::Uuid::new_v4().to_string().split('-').next().unwrap())
+        format!(
+            "UNKNOWN-{}",
+            uuid::Uuid::new_v4().to_string().split('-').next().unwrap()
+        )
     }
 
     fn extract_date(&self, text: &str) -> Option<NaiveDate> {
@@ -174,13 +179,7 @@ impl Default for InvoiceParser {
 /// Parse various date formats
 fn parse_date(s: &str) -> Option<NaiveDate> {
     let formats = [
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%m-%d-%Y",
-        "%m-%d-%y",
-        "%Y-%m-%d",
+        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y", "%m-%d-%Y", "%m-%d-%y", "%Y-%m-%d",
         "%Y/%m/%d",
     ];
 

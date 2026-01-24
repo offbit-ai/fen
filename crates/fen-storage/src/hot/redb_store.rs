@@ -52,23 +52,19 @@ impl RedbStorage {
     }
 
     fn serialize_invoice(invoice: &Invoice) -> Result<Vec<u8>, StorageError> {
-        serde_json::to_vec(invoice)
-            .map_err(|e| StorageError::Serialization(e.to_string()))
+        serde_json::to_vec(invoice).map_err(|e| StorageError::Serialization(e.to_string()))
     }
 
     fn deserialize_invoice(bytes: &[u8]) -> Result<Invoice, StorageError> {
-        serde_json::from_slice(bytes)
-            .map_err(|e| StorageError::Deserialization(e.to_string()))
+        serde_json::from_slice(bytes).map_err(|e| StorageError::Deserialization(e.to_string()))
     }
 
     fn serialize_contract(contract: &Contract) -> Result<Vec<u8>, StorageError> {
-        serde_json::to_vec(contract)
-            .map_err(|e| StorageError::Serialization(e.to_string()))
+        serde_json::to_vec(contract).map_err(|e| StorageError::Serialization(e.to_string()))
     }
 
     fn deserialize_contract(bytes: &[u8]) -> Result<Contract, StorageError> {
-        serde_json::from_slice(bytes)
-            .map_err(|e| StorageError::Deserialization(e.to_string()))
+        serde_json::from_slice(bytes).map_err(|e| StorageError::Deserialization(e.to_string()))
     }
 }
 
@@ -162,7 +158,11 @@ impl DocumentStore for RedbStorage {
         Ok(deleted)
     }
 
-    async fn list_invoices(&self, limit: usize, offset: usize) -> Result<Vec<Invoice>, StorageError> {
+    async fn list_invoices(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<Invoice>, StorageError> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(INVOICES_TABLE)?;
 
@@ -179,7 +179,11 @@ impl DocumentStore for RedbStorage {
         invoices
     }
 
-    async fn list_contracts(&self, limit: usize, offset: usize) -> Result<Vec<Contract>, StorageError> {
+    async fn list_contracts(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<Contract>, StorageError> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(CONTRACTS_TABLE)?;
 
@@ -245,7 +249,10 @@ mod tests {
         let storage = RedbStorage::in_memory().unwrap();
 
         // Create
-        let contract = Contract::new("Test Contract", NaiveDate::from_ymd_opt(2024, 1, 1).unwrap());
+        let contract = Contract::new(
+            "Test Contract",
+            NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+        );
         storage.store_contract(&contract).await.unwrap();
 
         // Read

@@ -46,7 +46,10 @@ impl BaselineStore {
         }
         write_txn.commit()?;
 
-        tracing::info!(cache_ttl_secs = cache_ttl.as_secs(), "Initialized baseline store");
+        tracing::info!(
+            cache_ttl_secs = cache_ttl.as_secs(),
+            "Initialized baseline store"
+        );
 
         Ok(Self {
             db,
@@ -101,8 +104,8 @@ impl BaselineStore {
     /// Store a computed baseline
     pub async fn store_baseline(&self, baseline: &VendorBaseline) -> Result<(), StorageError> {
         let cache_key = baseline.cache_key();
-        let value = serde_json::to_vec(baseline)
-            .map_err(|e| StorageError::Serialization(e.to_string()))?;
+        let value =
+            serde_json::to_vec(baseline).map_err(|e| StorageError::Serialization(e.to_string()))?;
 
         let write_txn = self.db.begin_write()?;
         {

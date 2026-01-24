@@ -5,4 +5,4 @@
 
 mod index;
 
-pub use index::{FullTextIndex, FullTextConfig, SearchResult};
+pub use index::{FullTextConfig, FullTextIndex, SearchResult};

@@ -27,8 +27,14 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         // Health check (no rate limiting)
         .route("/health", get(health::health_check))
         // Documents - combined GET and POST on same path
-        .route("/documents", get(documents::list_documents).post(ingest::ingest_document))
-        .route("/documents/:id", get(documents::get_document).delete(documents::delete_document))
+        .route(
+            "/documents",
+            get(documents::list_documents).post(ingest::ingest_document),
+        )
+        .route(
+            "/documents/:id",
+            get(documents::get_document).delete(documents::delete_document),
+        )
         // Validation
         .route("/validate", post(validate::validate_documents))
         // Stats

@@ -256,8 +256,7 @@ mod tests {
     use rust_decimal::Decimal;
 
     fn create_test_invoice(total: f64) -> Invoice {
-        let mut invoice =
-            Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+        let mut invoice = Invoice::new("INV-001", NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
         invoice.total_amount = Decimal::try_from(total).unwrap();
         invoice.subtotal = Decimal::try_from(total).unwrap();
         invoice.confidence_score = 0.95;
@@ -368,11 +367,22 @@ mod tests {
         invoice.tax_amount = Decimal::new(100, 0);
         invoice.discount_amount = Decimal::new(50, 0);
 
-        assert_eq!(analyzer.extract_metric(&invoice, "total_amount"), Some(1000.0));
+        assert_eq!(
+            analyzer.extract_metric(&invoice, "total_amount"),
+            Some(1000.0)
+        );
         assert_eq!(analyzer.extract_metric(&invoice, "tax_amount"), Some(100.0));
-        assert_eq!(analyzer.extract_metric(&invoice, "discount_amount"), Some(50.0));
-        assert_eq!(analyzer.extract_metric(&invoice, "line_item_count"), Some(0.0));
-        assert!(analyzer.extract_metric(&invoice, "unknown_metric").is_none());
+        assert_eq!(
+            analyzer.extract_metric(&invoice, "discount_amount"),
+            Some(50.0)
+        );
+        assert_eq!(
+            analyzer.extract_metric(&invoice, "line_item_count"),
+            Some(0.0)
+        );
+        assert!(analyzer
+            .extract_metric(&invoice, "unknown_metric")
+            .is_none());
     }
 
     #[test]
@@ -403,7 +413,9 @@ mod tests {
             create_test_invoice(170.0),
         ];
 
-        let stats = analyzer.compute_baseline(&invoices, "total_amount").unwrap();
+        let stats = analyzer
+            .compute_baseline(&invoices, "total_amount")
+            .unwrap();
 
         assert_eq!(stats.count, 5);
         assert!((stats.mean - 160.0).abs() < 0.01);
