@@ -484,6 +484,35 @@ impl LanceStorage {
         Ok(invoices.into_iter().next())
     }
 
+    /// Delete an invoice by ID
+    ///
+    /// Returns `true` if the invoice was found and deleted, `false` if not found.
+    /// Note: LanceDB 0.17 delete returns () so we check existence first.
+    pub async fn delete_invoice(&self, id: &InvoiceId) -> Result<bool, StorageError> {
+        let table = match &self.invoices_table {
+            Some(t) => t,
+            None => return Ok(false),
+        };
+
+        // Check if invoice exists first (LanceDB delete doesn't return affected rows)
+        let exists = self.get_invoice(id).await?.is_some();
+        if !exists {
+            return Ok(false);
+        }
+
+        // Use SQL predicate to delete by ID
+        let predicate = format!("id = '{}'", id);
+
+        table
+            .delete(&predicate)
+            .await
+            .map_err(|e| StorageError::Database(e.to_string()))?;
+
+        tracing::debug!(invoice_id = %id, "Deleted invoice from LanceDB");
+
+        Ok(true)
+    }
+
     /// List invoices with pagination
     pub async fn list_invoices(
         &self,
@@ -597,5 +626,33 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0.invoice_number, "INV-002");
+    }
+
+    #[tokio::test]
+    async fn test_lance_storage_delete() {
+        let dir = tempdir().unwrap();
+        let mut storage = LanceStorage::new(dir.path()).await.unwrap();
+
+        let invoice = Invoice::new("INV-DELETE", NaiveDate::from_ymd_opt(2024, 3, 1).unwrap());
+
+        // Store the invoice
+        storage
+            .store_invoice_with_embedding(&invoice, None)
+            .await
+            .unwrap();
+
+        // Verify it exists
+        assert!(storage.get_invoice(&invoice.id).await.unwrap().is_some());
+
+        // Delete it
+        let deleted = storage.delete_invoice(&invoice.id).await.unwrap();
+        assert!(deleted);
+
+        // Verify it's gone
+        assert!(storage.get_invoice(&invoice.id).await.unwrap().is_none());
+
+        // Deleting again should return false
+        let deleted_again = storage.delete_invoice(&invoice.id).await.unwrap();
+        assert!(!deleted_again);
     }
 }

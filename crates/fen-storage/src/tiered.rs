@@ -327,19 +327,30 @@ impl TieredStorage {
         Ok(None)
     }
 
-    /// Delete an invoice
+    /// Delete an invoice from all tiers
+    ///
+    /// Removes the invoice from both hot and warm tiers, plus the location index.
     pub async fn delete_invoice(&self, id: &InvoiceId) -> Result<bool, StorageError> {
         self.cache.invalidate_invoice(id);
 
         // Remove from location index
         let was_tracked = self.location_index.remove_invoice(id).is_some();
 
-        // Try to delete from hot tier
+        // Delete from hot tier
         let hot_deleted = self.hot.delete_invoice(id).await?;
 
-        // Note: LanceDB doesn't support direct deletes easily, would need to implement
-        // For now, just return whether we found and removed it
-        Ok(hot_deleted || was_tracked)
+        // Delete from warm tier (LanceDB)
+        let warm = self.warm.read().await;
+        let warm_deleted = warm.delete_invoice(id).await?;
+
+        tracing::debug!(
+            invoice_id = %id,
+            hot_deleted = hot_deleted,
+            warm_deleted = warm_deleted,
+            "Deleted invoice from storage"
+        );
+
+        Ok(hot_deleted || warm_deleted || was_tracked)
     }
 
     /// List invoices from hot tier
