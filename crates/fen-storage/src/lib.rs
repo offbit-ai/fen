@@ -4,6 +4,8 @@ pub mod fulltext;
 pub mod hot;
 pub mod location;
 pub mod query;
+pub mod retention;
+pub mod tenant_aware;
 pub mod tiered;
 pub mod traits;
 pub mod warm;
@@ -56,3 +58,10 @@ pub use traits::{
     DocumentStore, InvoiceFilter, QueryMetrics, StorageTier, VectorSearchResult, VectorStore,
 };
 pub use warm::LanceStorage;
+
+// Multi-tenancy
+pub use retention::{
+    DocumentMetadata, InMemoryRetentionMetadata, RetentionEnforcer, RetentionJob,
+    RetentionMetadataStore, RetentionStats,
+};
+pub use tenant_aware::{TenantAwareStore, TenantScopedStore, TenantStorageContext};

@@ -29,6 +29,12 @@ pub enum StorageError {
 
     #[error("Query error: {0}")]
     Query(String),
+
+    #[error("Tenant mismatch: expected {expected}, got {actual}")]
+    TenantMismatch { expected: String, actual: String },
+
+    #[error("Quota exceeded: {0}")]
+    QuotaExceeded(String),
 }
 
 impl From<redb::Error> for StorageError {

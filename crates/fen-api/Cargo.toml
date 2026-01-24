@@ -27,6 +27,10 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 bytes.workspace = true
 mime.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+jsonwebtoken.workspace = true
+dashmap.workspace = true
 
 [lints]
 workspace = true
