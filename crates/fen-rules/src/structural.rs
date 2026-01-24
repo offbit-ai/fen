@@ -25,7 +25,8 @@ impl StructuralValidator {
 
     /// Validate an invoice for structural consistency
     pub fn validate_invoice(&self, invoice: &Invoice) -> Vec<Anomaly> {
-        let mut anomalies = Vec::new();
+        // Pre-allocate for typical case: 8 checks + line item checks
+        let mut anomalies = Vec::with_capacity(8 + invoice.line_items.len());
 
         // Check: Line items sum equals subtotal
         if !invoice.line_items.is_empty() {

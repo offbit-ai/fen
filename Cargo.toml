@@ -40,6 +40,8 @@ bincode = "1.3"
 # Performance
 bumpalo = "3.16"
 dashmap = "6.0"
+once_cell = "1.20"
+lru = "0.12"
 
 # Document Processing
 pdfium-render = "0.8"

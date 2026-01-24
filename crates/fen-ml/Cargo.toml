@@ -12,6 +12,8 @@ tokenizers.workspace = true
 image.workspace = true
 
 regex.workspace = true
+once_cell.workspace = true
+lru.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

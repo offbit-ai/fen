@@ -5,13 +5,15 @@ use axum::{
     Router,
 };
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
+use crate::config::AppConfig;
 use crate::routes::{documents, health, ingest, validate};
 use crate::state::AppState;
 
 /// Build the application router
-pub fn build_router(state: Arc<AppState>) -> Router {
+pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -29,6 +31,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/stats", get(documents::get_stats))
         // Add middleware
         .layer(TraceLayer::new_for_http())
+        .layer(RequestBodyLimitLayer::new(config.max_upload_size))
         .layer(cors)
         .with_state(state)
 }

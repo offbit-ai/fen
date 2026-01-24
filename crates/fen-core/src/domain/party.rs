@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use super::ids::PartyId;
 
+/// Constant name for unknown parties - avoids repeated allocation
+const UNKNOWN_PARTY_NAME: &str = "Unknown";
+
 /// Address information
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct Address {
@@ -43,14 +46,20 @@ impl Party {
     }
 
     /// Create an unknown/placeholder party
+    /// Uses a nil UUID to avoid UUID generation overhead
     pub fn unknown() -> Self {
         Self {
-            id: PartyId::new(),
-            name: "Unknown".to_string(),
+            id: PartyId::nil(),
+            name: UNKNOWN_PARTY_NAME.to_string(),
             tax_id: None,
             address: None,
             contact: None,
         }
+    }
+
+    /// Check if this is an unknown/placeholder party
+    pub fn is_unknown(&self) -> bool {
+        self.id.is_nil() || self.name == UNKNOWN_PARTY_NAME
     }
 }
 

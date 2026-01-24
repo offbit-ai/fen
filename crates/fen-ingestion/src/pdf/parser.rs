@@ -1,4 +1,5 @@
 use chrono::NaiveDate;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use rust_decimal::Decimal;
 
@@ -7,32 +8,47 @@ use fen_core::ValidationStatus;
 
 use crate::error::IngestionError;
 
+// Pre-compiled regex patterns - compiled once at program start
+static INVOICE_NUMBER_PATTERNS: Lazy<[Regex; 4]> = Lazy::new(|| {
+    [
+        Regex::new(r"(?i)invoice\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap(),
+        Regex::new(r"(?i)inv\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap(),
+        Regex::new(r"(?i)invoice\s+number\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap(),
+        Regex::new(r"(?i)bill\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap(),
+    ]
+});
+
+static DATE_PATTERNS: Lazy<[Regex; 3]> = Lazy::new(|| {
+    [
+        Regex::new(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})").unwrap(),
+        Regex::new(r"(\d{4}[/-]\d{1,2}[/-]\d{1,2})").unwrap(),
+        Regex::new(r"(?i)(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}").unwrap(),
+    ]
+});
+
+static AMOUNT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\$\s*([\d,]+\.?\d*)").unwrap()
+});
+
+static VENDOR_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?:from|vendor|supplier|billed\s+by)\s*:?\s*(.+?)(?:\n|$)").unwrap()
+});
+
+static PO_NUMBER_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?:po|purchase\s+order)\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap()
+});
+
+static LINE_ITEM_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?m)^(.{10,50}?)\s+\$\s*([\d,]+\.?\d*)").unwrap()
+});
+
 /// Basic invoice parser using regex patterns
 /// In Phase 2, this will be replaced by LayoutLMv3
-pub struct InvoiceParser {
-    invoice_number_patterns: Vec<Regex>,
-    date_patterns: Vec<Regex>,
-    amount_pattern: Regex,
-    vendor_pattern: Regex,
-}
+pub struct InvoiceParser;
 
 impl InvoiceParser {
     pub fn new() -> Self {
-        Self {
-            invoice_number_patterns: vec![
-                Regex::new(r"(?i)invoice\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap(),
-                Regex::new(r"(?i)inv\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap(),
-                Regex::new(r"(?i)invoice\s+number\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap(),
-                Regex::new(r"(?i)bill\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap(),
-            ],
-            date_patterns: vec![
-                Regex::new(r"(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})").unwrap(),
-                Regex::new(r"(\d{4}[/-]\d{1,2}[/-]\d{1,2})").unwrap(),
-                Regex::new(r"(?i)(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}").unwrap(),
-            ],
-            amount_pattern: Regex::new(r"\$\s*([\d,]+\.?\d*)").unwrap(),
-            vendor_pattern: Regex::new(r"(?i)(?:from|vendor|supplier|billed\s+by)\s*:?\s*(.+?)(?:\n|$)").unwrap(),
-        }
+        Self
     }
 
     /// Parse invoice from extracted text
@@ -74,7 +90,7 @@ impl InvoiceParser {
     }
 
     fn extract_invoice_number(&self, text: &str) -> String {
-        for pattern in &self.invoice_number_patterns {
+        for pattern in INVOICE_NUMBER_PATTERNS.iter() {
             if let Some(caps) = pattern.captures(text) {
                 if let Some(m) = caps.get(1) {
                     return m.as_str().to_string();
@@ -86,7 +102,7 @@ impl InvoiceParser {
     }
 
     fn extract_date(&self, text: &str) -> Option<NaiveDate> {
-        for pattern in &self.date_patterns {
+        for pattern in DATE_PATTERNS.iter() {
             if let Some(caps) = pattern.captures(text) {
                 if let Some(m) = caps.get(0) {
                     if let Some(date) = parse_date(m.as_str()) {
@@ -99,8 +115,7 @@ impl InvoiceParser {
     }
 
     fn extract_total_amount(&self, text: &str) -> Decimal {
-        let amounts: Vec<Decimal> = self
-            .amount_pattern
+        let amounts: Vec<Decimal> = AMOUNT_PATTERN
             .captures_iter(text)
             .filter_map(|c| c.get(1))
             .filter_map(|m| parse_amount(m.as_str()))
@@ -111,7 +126,7 @@ impl InvoiceParser {
     }
 
     fn extract_vendor(&self, text: &str) -> String {
-        if let Some(caps) = self.vendor_pattern.captures(text) {
+        if let Some(caps) = VENDOR_PATTERN.captures(text) {
             if let Some(m) = caps.get(1) {
                 let vendor = m.as_str().trim();
                 if !vendor.is_empty() {
@@ -123,8 +138,7 @@ impl InvoiceParser {
     }
 
     fn extract_po_number(&self, text: &str) -> Option<String> {
-        let po_pattern = Regex::new(r"(?i)(?:po|purchase\s+order)\s*#?\s*:?\s*([A-Z0-9][-A-Z0-9]+)").unwrap();
-        po_pattern
+        PO_NUMBER_PATTERN
             .captures(text)
             .and_then(|c| c.get(1))
             .map(|m| m.as_str().to_string())
@@ -132,10 +146,8 @@ impl InvoiceParser {
 
     fn extract_line_items(&self, text: &str) -> Vec<LineItem> {
         // Simple line item extraction - looks for patterns like "Description $Amount"
-        let item_pattern = Regex::new(r"(?m)^(.{10,50}?)\s+\$\s*([\d,]+\.?\d*)").unwrap();
-
         let mut items = Vec::new();
-        for (i, caps) in item_pattern.captures_iter(text).enumerate() {
+        for (i, caps) in LINE_ITEM_PATTERN.captures_iter(text).enumerate() {
             if let (Some(desc), Some(amount)) = (caps.get(1), caps.get(2)) {
                 if let Some(total) = parse_amount(amount.as_str()) {
                     items.push(LineItem::new(

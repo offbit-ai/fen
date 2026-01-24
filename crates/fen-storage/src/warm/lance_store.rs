@@ -366,7 +366,8 @@ impl LanceStorage {
         &self,
         batches: &[RecordBatch],
     ) -> Result<Vec<(Invoice, f32)>, StorageError> {
-        let mut invoices = Vec::new();
+        let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+        let mut invoices = Vec::with_capacity(total_rows);
 
         for batch in batches {
             let data_json_col = batch
@@ -396,7 +397,8 @@ impl LanceStorage {
 
     /// Extract invoices from record batches
     fn extract_invoices(&self, batches: &[RecordBatch]) -> Result<Vec<Invoice>, StorageError> {
-        let mut invoices = Vec::new();
+        let total_rows: usize = batches.iter().map(|b| b.num_rows()).sum();
+        let mut invoices = Vec::with_capacity(total_rows);
 
         for batch in batches {
             let data_json_col = batch

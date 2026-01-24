@@ -84,12 +84,24 @@ impl std::fmt::Display for ContractId {
 pub struct PartyId(pub Uuid);
 
 impl PartyId {
+    /// Create a new random party ID
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
 
+    /// Create a nil (zero) party ID for unknown/placeholder parties
+    /// This avoids UUID generation overhead for placeholder values
+    pub const fn nil() -> Self {
+        Self(Uuid::nil())
+    }
+
     pub fn as_bytes(&self) -> &[u8; 16] {
         self.0.as_bytes()
+    }
+
+    /// Check if this is a nil/unknown party ID
+    pub fn is_nil(&self) -> bool {
+        self.0.is_nil()
     }
 }
 

@@ -61,7 +61,7 @@ pub async fn validate_documents(
         ));
     }
 
-    let mut results = Vec::new();
+    let mut results = Vec::with_capacity(request.document_ids.len());
     let mut total_passed = 0;
     let mut total_failed = 0;
 

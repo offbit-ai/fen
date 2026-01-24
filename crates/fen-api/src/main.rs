@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Application state initialized");
 
     // Build router
-    let app = app::build_router(state);
+    let app = app::build_router(state, &config);
 
     // Start server
     let listener = tokio::net::TcpListener::bind(&config.bind_address).await?;

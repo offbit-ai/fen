@@ -1,6 +1,10 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Mutex;
 
+use lru::LruCache;
 use ndarray::Array2;
 use ort::session::Session;
 use ort::value::TensorRef;
@@ -11,20 +15,28 @@ use super::{
 };
 use crate::error::MlError;
 
+/// Default cache size for embeddings (1024 entries)
+const DEFAULT_CACHE_SIZE: usize = 1024;
+
 /// Sentence transformer style embedding model with proper batch processing
+/// Includes an LRU cache to avoid recomputing embeddings for repeated texts
 pub struct EmbeddingModel {
     config: EmbeddingModelConfig,
     session: Option<Mutex<Session>>,
     tokenizer: Option<Tokenizer>,
+    /// LRU cache for embeddings, keyed by text hash
+    cache: Mutex<LruCache<u64, Vec<f32>>>,
 }
 
 impl EmbeddingModel {
     /// Create embedding model without ONNX model (returns zero embeddings)
     pub fn new(config: EmbeddingModelConfig) -> Result<Self, MlError> {
+        let cache_size = NonZeroUsize::new(DEFAULT_CACHE_SIZE).unwrap();
         Ok(Self {
             config,
             session: None,
             tokenizer: None,
+            cache: Mutex::new(LruCache::new(cache_size)),
         })
     }
 
@@ -69,10 +81,12 @@ impl EmbeddingModel {
             "Loaded embedding model"
         );
 
+        let cache_size = NonZeroUsize::new(DEFAULT_CACHE_SIZE).unwrap();
         Ok(Self {
             config,
             session: Some(Mutex::new(session)),
             tokenizer: Some(tokenizer),
+            cache: Mutex::new(LruCache::new(cache_size)),
         })
     }
 
@@ -87,16 +101,42 @@ impl EmbeddingModel {
     }
 
     /// Generate embedding for a single text
+    /// Uses LRU cache to avoid recomputing embeddings for repeated texts
     pub fn embed(&self, text: &str) -> Result<Vec<f32>, MlError> {
         if !self.has_model() {
             return Ok(vec![0.0; self.config.embedding_dim]);
         }
 
+        // Compute hash of text for cache key
+        let text_hash = self.hash_text(text);
+
+        // Check cache first
+        if let Ok(mut cache) = self.cache.lock() {
+            if let Some(cached) = cache.get(&text_hash) {
+                return Ok(cached.clone());
+            }
+        }
+
+        // Compute embedding
         let embeddings = self.embed_batch(&[text])?;
-        Ok(embeddings
+        let embedding = embeddings
             .into_iter()
             .next()
-            .unwrap_or_else(|| vec![0.0; self.config.embedding_dim]))
+            .unwrap_or_else(|| vec![0.0; self.config.embedding_dim]);
+
+        // Store in cache
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.put(text_hash, embedding.clone());
+        }
+
+        Ok(embedding)
+    }
+
+    /// Compute a hash of the text for cache lookup
+    fn hash_text(&self, text: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Generate embeddings for multiple texts with efficient batching

@@ -4,14 +4,19 @@ use std::time::Instant;
 
 use image::{DynamicImage, GenericImageView};
 use ndarray::Array4;
+use once_cell::sync::Lazy;
 use ort::session::{Session, SessionOutputs};
 use ort::value::TensorRef;
+use regex::Regex;
 
 use super::{
     ExtractedTable, TableCell, TableColumn, TableExtractionResult, TableExtractorConfig, TableRow,
 };
 use crate::error::MlError;
 use crate::ocr::{BoundingBox, OcrResult, TextRegion};
+
+// Pre-compiled regex pattern for number detection
+static NUMBER_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"\d+\.?\d*").unwrap());
 
 /// Table Transformer (TATR) style table extractor
 pub struct TableExtractor {
@@ -101,7 +106,7 @@ impl TableExtractor {
         }
 
         // Step 2: For each detected table, extract structure
-        let mut tables = Vec::new();
+        let mut tables = Vec::with_capacity(table_boxes.len());
 
         for (idx, (bbox, confidence)) in table_boxes.into_iter().enumerate() {
             let structure = self.extract_structure(image, &bbox)?;
@@ -533,26 +538,23 @@ impl TableExtractor {
         }
 
         // Check if numbers appear at similar positions across lines
-        let number_pattern = regex::Regex::new(r"\d+\.?\d*").ok();
-        if let Some(re) = number_pattern {
-            let positions: Vec<Vec<usize>> = lines
+        let positions: Vec<Vec<usize>> = lines
+            .iter()
+            .map(|line| NUMBER_PATTERN.find_iter(line).map(|m| m.start()).collect())
+            .collect();
+
+        // Check for alignment (numbers at similar positions)
+        if positions.len() >= 2 && positions.iter().all(|p| !p.is_empty()) {
+            let first_positions = &positions[0];
+            let aligned_count = positions[1..]
                 .iter()
-                .map(|line| re.find_iter(line).map(|m| m.start()).collect())
-                .collect();
+                .filter(|p| {
+                    p.iter()
+                        .any(|&pos| first_positions.iter().any(|&fp| (pos as i32 - fp as i32).abs() < 5))
+                })
+                .count();
 
-            // Check for alignment (numbers at similar positions)
-            if positions.len() >= 2 && positions.iter().all(|p| !p.is_empty()) {
-                let first_positions = &positions[0];
-                let aligned_count = positions[1..]
-                    .iter()
-                    .filter(|p| {
-                        p.iter()
-                            .any(|&pos| first_positions.iter().any(|&fp| (pos as i32 - fp as i32).abs() < 5))
-                    })
-                    .count();
-
-                return aligned_count >= positions.len() / 2;
-            }
+            return aligned_count >= positions.len() / 2;
         }
 
         false

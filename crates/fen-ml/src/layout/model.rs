@@ -4,8 +4,10 @@ use std::time::Instant;
 
 use image::{DynamicImage, GenericImageView};
 use ndarray::{Array2, Array3, Array4};
+use once_cell::sync::Lazy;
 use ort::session::Session;
 use ort::value::TensorRef;
+use regex::Regex;
 use tokenizers::Tokenizer;
 
 use super::{
@@ -14,6 +16,28 @@ use super::{
 };
 use crate::error::MlError;
 use crate::ocr::{OcrResult, TextRegion};
+
+// Pre-compiled regex patterns for entity extraction
+static DATE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b").unwrap()
+});
+
+static AMOUNT_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[$€£]\s*[\d,]+\.?\d*|\d{1,3}(?:,\d{3})*(?:\.\d{2})?(?:\s*(?:USD|EUR|GBP))?")
+        .unwrap()
+});
+
+static INVOICE_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(?i)(?:INV|Invoice)[#\-:\s]*([A-Z0-9\-]+)").unwrap()
+});
+
+static EMAIL_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").unwrap()
+});
+
+static KV_PATTERN: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"([A-Za-z][A-Za-z\s]*?):\s*(.+)").unwrap()
+});
 
 /// LayoutLMv3-based document understanding model
 pub struct LayoutModel {
@@ -429,14 +453,41 @@ impl LayoutModel {
         let mut entities = Vec::new();
 
         // Date patterns (MM/DD/YYYY, DD-MM-YYYY, etc.)
-        let date_pattern =
-            regex::Regex::new(r"\b(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2})\b")
-                .ok();
-        if let Some(re) = date_pattern {
-            for m in re.find_iter(text) {
+        for m in DATE_PATTERN.find_iter(text) {
+            entities.push(
+                NamedEntity::new(
+                    EntityType::Date,
+                    m.as_str().to_string(),
+                    0.9,
+                    m.start(),
+                    m.end(),
+                )
+                .with_bbox(region.bbox),
+            );
+        }
+
+        // Amount patterns ($1,234.56, etc.)
+        for m in AMOUNT_PATTERN.find_iter(text) {
+            if m.as_str().chars().any(|c| c.is_ascii_digit()) {
                 entities.push(
                     NamedEntity::new(
-                        EntityType::Date,
+                        EntityType::Amount,
+                        m.as_str().to_string(),
+                        0.85,
+                        m.start(),
+                        m.end(),
+                    )
+                    .with_bbox(region.bbox),
+                );
+            }
+        }
+
+        // Invoice number patterns
+        for cap in INVOICE_PATTERN.captures_iter(text) {
+            if let Some(m) = cap.get(1) {
+                entities.push(
+                    NamedEntity::new(
+                        EntityType::InvoiceNumber,
                         m.as_str().to_string(),
                         0.9,
                         m.start(),
@@ -447,64 +498,18 @@ impl LayoutModel {
             }
         }
 
-        // Amount patterns ($1,234.56, etc.)
-        let amount_pattern = regex::Regex::new(
-            r"[$€£]\s*[\d,]+\.?\d*|\d{1,3}(?:,\d{3})*(?:\.\d{2})?(?:\s*(?:USD|EUR|GBP))?",
-        )
-        .ok();
-        if let Some(re) = amount_pattern {
-            for m in re.find_iter(text) {
-                if m.as_str().chars().any(|c| c.is_ascii_digit()) {
-                    entities.push(
-                        NamedEntity::new(
-                            EntityType::Amount,
-                            m.as_str().to_string(),
-                            0.85,
-                            m.start(),
-                            m.end(),
-                        )
-                        .with_bbox(region.bbox),
-                    );
-                }
-            }
-        }
-
-        // Invoice number patterns
-        let invoice_pattern =
-            regex::Regex::new(r"(?i)(?:INV|Invoice)[#\-:\s]*([A-Z0-9\-]+)").ok();
-        if let Some(re) = invoice_pattern {
-            for cap in re.captures_iter(text) {
-                if let Some(m) = cap.get(1) {
-                    entities.push(
-                        NamedEntity::new(
-                            EntityType::InvoiceNumber,
-                            m.as_str().to_string(),
-                            0.9,
-                            m.start(),
-                            m.end(),
-                        )
-                        .with_bbox(region.bbox),
-                    );
-                }
-            }
-        }
-
         // Email patterns
-        let email_pattern =
-            regex::Regex::new(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}").ok();
-        if let Some(re) = email_pattern {
-            for m in re.find_iter(text) {
-                entities.push(
-                    NamedEntity::new(
-                        EntityType::Email,
-                        m.as_str().to_string(),
-                        0.95,
-                        m.start(),
-                        m.end(),
-                    )
-                    .with_bbox(region.bbox),
-                );
-            }
+        for m in EMAIL_PATTERN.find_iter(text) {
+            entities.push(
+                NamedEntity::new(
+                    EntityType::Email,
+                    m.as_str().to_string(),
+                    0.95,
+                    m.start(),
+                    m.end(),
+                )
+                .with_bbox(region.bbox),
+            );
         }
 
         entities
@@ -515,24 +520,20 @@ impl LayoutModel {
         let mut pairs = Vec::new();
 
         // Look for patterns like "Key: Value" or "Key Value" with aligned positions
-        let kv_pattern = regex::Regex::new(r"([A-Za-z][A-Za-z\s]*?):\s*(.+)").ok();
+        for region in &ocr_result.regions {
+            for cap in KV_PATTERN.captures_iter(&region.text) {
+                if let (Some(key), Some(value)) = (cap.get(1), cap.get(2)) {
+                    let key_text = key.as_str().trim();
+                    let value_text = value.as_str().trim();
 
-        if let Some(re) = kv_pattern {
-            for region in &ocr_result.regions {
-                for cap in re.captures_iter(&region.text) {
-                    if let (Some(key), Some(value)) = (cap.get(1), cap.get(2)) {
-                        let key_text = key.as_str().trim();
-                        let value_text = value.as_str().trim();
-
-                        if !key_text.is_empty() && !value_text.is_empty() {
-                            pairs.push(KeyValuePair {
-                                key: key_text.to_string(),
-                                value: value_text.to_string(),
-                                confidence: region.confidence,
-                                key_bbox: Some(region.bbox),
-                                value_bbox: Some(region.bbox),
-                            });
-                        }
+                    if !key_text.is_empty() && !value_text.is_empty() {
+                        pairs.push(KeyValuePair {
+                            key: key_text.to_string(),
+                            value: value_text.to_string(),
+                            confidence: region.confidence,
+                            key_bbox: Some(region.bbox),
+                            value_bbox: Some(region.bbox),
+                        });
                     }
                 }
             }
