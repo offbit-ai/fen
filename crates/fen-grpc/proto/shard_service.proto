@@ -1,0 +1,202 @@
+syntax = "proto3";
+
+package fen.shard.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ShardService provides inter-node communication for distributed Fen.
+service ShardService {
+  // Document operations
+  rpc StoreDocument(StoreDocumentRequest) returns (StoreDocumentResponse);
+  rpc GetDocument(GetDocumentRequest) returns (GetDocumentResponse);
+  rpc DeleteDocument(DeleteDocumentRequest) returns (DeleteDocumentResponse);
+
+  // Query operations
+  rpc QueryDocuments(QueryDocumentsRequest) returns (QueryDocumentsResponse);
+  rpc VectorSearch(VectorSearchRequest) returns (VectorSearchResponse);
+
+  // Transaction operations (2PC)
+  rpc Prepare(PrepareRequest) returns (PrepareResponse);
+  rpc Commit(CommitRequest) returns (CommitResponse);
+  rpc Abort(AbortRequest) returns (AbortResponse);
+  rpc GetTransactionStatus(TransactionStatusRequest) returns (TransactionStatusResponse);
+
+  // Health and status
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  rpc GetShardInfo(ShardInfoRequest) returns (ShardInfoResponse);
+}
+
+// Common types
+
+message ShardId {
+  uint32 id = 1;
+}
+
+message TenantId {
+  string id = 1;
+}
+
+message DocumentId {
+  string id = 1;
+}
+
+message TransactionId {
+  string id = 1;
+}
+
+// Document operations
+
+message StoreDocumentRequest {
+  optional TransactionId transaction_id = 1;
+  TenantId tenant_id = 2;
+  DocumentId document_id = 3;
+  string document_type = 4;  // "invoice" or "contract"
+  bytes document_data = 5;   // Serialized document
+  repeated float embedding = 6;  // Optional vector embedding
+  map<string, string> metadata = 7;
+}
+
+message StoreDocumentResponse {
+  bool success = 1;
+  string error = 2;
+  google.protobuf.Timestamp stored_at = 3;
+}
+
+message GetDocumentRequest {
+  TenantId tenant_id = 1;
+  DocumentId document_id = 2;
+  bool include_embedding = 3;
+}
+
+message GetDocumentResponse {
+  bool found = 1;
+  bytes document_data = 2;
+  string document_type = 3;
+  repeated float embedding = 4;
+  map<string, string> metadata = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message DeleteDocumentRequest {
+  optional TransactionId transaction_id = 1;
+  TenantId tenant_id = 2;
+  DocumentId document_id = 3;
+}
+
+message DeleteDocumentResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+// Query operations
+
+message QueryDocumentsRequest {
+  TenantId tenant_id = 1;
+  string document_type = 2;  // Optional filter
+  map<string, string> filters = 3;
+  uint32 limit = 4;
+  uint32 offset = 5;
+}
+
+message QueryDocumentsResponse {
+  repeated DocumentSummary documents = 1;
+  uint64 total_count = 2;
+}
+
+message DocumentSummary {
+  DocumentId document_id = 1;
+  string document_type = 2;
+  map<string, string> metadata = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message VectorSearchRequest {
+  TenantId tenant_id = 1;
+  repeated float query_embedding = 2;
+  uint32 top_k = 3;
+  float min_similarity = 4;
+  string document_type = 5;  // Optional filter
+}
+
+message VectorSearchResponse {
+  repeated VectorSearchResult results = 1;
+}
+
+message VectorSearchResult {
+  DocumentId document_id = 1;
+  float similarity_score = 2;
+  string document_type = 3;
+  map<string, string> metadata = 4;
+}
+
+// Transaction operations (2PC protocol)
+
+message PrepareRequest {
+  TransactionId transaction_id = 1;
+  repeated Operation operations = 2;
+}
+
+message Operation {
+  oneof operation {
+    StoreDocumentRequest store = 1;
+    DeleteDocumentRequest delete = 2;
+  }
+}
+
+message PrepareResponse {
+  bool vote_commit = 1;
+  string reason = 2;  // If vote_abort, why
+}
+
+message CommitRequest {
+  TransactionId transaction_id = 1;
+}
+
+message CommitResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message AbortRequest {
+  TransactionId transaction_id = 1;
+}
+
+message AbortResponse {
+  bool success = 1;
+  string error = 2;
+}
+
+message TransactionStatusRequest {
+  TransactionId transaction_id = 1;
+}
+
+message TransactionStatusResponse {
+  string status = 1;  // "unknown", "prepared", "committed", "aborted"
+  google.protobuf.Timestamp last_updated = 2;
+}
+
+// Health and status
+
+message HealthCheckRequest {
+  bool include_details = 1;
+}
+
+message HealthCheckResponse {
+  bool healthy = 1;
+  string status = 2;  // "serving", "not_serving", "unknown"
+  map<string, string> details = 3;
+}
+
+message ShardInfoRequest {
+  ShardId shard_id = 1;
+}
+
+message ShardInfoResponse {
+  ShardId shard_id = 1;
+  bool is_primary = 2;
+  string node_id = 3;
+  uint64 document_count = 4;
+  uint64 size_bytes = 5;
+  google.protobuf.Timestamp last_updated = 6;
+}

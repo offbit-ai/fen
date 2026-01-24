@@ -3,6 +3,11 @@ name = "fen-core"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = []
+# Enable cluster features (consistent hashing with xxhash)
+cluster = ["xxhash-rust"]
+
 [dependencies]
 serde.workspace = true
 bincode.workspace = true
@@ -11,6 +16,9 @@ thiserror.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 rust_decimal.workspace = true
+
+# Optional: cluster support
+xxhash-rust = { version = "0.8", features = ["xxh3"], optional = true }
 
 [lints]
 workspace = true

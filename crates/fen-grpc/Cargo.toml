@@ -1,0 +1,47 @@
+[package]
+name = "fen-grpc"
+version.workspace = true
+edition.workspace = true
+description = "gRPC service definitions and implementations for Fen cluster communication"
+
+[dependencies]
+fen-core = { path = "../fen-core", features = ["cluster"] }
+fen-cluster = { path = "../fen-cluster" }
+
+# gRPC
+tonic = "0.12"
+prost = "0.13"
+prost-types = "0.13"
+
+# Async
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+futures.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Concurrency
+dashmap.workspace = true
+
+# UUID
+uuid.workspace = true
+
+# Time
+chrono.workspace = true
+
+[build-dependencies]
+tonic-build = "0.12"
+
+[dev-dependencies]
+tokio-test.workspace = true
+
+[lints]
+workspace = true

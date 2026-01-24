@@ -8,6 +8,11 @@ members = [
     "crates/fen-ml",
     "crates/fen-api",
     "crates/fen-tests",
+    # Distributed architecture crates
+    "crates/fen-events",
+    "crates/fen-notify",
+    "crates/fen-cluster",
+    "crates/fen-grpc",
 ]
 
 [workspace.package]

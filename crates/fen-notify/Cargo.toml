@@ -1,0 +1,57 @@
+[package]
+name = "fen-notify"
+version.workspace = true
+edition.workspace = true
+description = "Real-time notification delivery for Fen with multiple provider support"
+
+[features]
+default = []
+# Enable email delivery via SMTP
+email = ["lettre"]
+# Enable webhook delivery
+webhook = ["reqwest", "hmac", "sha2", "hex"]
+# Enable all providers
+full = ["email", "webhook"]
+
+[dependencies]
+fen-core = { path = "../fen-core" }
+fen-events = { path = "../fen-events" }
+
+# Async
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync", "time"] }
+futures.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Concurrency
+dashmap.workspace = true
+
+# UUID
+uuid.workspace = true
+
+# Time
+chrono.workspace = true
+
+# Optional: Email support
+lettre = { version = "0.11", features = ["tokio1-native-tls"], optional = true }
+
+# Optional: Webhook support
+reqwest = { version = "0.12", features = ["json"], optional = true }
+hmac = { version = "0.12", optional = true }
+sha2 = { version = "0.10", optional = true }
+hex = { version = "0.4", optional = true }
+
+[dev-dependencies]
+tokio-test.workspace = true
+
+[lints]
+workspace = true

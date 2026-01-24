@@ -1,0 +1,50 @@
+[package]
+name = "fen-cluster"
+version.workspace = true
+edition.workspace = true
+description = "Cluster management, sharding, and Raft consensus for Fen"
+
+[features]
+default = []
+# Enable Raft consensus (requires additional dependencies)
+raft = ["openraft"]
+
+[dependencies]
+fen-core = { path = "../fen-core", features = ["cluster"] }
+
+# Async
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt"] }
+futures.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+bincode.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Concurrency
+dashmap.workspace = true
+
+# UUID
+uuid.workspace = true
+
+# Time
+chrono.workspace = true
+
+# Hashing
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+# Optional: Raft consensus
+openraft = { version = "0.9", features = ["serde"], optional = true }
+
+[dev-dependencies]
+tokio-test.workspace = true
+
+[lints]
+workspace = true

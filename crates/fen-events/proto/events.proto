@@ -1,0 +1,175 @@
+syntax = "proto3";
+package fen.events.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// ============================================================================
+// Document Lifecycle Events
+// ============================================================================
+
+/// Event emitted when a document is initially uploaded/ingested
+message DocumentIngested {
+  string document_id = 1;
+  string tenant_id = 2;
+  string filename = 3;
+  string mime_type = 4;
+  uint64 size_bytes = 5;
+  string source_hash = 6;  // SHA-256 hash for deduplication
+  google.protobuf.Timestamp ingested_at = 7;
+}
+
+/// Event emitted after document processing (OCR, parsing, embedding) completes
+message DocumentProcessed {
+  string document_id = 1;
+  string tenant_id = 2;
+  string invoice_id = 3;
+  string document_type = 4;  // "Invoice" or "Contract"
+  float confidence_score = 5;
+  uint64 processing_time_ms = 6;
+  repeated string extracted_fields = 7;
+  bytes embedding = 8;  // 768-dim float32 vector
+}
+
+/// Event emitted when a document fails processing
+message DocumentProcessingFailed {
+  string document_id = 1;
+  string tenant_id = 2;
+  string error_code = 3;
+  string error_message = 4;
+  uint32 retry_count = 5;
+  google.protobuf.Timestamp failed_at = 6;
+}
+
+// ============================================================================
+// Validation Events
+// ============================================================================
+
+/// Event emitted when validation completes for a document
+message ValidationCompleted {
+  string document_id = 1;
+  string tenant_id = 2;
+  bool is_valid = 3;
+  uint32 anomaly_count = 4;
+  uint32 high_severity_count = 5;
+  uint64 validation_time_ms = 6;
+  google.protobuf.Timestamp completed_at = 7;
+}
+
+/// Event emitted when an anomaly is detected
+message AnomalyDetected {
+  string anomaly_id = 1;
+  string document_id = 2;
+  string tenant_id = 3;
+  string invoice_id = 4;
+  string vendor_name = 5;
+  string anomaly_type = 6;  // "MathMismatch", "StatisticalOutlier", etc.
+  string severity = 7;      // "Low", "Medium", "High", "Critical"
+  string description = 8;
+  optional string field_path = 9;
+  optional string expected_value = 10;
+  optional string actual_value = 11;
+  optional StatisticalScore statistical_score = 12;
+  google.protobuf.Timestamp detected_at = 13;
+}
+
+/// Statistical analysis scores attached to anomalies
+message StatisticalScore {
+  double z_score = 1;
+  double percentile = 2;
+  string trend = 3;  // "Increasing", "Decreasing", "Stable", "Volatile"
+  bool is_outlier = 4;
+  double baseline_mean = 5;
+  double baseline_stddev = 6;
+  uint64 sample_count = 7;
+}
+
+// ============================================================================
+// Baseline Events
+// ============================================================================
+
+/// Event emitted when a vendor baseline is computed or updated
+message BaselineComputed {
+  string baseline_id = 1;
+  string tenant_id = 2;
+  string vendor_name = 3;
+  string metric_name = 4;  // "total_amount", "line_item_count"
+  string period = 5;       // "Rolling30Days", "Rolling90Days", "Rolling365Days"
+  BaselineStats stats = 6;
+  google.protobuf.Timestamp computed_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+}
+
+/// Baseline statistics for a vendor/metric combination
+message BaselineStats {
+  uint64 count = 1;
+  double mean = 2;
+  double stddev = 3;
+  double min = 4;
+  double max = 5;
+  double p25 = 6;
+  double p50 = 7;
+  double p75 = 8;
+  double p90 = 9;
+  double p95 = 10;
+  double p99 = 11;
+}
+
+// ============================================================================
+// Observability Events
+// ============================================================================
+
+/// Real-time metric event for observability
+message MetricEvent {
+  string metric_name = 1;
+  double value = 2;
+  map<string, string> labels = 3;
+  google.protobuf.Timestamp timestamp = 4;
+}
+
+/// Alert event for notification system
+message AlertEvent {
+  string alert_id = 1;
+  string tenant_id = 2;
+  string severity = 3;  // "info", "warning", "critical"
+  string title = 4;
+  string description = 5;
+  map<string, string> metadata = 6;
+  google.protobuf.Timestamp triggered_at = 7;
+}
+
+// ============================================================================
+// Cluster Events
+// ============================================================================
+
+/// Event emitted when a node joins/leaves the cluster
+message ClusterMembershipChanged {
+  string node_id = 1;
+  string event_type = 2;  // "joined", "left", "failed"
+  string address = 3;
+  repeated uint32 assigned_shards = 4;
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+/// Event emitted when shard rebalancing occurs
+message ShardRebalanced {
+  uint32 shard_id = 1;
+  string from_node_id = 2;
+  string to_node_id = 3;
+  string reason = 4;  // "node_failure", "load_balancing", "manual"
+  google.protobuf.Timestamp timestamp = 5;
+}
+
+// ============================================================================
+// Event Envelope (for Kafka message wrapper)
+// ============================================================================
+
+/// Wrapper message for all events with routing metadata
+message EventEnvelope {
+  string event_id = 1;
+  string event_type = 2;
+  string tenant_id = 3;
+  uint32 shard_id = 4;
+  bytes payload = 5;
+  map<string, string> metadata = 6;
+  google.protobuf.Timestamp timestamp = 7;
+}
