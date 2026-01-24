@@ -1,0 +1,214 @@
+name: CD
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  AWS_REGION: us-west-2
+  HELM_VERSION: v3.14.0
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.sha }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/fen-api:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/fen-api:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Coordinator image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.coordinator
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/fen-coordinator:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/fen-coordinator:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push Data image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.data
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}/fen-data:${{ steps.version.outputs.version }}
+            ghcr.io/${{ github.repository }}/fen-data:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.event.inputs.environment == 'staging' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    environment:
+      name: staging
+      url: https://staging.fen.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name fen-cluster-staging --region ${{ env.AWS_REGION }}
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install fen ./deploy/helm/fen \
+            --namespace fen-staging \
+            --create-namespace \
+            --set image.tag=${{ needs.build-and-push.outputs.version }} \
+            --set environment=staging \
+            --set numShards=4 \
+            --set coordinator.replicas=1 \
+            --set api.replicas=2 \
+            --values ./deploy/helm/fen/values-staging.yaml \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/fen-api -n fen-staging --timeout=5m
+          kubectl rollout status statefulset/fen-coordinator -n fen-staging --timeout=5m
+
+      - name: Run smoke tests
+        run: |
+          API_URL=$(kubectl get svc fen-api -n fen-staging -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          curl -sf "http://${API_URL}/health" || exit 1
+        continue-on-error: true
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy-staging]
+    if: github.event.inputs.environment == 'production' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    environment:
+      name: production
+      url: https://fen.example.com
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID_PROD }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY_PROD }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig --name fen-cluster-prod --region ${{ env.AWS_REGION }}
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install fen ./deploy/helm/fen \
+            --namespace fen \
+            --create-namespace \
+            --set image.tag=${{ needs.build-and-push.outputs.version }} \
+            --set environment=prod \
+            --set numShards=16 \
+            --set coordinator.replicas=3 \
+            --set api.replicas=4 \
+            --values ./deploy/helm/fen/values-prod.yaml \
+            --wait \
+            --timeout 15m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/fen-api -n fen --timeout=10m
+          kubectl rollout status statefulset/fen-coordinator -n fen --timeout=10m
+
+      - name: Run smoke tests
+        run: |
+          API_URL=$(kubectl get svc fen-api -n fen -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          curl -sf "https://${API_URL}/health" || exit 1
+
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [deploy-staging, deploy-production]
+    if: always()
+    steps:
+      - name: Notify on success
+        if: needs.deploy-production.result == 'success'
+        run: |
+          echo "Deployment successful!"
+          # Add Slack/Teams notification here
+
+      - name: Notify on failure
+        if: needs.deploy-production.result == 'failure'
+        run: |
+          echo "Deployment failed!"
+          # Add Slack/Teams notification here

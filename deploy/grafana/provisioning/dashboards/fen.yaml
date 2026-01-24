@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: 'Fen Dashboards'
+    orgId: 1
+    folder: 'Fen'
+    folderUid: 'fen'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/fen

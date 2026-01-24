@@ -1,0 +1,114 @@
+# Staging environment values for Fen
+
+environment: staging
+namespace: fen-staging
+
+# Coordinator settings (minimal for staging)
+coordinator:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# API settings
+api:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  autoscaling:
+    minReplicas: 2
+    maxReplicas: 4
+
+# Data nodes (fewer shards for staging)
+data:
+  numShards: 4
+  replicasPerShard: 1  # No replication in staging
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 500m
+      memory: 2Gi
+  storage:
+    size: 20Gi
+    storageClass: gp3
+
+# Workers
+workers:
+  ingestion:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  validation:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+  baseline:
+    replicas: 1
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+# Kafka (use smaller cluster for staging)
+kafka:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 1Gi
+    limits:
+      cpu: 500m
+      memory: 2Gi
+  storage:
+    size: 20Gi
+
+# Monitoring
+monitoring:
+  enabled: true
+  prometheus:
+    retention: 7d
+  grafana:
+    enabled: true
+
+# Logging
+logging:
+  level: debug
+
+# Ingress
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: staging.fen.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: fen-staging-tls
+      hosts:
+        - staging.fen.example.com

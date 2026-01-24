@@ -1,0 +1,212 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "panels": [],
+      "title": "Consumer Lag",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 10000}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 1},
+      "id": 2,
+      "options": {"colorMode": "value", "graphMode": "area", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(kafka_consumergroup_lag{consumergroup=\"fen-ingestion\", namespace=\"$namespace\"})", "legendFormat": "Ingestion Lag", "refId": "A"}],
+      "title": "Ingestion Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 10000}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 1},
+      "id": 3,
+      "options": {"colorMode": "value", "graphMode": "area", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(kafka_consumergroup_lag{consumergroup=\"fen-validation\", namespace=\"$namespace\"})", "legendFormat": "Validation Lag", "refId": "A"}],
+      "title": "Validation Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 10000}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 1},
+      "id": 4,
+      "options": {"colorMode": "value", "graphMode": "area", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(kafka_consumergroup_lag{consumergroup=\"fen-baseline\", namespace=\"$namespace\"})", "legendFormat": "Baseline Lag", "refId": "A"}],
+      "title": "Baseline Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 10000}]},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 1},
+      "id": 5,
+      "options": {"colorMode": "value", "graphMode": "area", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "sum(kafka_consumergroup_lag{namespace=\"$namespace\"})", "legendFormat": "Total Lag", "refId": "A"}],
+      "title": "Total Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"drawStyle": "line", "fillOpacity": 10},
+          "unit": "short"
+        }
+      },
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 5},
+      "id": 6,
+      "options": {"legend": {"displayMode": "table", "placement": "right"}},
+      "targets": [{"expr": "kafka_consumergroup_lag{namespace=\"$namespace\"}", "legendFormat": "{{consumergroup}} - {{topic}} - {{partition}}", "refId": "A"}],
+      "title": "Consumer Lag by Partition",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 13},
+      "id": 7,
+      "panels": [],
+      "title": "Topic Throughput",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"drawStyle": "line", "fillOpacity": 10},
+          "unit": "Bps"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 14},
+      "id": 8,
+      "options": {"legend": {"displayMode": "table", "placement": "right"}},
+      "targets": [{"expr": "sum(rate(kafka_topic_partition_current_offset{namespace=\"$namespace\", topic=~\"fen.*\"}[5m])) by (topic) * 1024", "legendFormat": "{{topic}}", "refId": "A"}],
+      "title": "Message Rate by Topic",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"drawStyle": "line", "fillOpacity": 10},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 14},
+      "id": 9,
+      "options": {"legend": {"displayMode": "table", "placement": "right"}},
+      "targets": [{"expr": "sum(kafka_topic_partition_log_size_bytes{namespace=\"$namespace\", topic=~\"fen.*\"}) by (topic)", "legendFormat": "{{topic}}", "refId": "A"}],
+      "title": "Topic Size",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {"h": 1, "w": 24, "x": 0, "y": 22},
+      "id": 10,
+      "panels": [],
+      "title": "Broker Health",
+      "type": "row"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "mappings": [{"options": {"0": {"color": "red", "text": "Down"}, "1": {"color": "green", "text": "Up"}}, "type": "value"}],
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}
+        }
+      },
+      "gridPos": {"h": 4, "w": 8, "x": 0, "y": 23},
+      "id": 11,
+      "options": {"colorMode": "background", "graphMode": "none", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "kafka_broker_info{namespace=\"$namespace\"}", "legendFormat": "Broker {{broker_id}}", "refId": "A"}],
+      "title": "Broker Status",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"drawStyle": "line", "fillOpacity": 10},
+          "unit": "percent"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 23},
+      "id": 12,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [
+        {"expr": "sum(rate(process_cpu_seconds_total{job=\"kafka\", namespace=\"$namespace\"}[5m])) by (pod) * 100", "legendFormat": "{{pod}}", "refId": "A"}
+      ],
+      "title": "Broker CPU Usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {"drawStyle": "line", "fillOpacity": 10},
+          "unit": "bytes"
+        }
+      },
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 23},
+      "id": 13,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [{"expr": "sum(jvm_memory_bytes_used{job=\"kafka\", namespace=\"$namespace\"}) by (pod)", "legendFormat": "{{pod}}", "refId": "A"}],
+      "title": "Broker Memory Usage",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["fen", "kafka"],
+  "templating": {
+    "list": [
+      {"current": {}, "hide": 0, "label": "Data Source", "name": "datasource", "query": "prometheus", "refresh": 1, "type": "datasource"},
+      {"current": {}, "datasource": {"type": "prometheus", "uid": "${datasource}"}, "definition": "label_values(kafka_broker_info, namespace)", "hide": 0, "label": "Namespace", "name": "namespace", "query": {"query": "label_values(kafka_broker_info, namespace)"}, "refresh": 1, "type": "query"}
+    ]
+  },
+  "time": {"from": "now-6h", "to": "now"},
+  "title": "Fen - Kafka Metrics",
+  "uid": "fen-kafka",
+  "version": 1
+}

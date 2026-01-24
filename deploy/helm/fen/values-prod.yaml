@@ -1,0 +1,201 @@
+# Production environment values for Fen
+
+environment: prod
+namespace: fen
+
+# Coordinator settings (HA for production)
+coordinator:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: coordinator
+          topologyKey: kubernetes.io/hostname
+
+# API settings (HA for production)
+api:
+  replicas: 4
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 2000m
+      memory: 4Gi
+  autoscaling:
+    minReplicas: 4
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: api
+            topologyKey: topology.kubernetes.io/zone
+
+# Data nodes (production sharding)
+data:
+  numShards: 16
+  replicasPerShard: 3  # 3x replication for HA
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 4Gi
+    limits:
+      cpu: 2000m
+      memory: 8Gi
+  storage:
+    size: 100Gi
+    storageClass: gp3
+  affinity:
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: data
+          topologyKey: kubernetes.io/hostname
+
+# Workers (autoscaled in production)
+workers:
+  ingestion:
+    replicas: 4
+    autoscaling:
+      enabled: true
+      minReplicas: 4
+      maxReplicas: 20
+      metrics:
+        - type: External
+          external:
+            metric:
+              name: kafka_consumer_lag
+              selector:
+                matchLabels:
+                  consumer_group: fen-ingestion
+            target:
+              type: AverageValue
+              averageValue: "1000"
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  validation:
+    replicas: 4
+    autoscaling:
+      enabled: true
+      minReplicas: 4
+      maxReplicas: 16
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  baseline:
+    replicas: 2
+    autoscaling:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 8
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+
+# Kafka (production cluster)
+kafka:
+  enabled: true
+  replicas: 3
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 4Gi
+    limits:
+      cpu: 2000m
+      memory: 8Gi
+  storage:
+    size: 500Gi
+    storageClass: gp3
+  config:
+    defaultReplicationFactor: 3
+    minInsyncReplicas: 2
+    autoCreateTopicsEnable: false
+
+# Monitoring
+monitoring:
+  enabled: true
+  prometheus:
+    retention: 30d
+    storage:
+      size: 100Gi
+  grafana:
+    enabled: true
+    persistence:
+      enabled: true
+      size: 10Gi
+  alerting:
+    enabled: true
+    slack:
+      enabled: true
+      channel: "#fen-alerts"
+    pagerduty:
+      enabled: true
+
+# Logging
+logging:
+  level: info
+  structured: true
+
+# Ingress (production with WAF)
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  hosts:
+    - host: fen.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: fen-prod-tls
+      hosts:
+        - fen.example.com
+
+# Security
+security:
+  networkPolicies:
+    enabled: true
+  podSecurityPolicy:
+    enabled: true
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/fen-prod-role
+
+# Backup
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: 30d
+  s3Bucket: fen-backups-prod

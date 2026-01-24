@@ -3,11 +3,27 @@ name = "fen-ingestion"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "fen-ingestion-worker"
+path = "src/bin/worker.rs"
+
+[features]
+default = []
+kafka = ["fen-events/kafka"]
+
 [dependencies]
 fen-core = { path = "../fen-core" }
 fen-storage = { path = "../fen-storage" }
 fen-ml = { path = "../fen-ml" }
+fen-events = { path = "../fen-events" }
 
+# CLI (for worker binary)
+clap.workspace = true
+
+# Web (for health endpoint)
+axum.workspace = true
+
+# PDF processing
 pdfium-render.workspace = true
 image.workspace = true
 regex.workspace = true
@@ -18,6 +34,7 @@ thiserror.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 rust_decimal.workspace = true

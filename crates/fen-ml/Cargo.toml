@@ -3,8 +3,27 @@ name = "fen-ml"
 version.workspace = true
 edition.workspace = true
 
+[[bin]]
+name = "fen-baseline-worker"
+path = "src/bin/worker.rs"
+
+[features]
+default = []
+kafka = ["fen-events/kafka"]
+
 [dependencies]
 fen-core = { path = "../fen-core" }
+fen-events = { path = "../fen-events" }
+
+# CLI
+clap.workspace = true
+
+# Web
+axum.workspace = true
+
+# Utilities
+uuid.workspace = true
+chrono.workspace = true
 
 ort.workspace = true
 ndarray.workspace = true
@@ -21,6 +40,7 @@ thiserror.workspace = true
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tokio-test.workspace = true
