@@ -1,0 +1,117 @@
+{{- if and .Values.cluster.enabled .Values.coordinator.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "fen.fullname" . }}-coordinator
+  labels:
+    {{- include "fen.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+spec:
+  serviceName: {{ include "fen.fullname" . }}-coordinator-headless
+  replicas: {{ .Values.coordinator.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "fen.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: coordinator
+  template:
+    metadata:
+      labels:
+        {{- include "fen.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: coordinator
+    spec:
+      serviceAccountName: {{ include "fen.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "fen.selectorLabels" . | nindent 18 }}
+                  app.kubernetes.io/component: coordinator
+              topologyKey: kubernetes.io/hostname
+        {{- with .Values.coordinator.affinity }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.coordinator.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.coordinator.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: coordinator
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/{{ .Values.coordinator.image.name }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: raft
+              containerPort: {{ .Values.coordinator.service.raftPort }}
+              protocol: TCP
+            - name: api
+              containerPort: {{ .Values.coordinator.service.apiPort }}
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: RAFT_ADDR
+              value: "0.0.0.0:{{ .Values.coordinator.service.raftPort }}"
+            - name: API_ADDR
+              value: "0.0.0.0:{{ .Values.coordinator.service.apiPort }}"
+            - name: PEER_ADDRS
+              value: {{ include "fen.coordinatorPeers" . | quote }}
+            - name: NUM_SHARDS
+              value: {{ .Values.cluster.shards | quote }}
+            - name: REPLICATION_FACTOR
+              value: {{ .Values.cluster.replicasPerShard | quote }}
+            - name: DATA_DIR
+              value: "/data"
+            - name: RUST_LOG
+              value: "info,fen_coordinator=debug,fen_cluster=debug"
+          resources:
+            {{- toYaml .Values.coordinator.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+  {{- if .Values.coordinator.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.coordinator.persistence.storageClass }}
+        storageClassName: {{ .Values.coordinator.persistence.storageClass }}
+        {{- else if .Values.global.storageClass }}
+        storageClassName: {{ .Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.coordinator.persistence.size }}
+  {{- end }}
+{{- end }}

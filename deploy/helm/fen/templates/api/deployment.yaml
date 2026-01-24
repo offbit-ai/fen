@@ -1,0 +1,96 @@
+{{- if .Values.api.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fen.fullname" . }}-api
+  labels:
+    {{- include "fen.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels:
+      {{- include "fen.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "fen.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: {{ include "fen.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.api.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.api.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: api
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}/{{ .Values.api.image.name }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.api.service.port }}
+              protocol: TCP
+          env:
+            - name: BIND_ADDRESS
+              value: "0.0.0.0:{{ .Values.api.service.port }}"
+            - name: DATABASE_PATH
+              value: "/app/data/fen.redb"
+            - name: RULES_PATH
+              value: "/app/rules"
+            {{- if .Values.cluster.enabled }}
+            - name: CLUSTER_MODE
+              value: "distributed"
+            - name: COORDINATOR_ADDR
+              value: "http://{{ include "fen.fullname" . }}-coordinator:{{ .Values.coordinator.service.apiPort }}"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "fen.kafkaBootstrap" . | quote }}
+            - name: NUM_SHARDS
+              value: {{ .Values.cluster.shards | quote }}
+            {{- else }}
+            - name: CLUSTER_MODE
+              value: "standalone"
+            {{- end }}
+            - name: RUST_LOG
+              value: "{{ .Values.observability.logging.level }},fen_api=debug,fen_ingestion=debug"
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: rules
+              mountPath: /app/rules
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: rules
+          emptyDir: {}
+{{- end }}

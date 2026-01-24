@@ -1,0 +1,123 @@
+---
+# Kafka Topics for Fen Event-Driven Architecture
+# Apply after the Kafka cluster is running:
+# kubectl apply -f kafka-topics.yaml -n fen
+
+# Document ingestion events - new documents uploaded for processing
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: fen.document.ingestion
+  namespace: fen
+  labels:
+    strimzi.io/cluster: fen-kafka
+spec:
+  partitions: 32
+  replicas: 3
+  config:
+    retention.ms: 604800000  # 7 days
+    segment.bytes: 1073741824  # 1GB
+    cleanup.policy: delete
+    min.insync.replicas: 2
+---
+# Document processed events - parsing and embedding complete
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: fen.document.processed
+  namespace: fen
+  labels:
+    strimzi.io/cluster: fen-kafka
+spec:
+  partitions: 32
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    segment.bytes: 1073741824
+    cleanup.policy: delete
+    min.insync.replicas: 2
+---
+# Anomaly detection events
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: fen.anomaly.detected
+  namespace: fen
+  labels:
+    strimzi.io/cluster: fen-kafka
+spec:
+  partitions: 16
+  replicas: 3
+  config:
+    retention.ms: 2592000000  # 30 days (keep anomalies longer)
+    segment.bytes: 536870912  # 512MB
+    cleanup.policy: delete
+    min.insync.replicas: 2
+---
+# Baseline update events
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: fen.baseline.updates
+  namespace: fen
+  labels:
+    strimzi.io/cluster: fen-kafka
+spec:
+  partitions: 8
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    segment.bytes: 268435456  # 256MB
+    cleanup.policy: compact  # Keep latest baseline per key
+    min.insync.replicas: 2
+---
+# Metrics events for observability
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: fen.metrics
+  namespace: fen
+  labels:
+    strimzi.io/cluster: fen-kafka
+spec:
+  partitions: 8
+  replicas: 2  # Lower replication for metrics
+  config:
+    retention.ms: 86400000  # 1 day
+    segment.bytes: 268435456
+    cleanup.policy: delete
+    min.insync.replicas: 1
+---
+# Alert events for notification system
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: fen.alerts
+  namespace: fen
+  labels:
+    strimzi.io/cluster: fen-kafka
+spec:
+  partitions: 8
+  replicas: 3
+  config:
+    retention.ms: 2592000000  # 30 days
+    segment.bytes: 268435456
+    cleanup.policy: delete
+    min.insync.replicas: 2
+---
+# Validation results events
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: fen.validation.results
+  namespace: fen
+  labels:
+    strimzi.io/cluster: fen-kafka
+spec:
+  partitions: 16
+  replicas: 3
+  config:
+    retention.ms: 604800000
+    segment.bytes: 536870912
+    cleanup.policy: delete
+    min.insync.replicas: 2

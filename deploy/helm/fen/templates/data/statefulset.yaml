@@ -1,0 +1,128 @@
+{{- if and .Values.cluster.enabled .Values.data.enabled }}
+{{- $fullname := include "fen.fullname" . }}
+{{- $shards := int .Values.cluster.shards }}
+{{- range $shardIndex := until $shards }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-data-shard-{{ $shardIndex }}
+  labels:
+    {{- include "fen.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: data
+    fen.io/shard: "{{ $shardIndex }}"
+spec:
+  serviceName: {{ $fullname }}-data-shard-{{ $shardIndex }}-headless
+  replicas: {{ $.Values.data.replicas }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "fen.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: data
+      fen.io/shard: "{{ $shardIndex }}"
+  template:
+    metadata:
+      labels:
+        {{- include "fen.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: data
+        fen.io/shard: "{{ $shardIndex }}"
+    spec:
+      serviceAccountName: {{ include "fen.serviceAccountName" $ }}
+      securityContext:
+        {{- toYaml $.Values.podSecurityContext | nindent 8 }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  {{- include "fen.selectorLabels" $ | nindent 18 }}
+                  app.kubernetes.io/component: data
+                  fen.io/shard: "{{ $shardIndex }}"
+              topologyKey: kubernetes.io/hostname
+        {{- with $.Values.data.affinity }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $.Values.data.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.data.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: data
+          securityContext:
+            {{- toYaml $.Values.securityContext | nindent 12 }}
+          image: "{{ $.Values.image.registry }}/{{ $.Values.image.repository }}/{{ $.Values.data.image.name }}:{{ $.Values.image.tag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: grpc
+              containerPort: {{ $.Values.data.service.grpcPort }}
+              protocol: TCP
+            - name: health
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: SHARD_IDS
+              value: "{{ $shardIndex }}"
+            - name: GRPC_ADDR
+              value: "0.0.0.0:{{ $.Values.data.service.grpcPort }}"
+            - name: COORDINATOR_ADDR
+              value: "http://{{ $fullname }}-coordinator:{{ $.Values.coordinator.service.apiPort }}"
+            - name: DATA_DIR
+              value: "/data"
+            - name: HEARTBEAT_INTERVAL
+              value: "10"
+            - name: ADVERTISED_ADDR
+              value: "$(POD_NAME).{{ $fullname }}-data-shard-{{ $shardIndex }}-headless"
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: {{ include "fen.kafkaBootstrap" $ | quote }}
+            - name: RUST_LOG
+              value: "info,fen_data=debug,fen_grpc=debug"
+          resources:
+            {{- toYaml $.Values.data.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+  {{- if $.Values.data.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if $.Values.data.persistence.storageClass }}
+        storageClassName: {{ $.Values.data.persistence.storageClass }}
+        {{- else if $.Values.global.storageClass }}
+        storageClassName: {{ $.Values.global.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ $.Values.data.persistence.size }}
+  {{- end }}
+{{- end }}
+{{- end }}

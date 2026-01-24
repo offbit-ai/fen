@@ -1,0 +1,45 @@
+{{- if and .Values.cluster.enabled .Values.coordinator.enabled }}
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fen.fullname" . }}-coordinator-headless
+  labels:
+    {{- include "fen.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: raft
+      port: {{ .Values.coordinator.service.raftPort }}
+      targetPort: raft
+      protocol: TCP
+    - name: api
+      port: {{ .Values.coordinator.service.apiPort }}
+      targetPort: api
+      protocol: TCP
+  selector:
+    {{- include "fen.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+---
+# ClusterIP service for API access
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "fen.fullname" . }}-coordinator
+  labels:
+    {{- include "fen.labels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+spec:
+  type: {{ .Values.coordinator.service.type | default "ClusterIP" }}
+  ports:
+    - name: api
+      port: {{ .Values.coordinator.service.apiPort }}
+      targetPort: api
+      protocol: TCP
+  selector:
+    {{- include "fen.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: coordinator
+{{- end }}

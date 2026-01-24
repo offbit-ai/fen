@@ -1,0 +1,259 @@
+# Default values for fen.
+# This is a YAML-formatted file.
+
+# Global configuration
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# Namespace
+namespace: fen
+
+# Cluster mode configuration
+cluster:
+  enabled: true
+  shards: 4
+  replicasPerShard: 3
+
+# Image configuration
+image:
+  registry: ghcr.io
+  repository: yourorg/fen
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+# Coordinator (Control Plane)
+coordinator:
+  enabled: true
+  replicas: 3
+  image:
+    name: fen-coordinator
+  service:
+    type: ClusterIP
+    raftPort: 9001
+    apiPort: 9002
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Data Nodes (Data Plane)
+data:
+  enabled: true
+  # Replicas per shard (total pods = shards * replicas)
+  replicas: 3
+  image:
+    name: fen-data
+  service:
+    type: ClusterIP
+    grpcPort: 9000
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      cpu: 2000m
+      memory: 8Gi
+  persistence:
+    enabled: true
+    size: 100Gi
+    storageClass: ""
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# API Gateway
+api:
+  enabled: true
+  replicas: 2
+  minReplicas: 2
+  maxReplicas: 10
+  image:
+    name: fen-api
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+  hpa:
+    enabled: true
+    targetCPUUtilization: 70
+    targetMemoryUtilization: 80
+  ingress:
+    enabled: false
+    className: nginx
+    annotations: {}
+    hosts:
+      - host: fen.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# Workers (Compute Plane)
+workers:
+  ingestion:
+    enabled: true
+    replicas: 2
+    minReplicas: 2
+    maxReplicas: 10
+    image:
+      name: fen-api  # Uses API image with worker mode
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    hpa:
+      enabled: true
+      targetCPUUtilization: 70
+    env:
+      WORKER_MODE: ingestion
+      CONSUMER_GROUP: fen-ingestion
+
+  validation:
+    enabled: true
+    replicas: 2
+    minReplicas: 2
+    maxReplicas: 8
+    image:
+      name: fen-api
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    hpa:
+      enabled: true
+      targetCPUUtilization: 70
+    env:
+      WORKER_MODE: validation
+      CONSUMER_GROUP: fen-validation
+
+  baseline:
+    enabled: true
+    replicas: 1
+    minReplicas: 1
+    maxReplicas: 4
+    image:
+      name: fen-api
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+    hpa:
+      enabled: true
+      targetCPUUtilization: 70
+    env:
+      WORKER_MODE: baseline
+      CONSUMER_GROUP: fen-baseline
+
+# Kafka configuration
+kafka:
+  strimzi:
+    enabled: true
+  # Bootstrap servers (if using external Kafka)
+  bootstrapServers: ""
+  cluster:
+    name: fen-kafka
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 100Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+  zookeeper:
+    replicas: 3
+    storage:
+      size: 10Gi
+      storageClass: ""
+  topics:
+    - name: fen.document.ingestion
+      partitions: 32
+      replicationFactor: 3
+      config:
+        retention.ms: "604800000"  # 7 days
+    - name: fen.document.processed
+      partitions: 32
+      replicationFactor: 3
+    - name: fen.anomaly.detected
+      partitions: 16
+      replicationFactor: 3
+    - name: fen.baseline.updates
+      partitions: 8
+      replicationFactor: 3
+    - name: fen.metrics
+      partitions: 8
+      replicationFactor: 2
+    - name: fen.alerts
+      partitions: 8
+      replicationFactor: 3
+
+# Observability
+observability:
+  prometheus:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+  logging:
+    level: info
+
+# Pod Disruption Budgets
+pdb:
+  coordinator:
+    enabled: true
+    minAvailable: 2
+  data:
+    enabled: true
+    minAvailable: 2
+  api:
+    enabled: true
+    minAvailable: 1
+
+# Security
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false

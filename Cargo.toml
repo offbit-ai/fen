@@ -13,6 +13,9 @@ members = [
     "crates/fen-notify",
     "crates/fen-cluster",
     "crates/fen-grpc",
+    # Deployment binaries
+    "crates/fen-coordinator",
+    "crates/fen-data",
 ]
 
 [workspace.package]
@@ -74,6 +77,9 @@ zen-engine = "0.21"
 # Observability
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4.4", features = ["derive", "env"] }
 
 # Utilities
 thiserror = "1.0"

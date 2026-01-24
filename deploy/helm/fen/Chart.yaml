@@ -1,0 +1,25 @@
+apiVersion: v2
+name: fen
+description: Fen - Real-time Invoice & Contract Inconsistency Detection Platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - invoice
+  - contract
+  - anomaly-detection
+  - ml
+  - vector-database
+
+home: https://github.com/yourorg/fen
+
+maintainers:
+  - name: Fen Team
+    email: fen@example.com
+
+dependencies:
+  - name: strimzi-kafka-operator
+    version: "0.44.0"
+    repository: "https://strimzi.io/charts/"
+    condition: kafka.strimzi.enabled

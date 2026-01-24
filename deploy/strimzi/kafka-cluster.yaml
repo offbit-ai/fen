@@ -1,0 +1,152 @@
+---
+# Strimzi Kafka Cluster for Fen
+# Deploy this after installing the Strimzi operator:
+# kubectl create namespace fen
+# kubectl apply -f 'https://strimzi.io/install/latest?namespace=fen' -n fen
+# kubectl apply -f kafka-cluster.yaml -n fen
+
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: fen-kafka
+  namespace: fen
+spec:
+  kafka:
+    version: 3.7.0
+    replicas: 3
+    listeners:
+      - name: plain
+        port: 9092
+        type: internal
+        tls: false
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: tls
+    config:
+      # Replication settings
+      offsets.topic.replication.factor: 3
+      transaction.state.log.replication.factor: 3
+      transaction.state.log.min.isr: 2
+      default.replication.factor: 3
+      min.insync.replicas: 2
+
+      # Protocol version
+      inter.broker.protocol.version: "3.7"
+
+      # Log retention
+      log.retention.hours: 168  # 7 days
+      log.segment.bytes: 1073741824  # 1GB
+      log.retention.check.interval.ms: 300000  # 5 minutes
+
+      # Performance tuning
+      num.network.threads: 8
+      num.io.threads: 16
+      socket.send.buffer.bytes: 102400
+      socket.receive.buffer.bytes: 102400
+      socket.request.max.bytes: 104857600
+
+    storage:
+      type: persistent-claim
+      size: 100Gi
+      class: standard  # Change to your storage class
+      deleteClaim: false
+
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 500m
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics
+          key: kafka-metrics-config.yml
+
+    rack:
+      topologyKey: topology.kubernetes.io/zone
+
+  zookeeper:
+    replicas: 3
+    storage:
+      type: persistent-claim
+      size: 10Gi
+      class: standard
+      deleteClaim: false
+    resources:
+      requests:
+        memory: 1Gi
+        cpu: 250m
+      limits:
+        memory: 2Gi
+        cpu: 500m
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-metrics
+          key: zookeeper-metrics-config.yml
+
+  entityOperator:
+    topicOperator:
+      resources:
+        requests:
+          memory: 256Mi
+          cpu: 100m
+        limits:
+          memory: 512Mi
+          cpu: 500m
+    userOperator:
+      resources:
+        requests:
+          memory: 256Mi
+          cpu: 100m
+        limits:
+          memory: 512Mi
+          cpu: 500m
+---
+# Kafka metrics ConfigMap for Prometheus
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-metrics
+  namespace: fen
+data:
+  kafka-metrics-config.yml: |
+    lowercaseOutputName: true
+    lowercaseOutputLabelNames: true
+    rules:
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          topic: "$4"
+          partition: "$5"
+      - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), brokerHost=(.+), brokerPort=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+        labels:
+          clientId: "$3"
+          broker: "$4:$5"
+      - pattern: kafka.server<type=(.+), name=(.+)><>Value
+        name: kafka_server_$1_$2
+        type: GAUGE
+      - pattern: kafka.server<type=(.+), name=(.+)><>OneMinuteRate
+        name: kafka_server_$1_$2_one_minute_rate
+        type: GAUGE
+      - pattern: kafka.server<type=(.+), name=(.+)><>Count
+        name: kafka_server_$1_$2_count
+        type: COUNTER
+  zookeeper-metrics-config.yml: |
+    lowercaseOutputName: true
+    rules:
+      - pattern: "org.apache.ZooKeeperService<name0=(.+)><>(\\w+)"
+        name: zookeeper_$2
+        type: GAUGE

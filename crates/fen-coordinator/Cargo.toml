@@ -1,0 +1,45 @@
+[package]
+name = "fen-coordinator"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Raft-based cluster coordinator for Fen distributed deployment"
+
+[[bin]]
+name = "fen-coordinator"
+path = "src/main.rs"
+
+[dependencies]
+fen-core = { path = "../fen-core", features = ["cluster"] }
+fen-cluster = { path = "../fen-cluster" }
+fen-grpc = { path = "../fen-grpc" }
+
+# Async runtime
+tokio.workspace = true
+async-trait.workspace = true
+
+# CLI
+clap.workspace = true
+
+# Web server for admin API
+axum.workspace = true
+tower.workspace = true
+tower-http.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Observability
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# Utilities
+thiserror.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tokio-test.workspace = true

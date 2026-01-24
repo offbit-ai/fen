@@ -1,0 +1,60 @@
+# Build stage
+FROM rust:1.83-slim-bookworm AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    cmake \
+    protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace manifests
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+
+# Build for release
+RUN cargo build --release -p fen-data
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binary from builder
+COPY --from=builder /app/target/release/fen-data /usr/local/bin/fen-data
+
+# Create data directory
+RUN mkdir -p /data
+
+# Volume for persistent storage
+VOLUME ["/data"]
+
+# Set environment variables
+ENV NODE_ID=""
+ENV SHARD_IDS="0"
+ENV GRPC_ADDR=0.0.0.0:9000
+ENV COORDINATOR_ADDR=http://fen-coordinator:9002
+ENV DATA_DIR=/data
+ENV HEARTBEAT_INTERVAL=10
+ENV RUST_LOG=info,fen_data=debug,fen_grpc=debug
+
+# Expose gRPC port
+EXPOSE 9000
+
+# Health check via gRPC health endpoint
+# Note: In production, use grpc-health-probe
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Run the binary
+CMD ["fen-data"]

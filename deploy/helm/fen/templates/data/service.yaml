@@ -1,0 +1,47 @@
+{{- if and .Values.cluster.enabled .Values.data.enabled }}
+{{- $fullname := include "fen.fullname" . }}
+{{- $shards := int .Values.cluster.shards }}
+{{- range $shardIndex := until $shards }}
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-data-shard-{{ $shardIndex }}-headless
+  labels:
+    {{- include "fen.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: data
+    fen.io/shard: "{{ $shardIndex }}"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: grpc
+      port: {{ $.Values.data.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "fen.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: data
+    fen.io/shard: "{{ $shardIndex }}"
+{{- end }}
+---
+# ClusterIP service for all data nodes (load balanced)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-data
+  labels:
+    {{- include "fen.labels" . | nindent 4 }}
+    app.kubernetes.io/component: data
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: {{ .Values.data.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "fen.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: data
+{{- end }}
