@@ -175,6 +175,10 @@ pub enum ParseErrorKind {
     },
     UndefinedParameter(String),
 
+    // JSON query errors
+    InvalidSyntax(String),
+    UnsupportedFeature(String),
+
     // Generic
     Custom(String),
 }
@@ -230,6 +234,9 @@ impl ParseErrorKind {
             }
             Self::UndefinedParameter(p) => format!("undefined parameter '{}'", p),
 
+            Self::InvalidSyntax(msg) => format!("invalid syntax: {}", msg),
+            Self::UnsupportedFeature(msg) => format!("unsupported feature: {}", msg),
+
             Self::Custom(msg) => msg.clone(),
         }
     }
@@ -269,6 +276,9 @@ impl ParseErrorKind {
             Self::AmbiguousColumn(c) => format!("'{}' exists in multiple tables", c),
             Self::TypeMismatch { found, .. } => format!("found '{}' here", found),
             Self::UndefinedParameter(p) => format!("'{}' is not defined", p),
+
+            Self::InvalidSyntax(_) => "invalid syntax here".to_string(),
+            Self::UnsupportedFeature(_) => "not supported".to_string(),
 
             Self::Custom(_) => "error here".to_string(),
         }
@@ -423,7 +433,9 @@ mod tests {
     fn test_find_similar() {
         let functions = vec!["VECTOR_DISTANCE", "BM25_SCORE", "CONTAINS"];
         assert_eq!(find_similar("VECTOR_DISTANC", &functions), Some("VECTOR_DISTANCE"));
-        assert_eq!(find_similar("BM25", &functions), Some("BM25_SCORE"));
+        assert_eq!(find_similar("BM25_SCOR", &functions), Some("BM25_SCORE")); // edit distance 1
+        assert_eq!(find_similar("CONTANS", &functions), Some("CONTAINS")); // edit distance 1
+        assert_eq!(find_similar("BM25", &functions), None); // edit distance 6 - too far
         assert_eq!(find_similar("SOMETHING_RANDOM", &functions), None);
     }
 }

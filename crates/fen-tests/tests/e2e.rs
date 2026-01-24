@@ -1181,6 +1181,547 @@ mod unified_query {
 // Module: Query Execution Tests
 // ============================================================================
 
+// ============================================================================
+// Module: ZIP Query Relationship Tests
+// ============================================================================
+
+mod zip_queries {
+    use fen_storage::{parse_query, QueryParams, ZipMode};
+
+    // ========== Parsing Tests ==========
+
+    /// Test basic ZIP query parsing
+    #[test]
+    fn test_parse_zip_basic() {
+        let query = parse_query(
+            "SELECT inv.*, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+
+        assert!(query.is_zip_query());
+        let zip = query.zip.as_ref().unwrap();
+        assert_eq!(zip.mode, ZipMode::Inner);
+        assert!(matches!(zip.table, fen_storage::query::lang::QueryTarget::Contracts));
+    }
+
+    /// Test ZIP query with LEFT mode
+    #[test]
+    fn test_parse_left_zip() {
+        let query = parse_query(
+            "SELECT inv.id, con.title \
+             FROM invoices inv \
+             LEFT ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+
+        let zip = query.zip.as_ref().unwrap();
+        assert_eq!(zip.mode, ZipMode::Left);
+    }
+
+    /// Test ZIP query with INNER mode (explicit)
+    #[test]
+    fn test_parse_inner_zip() {
+        let query = parse_query(
+            "SELECT inv.id, con.title \
+             FROM invoices inv \
+             INNER ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+
+        let zip = query.zip.as_ref().unwrap();
+        assert_eq!(zip.mode, ZipMode::Inner);
+    }
+
+    /// Test ZIP query with WHERE clause
+    #[test]
+    fn test_parse_zip_with_where() {
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount > 1000"
+        ).unwrap();
+
+        assert!(query.is_zip_query());
+        assert!(query.filter.is_some());
+    }
+
+    /// Test ZIP query with cross-table WHERE condition
+    #[test]
+    fn test_parse_zip_cross_table_where() {
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount > 1000 \
+                 AND con.effective_date > '2024-01-01' \
+                 AND inv.total_amount < con.total_value"
+        ).unwrap();
+
+        assert!(query.is_zip_query());
+        assert!(query.filter.is_some());
+
+        // The query should parse cross-table conditions correctly
+        let zip = query.zip.as_ref().unwrap();
+        assert!(zip.alias.is_some());
+        assert_eq!(zip.alias.as_deref(), Some("con"));
+    }
+
+    /// Test ZIP query with complex ON condition
+    #[test]
+    fn test_parse_zip_complex_on() {
+        let query = parse_query(
+            "SELECT inv.*, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.contract_id = con.id"
+        ).unwrap();
+
+        assert!(query.is_zip_query());
+        let zip = query.zip.as_ref().unwrap();
+        // ON condition should be parsed as a binary op
+        assert!(matches!(
+            zip.on,
+            fen_storage::query::lang::Expr::BinaryOp { .. }
+        ));
+    }
+
+    /// Test ZIP query with contract_number matching
+    #[test]
+    fn test_parse_zip_contract_number() {
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.contract_number = con.contract_number"
+        ).unwrap();
+
+        assert!(query.is_zip_query());
+        let zip = query.zip.as_ref().unwrap();
+        assert!(matches!(
+            zip.on,
+            fen_storage::query::lang::Expr::BinaryOp { .. }
+        ));
+    }
+
+    /// Test WHERE clause categorization (invoice-only condition)
+    #[test]
+    fn test_where_invoice_only_condition() {
+        let query = parse_query(
+            "SELECT * FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount > 1000"
+        ).unwrap();
+
+        // The filter should only reference invoice columns
+        assert!(query.filter.is_some());
+    }
+
+    /// Test WHERE clause categorization (contract-only condition)
+    #[test]
+    fn test_where_contract_only_condition() {
+        let query = parse_query(
+            "SELECT * FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE con.effective_date > '2024-01-01'"
+        ).unwrap();
+
+        assert!(query.filter.is_some());
+    }
+
+    /// Test WHERE clause categorization (cross-table condition)
+    #[test]
+    fn test_where_cross_table_condition() {
+        let query = parse_query(
+            "SELECT * FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount < con.total_value"
+        ).unwrap();
+
+        // This should parse the cross-table condition
+        assert!(query.filter.is_some());
+    }
+
+    /// Test WHERE clause with multiple condition types
+    #[test]
+    fn test_where_mixed_conditions() {
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount > 1000 \
+                 AND con.effective_date > '2024-01-01' \
+                 AND inv.total_amount < con.total_value"
+        ).unwrap();
+
+        assert!(query.is_zip_query());
+        assert!(query.filter.is_some());
+
+        // Query should be valid and parseable
+        let zip = query.zip.as_ref().unwrap();
+        assert!(zip.alias.is_some());
+    }
+
+    /// Test ZIP query with ORDER BY
+    #[test]
+    fn test_parse_zip_with_order() {
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             ORDER BY inv.total_amount DESC \
+             LIMIT 10"
+        ).unwrap();
+
+        assert!(query.is_zip_query());
+        assert!(query.order_by.is_some());
+        assert_eq!(query.limit, Some(10));
+    }
+
+    /// Test that column references are properly identified
+    #[test]
+    fn test_column_reference_detection() {
+        // Invoice columns should be detected
+        let invoice_cols = vec![
+            "invoice_number", "invoice_date", "due_date", "total_amount",
+            "subtotal", "tax_amount", "vendor_name", "po_number",
+        ];
+
+        for col in &invoice_cols {
+            let query = parse_query(&format!(
+                "SELECT {} FROM invoices", col
+            )).unwrap();
+            assert!(!query.select.is_empty());
+        }
+
+        // Contract columns should be detected
+        let contract_cols = vec![
+            "title", "effective_date", "expiration_date", "total_value",
+            "contract_type", "party_name",
+        ];
+
+        for col in &contract_cols {
+            let query = parse_query(&format!(
+                "SELECT {} FROM contracts", col
+            )).unwrap();
+            assert!(!query.select.is_empty());
+        }
+    }
+
+    // ========== Execution Tests ==========
+
+    use super::*;
+    use fen_tests::ZipExecutorTestEnv;
+    use rust_decimal_macros::dec;
+
+    /// Test basic ZIP query execution joining invoices and contracts
+    #[tokio::test]
+    async fn test_execute_zip_inner_join() {
+        init_test_tracing();
+        let env = ZipExecutorTestEnv::new().await;
+
+        // Create contract for Acme Corp
+        let contract = ContractFixture::new()
+            .with_title("Master Service Agreement")
+            .with_party("Acme Corp")
+            .build();
+        env.store_contract(&contract).await.unwrap();
+
+        // Create invoices - some match the contract vendor, some don't
+        let inv1 = InvoiceFixture::new()
+            .with_number("ZIP-001")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(1000.00))
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("ZIP-002")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(2500.00))
+            .build();
+        let inv3 = InvoiceFixture::new()
+            .with_number("ZIP-003")
+            .with_vendor("Beta Inc") // Different vendor - won't match
+            .with_total_amount(dec!(500.00))
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+        env.store_invoice(&inv3).await.unwrap();
+
+        // Execute ZIP query
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+        let params = QueryParams::new();
+
+        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+
+        // Should match 2 invoices with the contract (Acme Corp)
+        assert_eq!(result.pairs.len(), 2);
+        assert_eq!(result.metadata.invoice_count, 2);
+        assert_eq!(result.metadata.contract_count, 2);
+
+        // Verify both matched invoices are from Acme Corp
+        for pair in &result.pairs {
+            let invoice = pair.invoice.as_ref().unwrap();
+            assert_eq!(invoice.vendor.name, "Acme Corp");
+        }
+    }
+
+    /// Test ZIP query with LEFT join mode
+    #[tokio::test]
+    async fn test_execute_zip_left_join() {
+        let env = ZipExecutorTestEnv::new().await;
+
+        // Create contract
+        let contract = ContractFixture::new()
+            .with_title("Contract A")
+            .with_party("Vendor A")
+            .build();
+        env.store_contract(&contract).await.unwrap();
+
+        // Create invoices - only one matches
+        let inv1 = InvoiceFixture::new()
+            .with_number("LEFT-001")
+            .with_vendor("Vendor A") // Matches
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("LEFT-002")
+            .with_vendor("Vendor B") // No matching contract
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+
+        // Execute LEFT ZIP query
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             LEFT ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+        let params = QueryParams::new();
+
+        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+
+        // LEFT join should return all invoices
+        assert_eq!(result.pairs.len(), 2);
+
+        // One pair should have contract, one shouldn't
+        let with_contract = result.pairs.iter().filter(|p| p.contract.is_some()).count();
+        let without_contract = result.pairs.iter().filter(|p| p.contract.is_none()).count();
+
+        assert_eq!(with_contract, 1);
+        assert_eq!(without_contract, 1);
+    }
+
+    /// Test ZIP query with WHERE clause filtering invoices only
+    #[tokio::test]
+    async fn test_execute_zip_with_invoice_filter() {
+        let env = ZipExecutorTestEnv::new().await;
+
+        // Create contract
+        let contract = ContractFixture::new()
+            .with_title("High Value Contract")
+            .with_party("Acme Corp")
+            .build();
+        env.store_contract(&contract).await.unwrap();
+
+        // Create invoices with different amounts
+        let inv_small = InvoiceFixture::new()
+            .with_number("SMALL-001")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(500.00))
+            .build();
+        let inv_large = InvoiceFixture::new()
+            .with_number("LARGE-001")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(5000.00))
+            .build();
+
+        env.store_invoice(&inv_small).await.unwrap();
+        env.store_invoice(&inv_large).await.unwrap();
+
+        // Execute ZIP query with invoice filter
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount > 1000"
+        ).unwrap();
+        let params = QueryParams::new();
+
+        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+
+        // Should only match the large invoice
+        assert_eq!(result.pairs.len(), 1);
+        let invoice = result.pairs[0].invoice.as_ref().unwrap();
+        assert_eq!(invoice.invoice_number, "LARGE-001");
+    }
+
+    /// Test ZIP query with cross-table WHERE condition
+    #[tokio::test]
+    async fn test_execute_zip_cross_table_filter() {
+        let env = ZipExecutorTestEnv::new().await;
+
+        // Create contracts with different values
+        let contract_small = ContractFixture::new()
+            .with_title("Small Contract")
+            .with_party("Acme Corp")
+            .with_total_value(dec!(1000.00))
+            .build();
+        let contract_large = ContractFixture::new()
+            .with_title("Large Contract")
+            .with_party("Beta Inc")
+            .with_total_value(dec!(10000.00))
+            .build();
+
+        env.store_contract(&contract_small).await.unwrap();
+        env.store_contract(&contract_large).await.unwrap();
+
+        // Create invoices that exceed small contract but not large
+        let inv1 = InvoiceFixture::new()
+            .with_number("CROSS-001")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(2000.00)) // Exceeds small contract (1000)
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("CROSS-002")
+            .with_vendor("Beta Inc")
+            .with_total_amount(dec!(5000.00)) // Under large contract (10000)
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+
+        // Query for invoices under contract value (cross-table condition)
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount < con.total_value"
+        ).unwrap();
+        let params = QueryParams::new();
+
+        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+
+        // Only Beta Inc invoice (5000) should match (under 10000 contract value)
+        assert_eq!(result.pairs.len(), 1);
+        let invoice = result.pairs[0].invoice.as_ref().unwrap();
+        assert_eq!(invoice.invoice_number, "CROSS-002");
+    }
+
+    /// Test ZIP query with mixed conditions (invoice-only, contract-only, cross-table)
+    #[tokio::test]
+    async fn test_execute_zip_mixed_conditions() {
+        let env = ZipExecutorTestEnv::new().await;
+
+        // Create contract
+        let contract = ContractFixture::new()
+            .with_title("Premium Contract")
+            .with_party("Acme Corp")
+            .with_total_value(dec!(50000.00))
+            .build();
+        env.store_contract(&contract).await.unwrap();
+
+        // Create invoices with various amounts
+        let inv1 = InvoiceFixture::new()
+            .with_number("MIX-001")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(500.00)) // Too small (< 1000)
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("MIX-002")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(10000.00)) // Good: > 1000 and < 50000
+            .build();
+        let inv3 = InvoiceFixture::new()
+            .with_number("MIX-003")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(60000.00)) // Too large (> contract value)
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+        env.store_invoice(&inv3).await.unwrap();
+
+        // Mixed conditions:
+        // - inv.total_amount > 1000 (invoice-only)
+        // - inv.total_amount < con.total_value (cross-table)
+        let query = parse_query(
+            "SELECT inv.invoice_number, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount > 1000 \
+                 AND inv.total_amount < con.total_value"
+        ).unwrap();
+        let params = QueryParams::new();
+
+        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+
+        // Only MIX-002 should match (> 1000 and < 50000)
+        assert_eq!(result.pairs.len(), 1);
+        let invoice = result.pairs[0].invoice.as_ref().unwrap();
+        assert_eq!(invoice.invoice_number, "MIX-002");
+    }
+
+    /// Test ZIP query execution metadata
+    #[tokio::test]
+    async fn test_execute_zip_metadata() {
+        let env = ZipExecutorTestEnv::new().await;
+
+        // Create contract and invoice
+        let contract = ContractFixture::new()
+            .with_title("Test Contract")
+            .with_party("Test Vendor")
+            .build();
+        env.store_contract(&contract).await.unwrap();
+
+        let invoice = InvoiceFixture::new()
+            .with_number("META-001")
+            .with_vendor("Test Vendor")
+            .build();
+        env.store_invoice(&invoice).await.unwrap();
+
+        let query = parse_query(
+            "SELECT * FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+        let params = QueryParams::new();
+
+        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+
+        // Check metadata
+        assert_eq!(result.metadata.pair_count, 1);
+        assert_eq!(result.metadata.invoice_count, 1);
+        assert_eq!(result.metadata.contract_count, 1);
+        assert!(result.metadata.execution_time_ms >= 0);
+        assert_eq!(result.metadata.zip_mode, "Inner");
+    }
+
+    /// Test single table query through ZIP executor
+    #[tokio::test]
+    async fn test_execute_single_table_via_zip() {
+        let env = ZipExecutorTestEnv::new().await;
+
+        let invoice = InvoiceFixture::new()
+            .with_number("SINGLE-001")
+            .with_vendor("Test Vendor")
+            .build();
+        env.store_invoice(&invoice).await.unwrap();
+
+        // Non-ZIP query should still work
+        let query = parse_query("SELECT * FROM invoices").unwrap();
+        let params = QueryParams::new();
+
+        let result = env.zip_executor.execute_zip_query(&query, &params).await.unwrap();
+
+        // Should wrap as ZipPairs with no contract
+        assert_eq!(result.pairs.len(), 1);
+        assert!(result.pairs[0].invoice.is_some());
+        assert!(result.pairs[0].contract.is_none());
+        assert_eq!(result.metadata.zip_mode, "Single");
+    }
+}
+
 mod query_execution {
     use super::*;
     use fen_storage::{parse_query, QueryParams, DocumentStore};

@@ -263,6 +263,76 @@ impl QueryExecutorTestEnv {
     }
 }
 
+/// Test environment for ZIP executor tests
+pub struct ZipExecutorTestEnv {
+    /// ZIP executor for cross-table queries
+    pub zip_executor: fen_storage::ZipExecutor,
+    /// Direct access to hot storage
+    pub hot_storage: Arc<RedbStorage>,
+    /// Direct access to warm storage
+    pub warm_storage: Arc<tokio::sync::RwLock<fen_storage::LanceStorage>>,
+    /// Full-text index for BM25 search
+    pub fulltext_index: Arc<fen_storage::FullTextIndex>,
+    /// Temporary directory
+    _temp_dir: TempDir,
+}
+
+impl ZipExecutorTestEnv {
+    /// Create a new ZIP executor test environment
+    pub async fn new() -> Self {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        let warm_path = temp_dir.path().join("warm");
+        let fulltext_path = temp_dir.path().join("fulltext");
+
+        let hot_storage = Arc::new(
+            RedbStorage::in_memory().expect("Failed to create hot storage"),
+        );
+
+        let warm_storage = Arc::new(tokio::sync::RwLock::new(
+            fen_storage::LanceStorage::new(&warm_path)
+                .await
+                .expect("Failed to create warm storage"),
+        ));
+
+        let fulltext_index = Arc::new(
+            fen_storage::FullTextIndex::new(&fulltext_path, fen_storage::FullTextConfig::default())
+                .expect("Failed to create fulltext index"),
+        );
+
+        let zip_executor = fen_storage::ZipExecutor::new(
+            hot_storage.clone(),
+            warm_storage.clone(),
+            fulltext_index.clone(),
+            fen_storage::ExecutorConfig::default(),
+        );
+
+        Self {
+            zip_executor,
+            hot_storage,
+            warm_storage,
+            fulltext_index,
+            _temp_dir: temp_dir,
+        }
+    }
+
+    /// Store an invoice
+    pub async fn store_invoice(&self, invoice: &fen_core::domain::Invoice) -> Result<(), fen_storage::StorageError> {
+        use fen_storage::DocumentStore;
+        self.hot_storage.store_invoice(invoice).await?;
+        self.fulltext_index.index_invoice(invoice).await?;
+        self.fulltext_index.commit().await?;
+        Ok(())
+    }
+
+    /// Store a contract
+    pub async fn store_contract(&self, contract: &fen_core::domain::Contract) -> Result<(), fen_storage::StorageError> {
+        use fen_storage::DocumentStore;
+        self.hot_storage.store_contract(contract).await?;
+        Ok(())
+    }
+}
+
 /// Initialize tracing for tests (call once at the start of test suite)
 pub fn init_test_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

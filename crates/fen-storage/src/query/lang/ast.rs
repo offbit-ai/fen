@@ -12,7 +12,8 @@ pub struct FenQuery {
     /// Target table (invoices, contracts)
     pub from: QueryTarget,
     /// Table alias (e.g., "inv" for "invoices inv")
-    pub alias: Option<String>,
+    #[serde(alias = "alias")]
+    pub from_alias: Option<String>,
     /// Columns/expressions to select
     pub select: Vec<SelectItem>,
     /// WHERE clause conditions
@@ -23,6 +24,104 @@ pub struct FenQuery {
     pub limit: Option<u64>,
     /// OFFSET clause
     pub offset: Option<u64>,
+    /// ZIP clause for cross-table queries
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub zip: Option<ZipClause>,
+    /// Pipeline operations for post-processing
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<Vec<PipelineOp>>,
+}
+
+/// ZIP clause for cross-table queries
+///
+/// Example SQL:
+/// ```text
+/// SELECT inv.*, con.title
+/// FROM invoices inv
+/// ZIP contracts con ON inv.vendor_name = con.party_name
+/// WHERE inv.total_amount > 1000
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZipClause {
+    /// Target table to zip with
+    pub table: QueryTarget,
+    /// Alias for the zipped table
+    pub alias: Option<String>,
+    /// ON condition for matching rows
+    pub on: Expr,
+    /// ZIP mode (inner, left, cross)
+    #[serde(default)]
+    pub mode: ZipMode,
+}
+
+/// ZIP modes for cross-table queries
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub enum ZipMode {
+    /// Inner join - only matching pairs
+    #[default]
+    Inner,
+    /// Left join - all from primary, matching from secondary
+    Left,
+    /// Cross product
+    Cross,
+}
+
+/// Pipeline operation for post-processing query results
+///
+/// Pipeline operations are specified using the `|>` syntax:
+/// ```text
+/// SELECT * FROM invoices
+/// WHERE total_amount > 1000
+/// |> VALIDATE WITH ['math_check', 'date_check']
+/// |> ANALYZE
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum PipelineOp {
+    /// Validate documents against rules
+    Validate {
+        /// Optional list of rule names to apply
+        rules: Option<Vec<String>>,
+        /// Stop on first validation failure
+        #[serde(default)]
+        fail_fast: bool,
+    },
+
+    /// Analyze documents for anomalies
+    Analyze {
+        /// Optional list of analyzer names to apply
+        analyzers: Option<Vec<String>>,
+        /// Include anomaly scores in results
+        #[serde(default)]
+        include_scores: bool,
+    },
+
+    /// Cross-validate invoices against contracts
+    CrossValidate {
+        /// Field pairs to compare (invoice_field, contract_field)
+        fields: Vec<(String, String)>,
+        /// Tolerance for numeric comparisons (percentage)
+        #[serde(default)]
+        tolerance: f64,
+    },
+
+    /// Aggregate results by groups
+    Aggregate {
+        /// Expressions to group by
+        group_by: Vec<Expr>,
+        /// Aggregations to compute
+        aggregations: Vec<AggregateExpr>,
+    },
+}
+
+/// Aggregate expression for pipeline aggregation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AggregateExpr {
+    /// Aggregation function (COUNT, SUM, AVG, MIN, MAX)
+    pub function: FunctionName,
+    /// Expression to aggregate
+    pub expr: Expr,
+    /// Output alias
+    pub alias: String,
 }
 
 impl FenQuery {
@@ -45,6 +144,16 @@ impl FenQuery {
         self.filter.as_ref().map_or(false, |f| f.uses_contains())
     }
 
+    /// Check if this is a ZIP (cross-table) query
+    pub fn is_zip_query(&self) -> bool {
+        self.zip.is_some()
+    }
+
+    /// Check if this query has pipeline operations
+    pub fn has_pipeline(&self) -> bool {
+        self.pipeline.as_ref().map_or(false, |p| !p.is_empty())
+    }
+
     /// Extract all parameter names used in this query
     pub fn parameter_names(&self) -> Vec<String> {
         let mut params = Vec::new();
@@ -56,6 +165,9 @@ impl FenQuery {
         }
         if let Some(order) = &self.order_by {
             order.collect_parameters(&mut params);
+        }
+        if let Some(zip) = &self.zip {
+            zip.on.collect_parameters(&mut params);
         }
         params.sort();
         params.dedup();
@@ -128,6 +240,13 @@ pub enum Expr {
     Wildcard,
     /// Qualified wildcard (table.*)
     QualifiedWildcard(String),
+    /// IS NULL / IS NOT NULL check
+    IsNull {
+        expr: Box<Expr>,
+        negated: bool,
+    },
+    /// NOT expression (logical negation)
+    Not(Box<Expr>),
 }
 
 impl Expr {
@@ -138,6 +257,8 @@ impl Expr {
                 left.uses_vector_distance() || right.uses_vector_distance()
             }
             Expr::UnaryOp { expr, .. } => expr.uses_vector_distance(),
+            Expr::IsNull { expr, .. } => expr.uses_vector_distance(),
+            Expr::Not(expr) => expr.uses_vector_distance(),
             _ => false,
         }
     }
@@ -147,6 +268,8 @@ impl Expr {
             Expr::Function(f) => matches!(f.name, FunctionName::Bm25Score),
             Expr::BinaryOp { left, right, .. } => left.uses_bm25() || right.uses_bm25(),
             Expr::UnaryOp { expr, .. } => expr.uses_bm25(),
+            Expr::IsNull { expr, .. } => expr.uses_bm25(),
+            Expr::Not(expr) => expr.uses_bm25(),
             _ => false,
         }
     }
@@ -156,6 +279,8 @@ impl Expr {
             Expr::Function(f) => matches!(f.name, FunctionName::Contains),
             Expr::BinaryOp { left, right, .. } => left.uses_contains() || right.uses_contains(),
             Expr::UnaryOp { expr, .. } => expr.uses_contains(),
+            Expr::IsNull { expr, .. } => expr.uses_contains(),
+            Expr::Not(expr) => expr.uses_contains(),
             _ => false,
         }
     }
@@ -173,6 +298,8 @@ impl Expr {
                     arg.collect_parameters(params);
                 }
             }
+            Expr::IsNull { expr, .. } => expr.collect_parameters(params),
+            Expr::Not(expr) => expr.collect_parameters(params),
             _ => {}
         }
     }
@@ -224,10 +351,23 @@ pub enum Literal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BinaryOperator {
     // Arithmetic
+    #[serde(alias = "add")]
     Add,
+    #[serde(alias = "sub")]
+    Sub,
+    #[serde(alias = "subtract")]
     Subtract,
+    #[serde(alias = "mul")]
+    Mul,
+    #[serde(alias = "multiply")]
     Multiply,
+    #[serde(alias = "div")]
+    Div,
+    #[serde(alias = "divide")]
     Divide,
+    #[serde(alias = "mod")]
+    Mod,
+    #[serde(alias = "modulo")]
     Modulo,
 
     // Comparison
@@ -273,6 +413,16 @@ pub enum FunctionName {
     Bm25Score,
     /// CONTAINS(column, search_terms) - check if text contains terms
     Contains,
+    /// COUNT(*) or COUNT(column) - count rows
+    Count,
+    /// SUM(column) - sum values
+    Sum,
+    /// AVG(column) - average values
+    Avg,
+    /// MIN(column) - minimum value
+    Min,
+    /// MAX(column) - maximum value
+    Max,
     /// Other function (passed through)
     Other(String),
 }
@@ -283,6 +433,11 @@ impl FunctionName {
             "VECTOR_DISTANCE" => FunctionName::VectorDistance,
             "BM25_SCORE" => FunctionName::Bm25Score,
             "CONTAINS" => FunctionName::Contains,
+            "COUNT" => FunctionName::Count,
+            "SUM" => FunctionName::Sum,
+            "AVG" => FunctionName::Avg,
+            "MIN" => FunctionName::Min,
+            "MAX" => FunctionName::Max,
             _ => FunctionName::Other(s.to_string()),
         }
     }
@@ -390,6 +545,16 @@ impl QueryParams {
 
     pub fn with_float(mut self, name: impl Into<String>, value: f64) -> Self {
         self.values.insert(name.into(), ParamValue::Float(value));
+        self
+    }
+
+    pub fn with_bool(mut self, name: impl Into<String>, value: bool) -> Self {
+        self.values.insert(name.into(), ParamValue::Boolean(value));
+        self
+    }
+
+    pub fn with_param(mut self, name: impl Into<String>, value: ParamValue) -> Self {
+        self.values.insert(name.into(), value);
         self
     }
 

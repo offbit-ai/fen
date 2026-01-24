@@ -2,7 +2,7 @@ use chrono::NaiveDate;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use super::ids::{DocumentId, InvoiceId};
+use super::ids::{ContractId, DocumentId, InvoiceId};
 use super::party::Party;
 use crate::validation::ValidationStatus;
 
@@ -86,6 +86,14 @@ pub struct Invoice {
     pub due_date: Option<NaiveDate>,
     pub po_number: Option<String>,
 
+    // Contract relationship
+    /// Explicit reference to the contract this invoice is associated with.
+    /// When set, ZIP queries can use this for direct matching.
+    /// When None, relationship is inferred from vendor name, PO number, etc.
+    pub contract_id: Option<ContractId>,
+    /// Contract number reference (extracted from invoice text)
+    pub contract_number: Option<String>,
+
     // Parties
     pub vendor: Party,
     pub bill_to: Party,
@@ -116,6 +124,8 @@ impl Invoice {
             invoice_date,
             due_date: None,
             po_number: None,
+            contract_id: None,
+            contract_number: None,
             vendor: Party::unknown(),
             bill_to: Party::unknown(),
             currency: Currency::default(),
@@ -128,6 +138,18 @@ impl Invoice {
             confidence_score: 0.0,
             extracted_text: String::new(),
         }
+    }
+
+    /// Link this invoice to a contract
+    pub fn with_contract(mut self, contract_id: ContractId) -> Self {
+        self.contract_id = Some(contract_id);
+        self
+    }
+
+    /// Set contract number reference (extracted from invoice)
+    pub fn with_contract_number(mut self, contract_number: impl Into<String>) -> Self {
+        self.contract_number = Some(contract_number.into());
+        self
     }
 
     /// Calculate expected total from components

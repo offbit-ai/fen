@@ -67,6 +67,20 @@ pub enum TokenKind<'a> {
     True,
     False,
     Between,
+    // ZIP keywords
+    Zip,
+    On,
+    Inner,
+    Left,
+    Cross,
+
+    // Pipeline keywords
+    Pipe,       // |>
+    Validate,
+    Analyze,
+    CrossValidate,
+    Aggregate,
+    With,
 
     // Identifiers and literals
     Ident(&'a str),
@@ -125,6 +139,16 @@ impl<'a> TokenKind<'a> {
                 | TokenKind::True
                 | TokenKind::False
                 | TokenKind::Between
+                | TokenKind::Zip
+                | TokenKind::On
+                | TokenKind::Inner
+                | TokenKind::Left
+                | TokenKind::Cross
+                | TokenKind::Validate
+                | TokenKind::Analyze
+                | TokenKind::CrossValidate
+                | TokenKind::Aggregate
+                | TokenKind::With
         )
     }
 
@@ -153,6 +177,17 @@ impl<'a> TokenKind<'a> {
             TokenKind::True => "TRUE",
             TokenKind::False => "FALSE",
             TokenKind::Between => "BETWEEN",
+            TokenKind::Zip => "ZIP",
+            TokenKind::On => "ON",
+            TokenKind::Inner => "INNER",
+            TokenKind::Left => "LEFT",
+            TokenKind::Cross => "CROSS",
+            TokenKind::Pipe => "|>",
+            TokenKind::Validate => "VALIDATE",
+            TokenKind::Analyze => "ANALYZE",
+            TokenKind::CrossValidate => "CROSS_VALIDATE",
+            TokenKind::Aggregate => "AGGREGATE",
+            TokenKind::With => "WITH",
             TokenKind::Ident(s) => s,
             TokenKind::String(_) => "<string>",
             TokenKind::Integer(_) => "<integer>",
@@ -302,6 +337,18 @@ fn keyword_or_ident(input: Input) -> IResult<Input, Token> {
             "TRUE" => TokenKind::True,
             "FALSE" => TokenKind::False,
             "BETWEEN" => TokenKind::Between,
+            // ZIP keywords
+            "ZIP" => TokenKind::Zip,
+            "ON" => TokenKind::On,
+            "INNER" => TokenKind::Inner,
+            "LEFT" => TokenKind::Left,
+            "CROSS" => TokenKind::Cross,
+            // Pipeline keywords
+            "VALIDATE" => TokenKind::Validate,
+            "ANALYZE" => TokenKind::Analyze,
+            "CROSS_VALIDATE" => TokenKind::CrossValidate,
+            "AGGREGATE" => TokenKind::Aggregate,
+            "WITH" => TokenKind::With,
             _ => TokenKind::Ident(ident_str),
         };
         (input, kind)
@@ -377,6 +424,7 @@ fn operator(input: Input) -> IResult<Input, Token> {
     let start = input.clone();
 
     let (input, kind) = alt((
+        value(TokenKind::Pipe, tag("|>")),
         value(TokenKind::LtEq, tag("<=")),
         value(TokenKind::GtEq, tag(">=")),
         value(TokenKind::NotEq, tag("!=")),
@@ -392,7 +440,7 @@ fn operator(input: Input) -> IResult<Input, Token> {
     ))(input)?;
 
     let len = match kind {
-        TokenKind::LtEq | TokenKind::GtEq | TokenKind::NotEq => 2,
+        TokenKind::Pipe | TokenKind::LtEq | TokenKind::GtEq | TokenKind::NotEq => 2,
         _ => 1,
     };
 
@@ -512,5 +560,41 @@ mod tests {
         assert_eq!(tokens[1].span.end, 9);
         assert_eq!(tokens[1].span.line, 1);
         assert_eq!(tokens[1].span.column, 8);
+    }
+
+    #[test]
+    fn test_tokenize_pipe() {
+        let mut lexer = Lexer::new("|> VALIDATE");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(tokens.len(), 2);
+        assert!(matches!(tokens[0].kind, TokenKind::Pipe));
+        assert!(matches!(tokens[1].kind, TokenKind::Validate));
+    }
+
+    #[test]
+    fn test_tokenize_pipeline_keywords() {
+        let mut lexer = Lexer::new("VALIDATE ANALYZE CROSS_VALIDATE AGGREGATE WITH");
+        let tokens = lexer.tokenize().unwrap();
+
+        assert_eq!(tokens.len(), 5);
+        assert!(matches!(tokens[0].kind, TokenKind::Validate));
+        assert!(matches!(tokens[1].kind, TokenKind::Analyze));
+        assert!(matches!(tokens[2].kind, TokenKind::CrossValidate));
+        assert!(matches!(tokens[3].kind, TokenKind::Aggregate));
+        assert!(matches!(tokens[4].kind, TokenKind::With));
+    }
+
+    #[test]
+    fn test_tokenize_pipe_in_query() {
+        let mut lexer = Lexer::new(
+            "SELECT * FROM invoices |> VALIDATE WITH ('rule1')"
+        );
+        let tokens = lexer.tokenize().unwrap();
+
+        // Should contain Pipe token
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Pipe)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::Validate)));
+        assert!(tokens.iter().any(|t| matches!(t.kind, TokenKind::With)));
     }
 }

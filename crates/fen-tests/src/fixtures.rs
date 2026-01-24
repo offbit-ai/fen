@@ -232,6 +232,8 @@ impl InvoiceFixture {
             validation_status: self.validation_status,
             confidence_score: self.confidence_score,
             extracted_text: self.extracted_text,
+            contract_id: None,
+            contract_number: None,
         }
     }
 
@@ -256,6 +258,7 @@ pub struct ContractFixture {
     pub clauses: Vec<ContractClause>,
     pub effective_date: NaiveDate,
     pub expiration_date: Option<NaiveDate>,
+    pub total_value: Option<Decimal>,
 }
 
 impl Default for ContractFixture {
@@ -274,6 +277,7 @@ impl Default for ContractFixture {
             ],
             effective_date: today,
             expiration_date: Some(today + chrono::Duration::days(365)),
+            total_value: None,
         }
     }
 }
@@ -303,6 +307,22 @@ impl ContractFixture {
         self
     }
 
+    /// Set the primary party (replaces first party)
+    pub fn with_party(mut self, name: impl Into<String>) -> Self {
+        if self.parties.is_empty() {
+            self.parties.push(Party::new(name));
+        } else {
+            self.parties[0] = Party::new(name);
+        }
+        self
+    }
+
+    /// Set the total contract value
+    pub fn with_total_value(mut self, value: Decimal) -> Self {
+        self.total_value = Some(value);
+        self
+    }
+
     pub fn build(self) -> Contract {
         Contract {
             id: fen_core::domain::ContractId::new(),
@@ -314,7 +334,7 @@ impl ContractFixture {
             effective_date: self.effective_date,
             expiration_date: self.expiration_date,
             execution_date: None,
-            total_value: None,
+            total_value: self.total_value,
             currency: None,
             clauses: self.clauses,
             validation_status: ValidationStatus::Pending,

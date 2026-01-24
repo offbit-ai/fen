@@ -2,7 +2,11 @@
 //!
 //! Converts tokens into an abstract syntax tree (AST).
 
-use crate::query::lang::ast::*;
+use crate::query::lang::ast::{
+    AggregateExpr, BinaryOperator, ColumnRef, Expr, FenQuery, FilterExpr, FunctionCall,
+    FunctionName, Literal, NullsOrder, OrderByClause, OrderByItem, PipelineOp, QueryTarget,
+    SelectItem, SortDirection, UnaryOperator, ZipClause, ZipMode,
+};
 use crate::query::lang::error::{ParseError, ParseErrorKind};
 use crate::query::lang::lexer::{Lexer, Token, TokenKind};
 use crate::query::lang::span::Span;
@@ -47,6 +51,17 @@ impl<'a> QueryParser<'a> {
         self.expect_keyword(TokenKind::From)?;
         let (from, alias) = self.parse_from_clause()?;
 
+        // Parse optional ZIP clause
+        let zip = if self.check(&TokenKind::Zip)
+            || self.check(&TokenKind::Inner)
+            || self.check(&TokenKind::Left)
+            || self.check(&TokenKind::Cross)
+        {
+            Some(self.parse_zip_clause()?)
+        } else {
+            None
+        };
+
         // Parse optional WHERE
         let filter = if self.check(&TokenKind::Where) {
             self.advance();
@@ -79,6 +94,13 @@ impl<'a> QueryParser<'a> {
             None
         };
 
+        // Parse optional pipeline operations (|> VALIDATE, |> ANALYZE, etc.)
+        let pipeline = if self.check(&TokenKind::Pipe) {
+            Some(self.parse_pipeline()?)
+        } else {
+            None
+        };
+
         // Ensure we've consumed all input
         if !self.is_at_end() {
             let token = self.current();
@@ -93,12 +115,14 @@ impl<'a> QueryParser<'a> {
 
         Ok(FenQuery {
             from,
-            alias,
+            from_alias: alias,
             select,
             filter,
             order_by,
             limit,
             offset,
+            zip,
+            pipeline,
         })
     }
 
@@ -157,6 +181,10 @@ impl<'a> QueryParser<'a> {
             && !self.check(&TokenKind::OrderBy)
             && !self.check(&TokenKind::Limit)
             && !self.check(&TokenKind::Offset)
+            && !self.check(&TokenKind::Zip)
+            && !self.check(&TokenKind::Inner)
+            && !self.check(&TokenKind::Left)
+            && !self.check(&TokenKind::Cross)
         {
             Some(self.parse_identifier()?)
         } else {
@@ -164,6 +192,376 @@ impl<'a> QueryParser<'a> {
         };
 
         Ok((target, alias))
+    }
+
+    fn parse_zip_clause(&mut self) -> Result<ZipClause, ParseError> {
+        // Parse optional mode prefix: INNER ZIP, LEFT ZIP, CROSS ZIP
+        let mode = if self.check(&TokenKind::Inner) {
+            self.advance();
+            self.expect_keyword(TokenKind::Zip)?;
+            ZipMode::Inner
+        } else if self.check(&TokenKind::Left) {
+            self.advance();
+            self.expect_keyword(TokenKind::Zip)?;
+            ZipMode::Left
+        } else if self.check(&TokenKind::Cross) {
+            self.advance();
+            self.expect_keyword(TokenKind::Zip)?;
+            ZipMode::Cross
+        } else {
+            // Just ZIP (defaults to Inner)
+            self.expect_keyword(TokenKind::Zip)?;
+            ZipMode::Inner
+        };
+
+        // Parse table name
+        let table_name = self.parse_identifier()?;
+        let table = match table_name.to_lowercase().as_str() {
+            "invoices" => QueryTarget::Invoices,
+            "contracts" => QueryTarget::Contracts,
+            _ => {
+                let span = self.previous().span;
+                return Err(self.error(
+                    ParseErrorKind::UnknownTable(table_name),
+                    span,
+                ).with_help("valid tables are: invoices, contracts"));
+            }
+        };
+
+        // Parse optional alias for ZIP table
+        let alias = if self.check_ident()
+            && !self.check(&TokenKind::On)
+            && !self.check(&TokenKind::Where)
+            && !self.check(&TokenKind::OrderBy)
+            && !self.check(&TokenKind::Limit)
+            && !self.check(&TokenKind::Offset)
+        {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+
+        // Parse ON condition
+        self.expect_keyword(TokenKind::On)?;
+        let on = self.parse_expression()?;
+
+        Ok(ZipClause {
+            table,
+            alias,
+            on,
+            mode,
+        })
+    }
+
+    /// Parse pipeline operations: |> VALIDATE, |> ANALYZE, etc.
+    fn parse_pipeline(&mut self) -> Result<Vec<PipelineOp>, ParseError> {
+        let mut ops = Vec::new();
+
+        while self.check(&TokenKind::Pipe) {
+            self.advance(); // consume |>
+            ops.push(self.parse_pipeline_op()?);
+        }
+
+        Ok(ops)
+    }
+
+    /// Parse a single pipeline operation
+    fn parse_pipeline_op(&mut self) -> Result<PipelineOp, ParseError> {
+        let token = self.current();
+
+        match &token.kind {
+            TokenKind::Validate => {
+                self.advance();
+                self.parse_validate_op()
+            }
+            TokenKind::Analyze => {
+                self.advance();
+                self.parse_analyze_op()
+            }
+            TokenKind::CrossValidate => {
+                self.advance();
+                self.parse_cross_validate_op()
+            }
+            TokenKind::Aggregate => {
+                self.advance();
+                self.parse_aggregate_op()
+            }
+            _ => {
+                let span = token.span;
+                Err(self.error(
+                    ParseErrorKind::UnexpectedToken {
+                        expected: vec![
+                            "VALIDATE".to_string(),
+                            "ANALYZE".to_string(),
+                            "CROSS_VALIDATE".to_string(),
+                            "AGGREGATE".to_string(),
+                        ],
+                        found: token.kind.as_str().to_string(),
+                    },
+                    span,
+                ))
+            }
+        }
+    }
+
+    /// Parse VALIDATE [WITH [rules...]] [FAIL_FAST]
+    fn parse_validate_op(&mut self) -> Result<PipelineOp, ParseError> {
+        let mut rules = None;
+        let mut fail_fast = false;
+
+        // Parse optional WITH [rules...]
+        if self.check(&TokenKind::With) {
+            self.advance();
+            rules = Some(self.parse_string_list()?);
+        }
+
+        // Parse optional FAIL_FAST (check for identifier "FAIL_FAST")
+        if self.check_ident() {
+            if let TokenKind::Ident(s) = &self.current().kind {
+                if s.eq_ignore_ascii_case("FAIL_FAST") {
+                    self.advance();
+                    fail_fast = true;
+                }
+            }
+        }
+
+        Ok(PipelineOp::Validate { rules, fail_fast })
+    }
+
+    /// Parse ANALYZE [WITH [analyzers...]] [INCLUDE_SCORES]
+    fn parse_analyze_op(&mut self) -> Result<PipelineOp, ParseError> {
+        let mut analyzers = None;
+        let mut include_scores = false;
+
+        // Parse optional WITH [analyzers...]
+        if self.check(&TokenKind::With) {
+            self.advance();
+            analyzers = Some(self.parse_string_list()?);
+        }
+
+        // Parse optional INCLUDE_SCORES
+        if self.check_ident() {
+            if let TokenKind::Ident(s) = &self.current().kind {
+                if s.eq_ignore_ascii_case("INCLUDE_SCORES") {
+                    self.advance();
+                    include_scores = true;
+                }
+            }
+        }
+
+        Ok(PipelineOp::Analyze {
+            analyzers,
+            include_scores,
+        })
+    }
+
+    /// Parse CROSS_VALIDATE ON (inv.field, con.field), ... [TOLERANCE value]
+    fn parse_cross_validate_op(&mut self) -> Result<PipelineOp, ParseError> {
+        self.expect_keyword(TokenKind::On)?;
+
+        let mut fields = Vec::new();
+
+        // Parse field pairs
+        loop {
+            self.expect(&TokenKind::LParen)?;
+            let field1 = self.parse_qualified_name()?;
+            self.expect(&TokenKind::Comma)?;
+            let field2 = self.parse_qualified_name()?;
+            self.expect(&TokenKind::RParen)?;
+
+            fields.push((field1, field2));
+
+            if !self.check(&TokenKind::Comma) {
+                break;
+            }
+            self.advance(); // consume comma
+        }
+
+        // Parse optional TOLERANCE value
+        let mut tolerance = 0.0;
+        if self.check_ident() {
+            if let TokenKind::Ident(s) = &self.current().kind {
+                if s.eq_ignore_ascii_case("TOLERANCE") {
+                    self.advance();
+                    tolerance = self.parse_float_or_int()?;
+                }
+            }
+        }
+
+        Ok(PipelineOp::CrossValidate { fields, tolerance })
+    }
+
+    /// Parse AGGREGATE BY expr, ... INTO agg_func(expr) AS alias, ...
+    fn parse_aggregate_op(&mut self) -> Result<PipelineOp, ParseError> {
+        // Parse BY clause for group_by
+        let group_by = if self.check_ident() {
+            if let TokenKind::Ident(s) = &self.current().kind {
+                if s.eq_ignore_ascii_case("BY") {
+                    self.advance();
+                    self.parse_expression_list()?
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        // Parse INTO clause for aggregations
+        let aggregations = if self.check_ident() {
+            if let TokenKind::Ident(s) = &self.current().kind {
+                if s.eq_ignore_ascii_case("INTO") {
+                    self.advance();
+                    self.parse_aggregation_list()?
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+
+        Ok(PipelineOp::Aggregate {
+            group_by,
+            aggregations,
+        })
+    }
+
+    /// Parse a bracketed list of strings: ['a', 'b', 'c']
+    fn parse_string_list(&mut self) -> Result<Vec<String>, ParseError> {
+        let mut strings = Vec::new();
+
+        // Expect opening bracket [
+        let token = self.current();
+        if let TokenKind::Ident(s) = &token.kind {
+            // Check for [ as an identifier edge case
+            if s == &"[" {
+                self.advance();
+            }
+        }
+
+        // Try parsing as square bracket notation
+        // For simplicity, support both ['a', 'b'] and ('a', 'b')
+        if self.check(&TokenKind::LParen) {
+            self.advance();
+            loop {
+                if let TokenKind::String(s) = &self.current().kind {
+                    strings.push(s.clone());
+                    self.advance();
+                } else {
+                    break;
+                }
+
+                if !self.check(&TokenKind::Comma) {
+                    break;
+                }
+                self.advance();
+            }
+            self.expect(&TokenKind::RParen)?;
+        }
+
+        Ok(strings)
+    }
+
+    /// Parse a qualified name like "inv.total_amount"
+    fn parse_qualified_name(&mut self) -> Result<String, ParseError> {
+        let mut name = self.parse_identifier()?;
+
+        if self.check(&TokenKind::Dot) {
+            self.advance();
+            let col = self.parse_identifier()?;
+            name = format!("{}.{}", name, col);
+        }
+
+        Ok(name)
+    }
+
+    /// Parse a float or integer as f64
+    fn parse_float_or_int(&mut self) -> Result<f64, ParseError> {
+        let token = self.current();
+        match &token.kind {
+            TokenKind::Float(f) => {
+                let f = *f;
+                self.advance();
+                Ok(f)
+            }
+            TokenKind::Integer(i) => {
+                let f = *i as f64;
+                self.advance();
+                Ok(f)
+            }
+            _ => {
+                let span = token.span;
+                Err(self.error(
+                    ParseErrorKind::UnexpectedToken {
+                        expected: vec!["number".to_string()],
+                        found: token.kind.as_str().to_string(),
+                    },
+                    span,
+                ))
+            }
+        }
+    }
+
+    /// Parse a comma-separated list of expressions
+    fn parse_expression_list(&mut self) -> Result<Vec<Expr>, ParseError> {
+        let mut exprs = Vec::new();
+
+        loop {
+            exprs.push(self.parse_expression()?);
+
+            if !self.check(&TokenKind::Comma) {
+                break;
+            }
+            self.advance();
+
+            // Stop if we hit a keyword
+            if self.check_ident() {
+                if let TokenKind::Ident(s) = &self.current().kind {
+                    if s.eq_ignore_ascii_case("INTO") {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(exprs)
+    }
+
+    /// Parse aggregation expressions: COUNT(*) AS total, SUM(amount) AS sum_amount
+    fn parse_aggregation_list(&mut self) -> Result<Vec<AggregateExpr>, ParseError> {
+        let mut aggs = Vec::new();
+
+        loop {
+            // Parse function call
+            let name = self.parse_identifier()?;
+            self.expect(&TokenKind::LParen)?;
+            let expr = self.parse_expression()?;
+            self.expect(&TokenKind::RParen)?;
+
+            // Parse AS alias
+            self.expect_keyword(TokenKind::As)?;
+            let alias = self.parse_identifier()?;
+
+            let function = FunctionName::from_str(&name);
+
+            aggs.push(AggregateExpr {
+                function,
+                expr,
+                alias,
+            });
+
+            if !self.check(&TokenKind::Comma) {
+                break;
+            }
+            self.advance();
+        }
+
+        Ok(aggs)
     }
 
     fn parse_order_by(&mut self) -> Result<OrderByClause, ParseError> {
@@ -679,7 +1077,7 @@ mod tests {
         let query = parse_query("SELECT id, invoice_number AS num FROM invoices inv").unwrap();
 
         assert_eq!(query.from, QueryTarget::Invoices);
-        assert_eq!(query.alias, Some("inv".to_string()));
+        assert_eq!(query.from_alias, Some("inv".to_string()));
         assert_eq!(query.select.len(), 2);
         assert_eq!(query.select[1].alias, Some("num".to_string()));
     }
@@ -793,7 +1191,7 @@ mod tests {
         let query = parse_query(query_str).unwrap();
 
         assert_eq!(query.from, QueryTarget::Invoices);
-        assert_eq!(query.alias, Some("inv".to_string()));
+        assert_eq!(query.from_alias, Some("inv".to_string()));
         assert_eq!(query.select.len(), 4);
         assert!(query.filter.is_some());
         assert!(query.order_by.is_some());
@@ -836,5 +1234,314 @@ mod tests {
         let report = err.report();
         // The report should contain the error location
         assert!(report.contains("unknown_table"));
+    }
+
+    // ========== ZIP clause tests ==========
+
+    #[test]
+    fn test_parse_zip_basic() {
+        let query = parse_query(
+            "SELECT inv.*, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+
+        assert_eq!(query.from, QueryTarget::Invoices);
+        assert_eq!(query.from_alias, Some("inv".to_string()));
+
+        let zip = query.zip.unwrap();
+        assert_eq!(zip.table, QueryTarget::Contracts);
+        assert_eq!(zip.alias, Some("con".to_string()));
+        assert_eq!(zip.mode, ZipMode::Inner);
+    }
+
+    #[test]
+    fn test_parse_zip_with_where() {
+        let query = parse_query(
+            "SELECT inv.id, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount > 1000"
+        ).unwrap();
+
+        assert!(query.zip.is_some());
+        assert!(query.filter.is_some());
+
+        let zip = query.zip.unwrap();
+        assert_eq!(zip.table, QueryTarget::Contracts);
+    }
+
+    #[test]
+    fn test_parse_inner_zip() {
+        let query = parse_query(
+            "SELECT * FROM invoices inv \
+             INNER ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+
+        let zip = query.zip.unwrap();
+        assert_eq!(zip.mode, ZipMode::Inner);
+    }
+
+    #[test]
+    fn test_parse_left_zip() {
+        let query = parse_query(
+            "SELECT * FROM invoices inv \
+             LEFT ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+
+        let zip = query.zip.unwrap();
+        assert_eq!(zip.mode, ZipMode::Left);
+    }
+
+    #[test]
+    fn test_parse_cross_zip() {
+        let query = parse_query(
+            "SELECT * FROM invoices inv \
+             CROSS ZIP contracts con ON inv.vendor_name = con.party_name"
+        ).unwrap();
+
+        let zip = query.zip.unwrap();
+        assert_eq!(zip.mode, ZipMode::Cross);
+    }
+
+    #[test]
+    fn test_parse_zip_without_alias() {
+        let query = parse_query(
+            "SELECT * FROM invoices \
+             ZIP contracts ON vendor_name = party_name"
+        ).unwrap();
+
+        assert_eq!(query.from_alias, None);
+
+        let zip = query.zip.unwrap();
+        assert_eq!(zip.table, QueryTarget::Contracts);
+        assert_eq!(zip.alias, None);
+    }
+
+    #[test]
+    fn test_parse_zip_complex_on_condition() {
+        let query = parse_query(
+            "SELECT inv.id, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name AND inv.currency = con.currency \
+             WHERE inv.total_amount > 1000 \
+             ORDER BY inv.invoice_date DESC \
+             LIMIT 50"
+        ).unwrap();
+
+        let zip = query.zip.unwrap();
+        assert_eq!(zip.table, QueryTarget::Contracts);
+        assert!(query.filter.is_some());
+        assert!(query.order_by.is_some());
+        assert_eq!(query.limit, Some(50));
+    }
+
+    #[test]
+    fn test_is_zip_query() {
+        let regular = parse_query("SELECT id FROM invoices").unwrap();
+        assert!(!regular.is_zip_query());
+
+        let zip_query = parse_query(
+            "SELECT * FROM invoices ZIP contracts ON vendor_name = party_name"
+        ).unwrap();
+        assert!(zip_query.is_zip_query());
+    }
+
+    #[test]
+    fn test_error_zip_unknown_table() {
+        let result = parse_query(
+            "SELECT * FROM invoices ZIP unknown_table ON vendor_name = party_name"
+        );
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind, ParseErrorKind::UnknownTable(_)));
+    }
+
+    #[test]
+    fn test_error_zip_missing_on() {
+        let result = parse_query(
+            "SELECT * FROM invoices ZIP contracts WHERE vendor_name = party_name"
+        );
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind, ParseErrorKind::ExpectedKeyword(_)));
+    }
+
+    // ========== Pipeline (|>) tests ==========
+
+    #[test]
+    fn test_parse_pipe_validate() {
+        let query = parse_query(
+            "SELECT * FROM invoices |> VALIDATE"
+        ).unwrap();
+
+        assert!(query.has_pipeline());
+        let pipeline = query.pipeline.unwrap();
+        assert_eq!(pipeline.len(), 1);
+        assert!(matches!(pipeline[0], PipelineOp::Validate { .. }));
+    }
+
+    #[test]
+    fn test_parse_pipe_validate_with_rules() {
+        let query = parse_query(
+            "SELECT * FROM invoices |> VALIDATE WITH ('math_check', 'date_check')"
+        ).unwrap();
+
+        assert!(query.has_pipeline());
+        let pipeline = query.pipeline.unwrap();
+        assert_eq!(pipeline.len(), 1);
+
+        if let PipelineOp::Validate { rules, fail_fast } = &pipeline[0] {
+            assert!(rules.is_some());
+            assert_eq!(rules.as_ref().unwrap().len(), 2);
+            assert!(!*fail_fast);
+        } else {
+            panic!("Expected Validate operation");
+        }
+    }
+
+    #[test]
+    fn test_parse_pipe_validate_fail_fast() {
+        let query = parse_query(
+            "SELECT * FROM invoices |> VALIDATE FAIL_FAST"
+        ).unwrap();
+
+        let pipeline = query.pipeline.unwrap();
+        if let PipelineOp::Validate { rules, fail_fast } = &pipeline[0] {
+            assert!(rules.is_none());
+            assert!(*fail_fast);
+        } else {
+            panic!("Expected Validate operation");
+        }
+    }
+
+    #[test]
+    fn test_parse_pipe_analyze() {
+        let query = parse_query(
+            "SELECT * FROM invoices |> ANALYZE"
+        ).unwrap();
+
+        let pipeline = query.pipeline.unwrap();
+        assert!(matches!(pipeline[0], PipelineOp::Analyze { .. }));
+    }
+
+    #[test]
+    fn test_parse_pipe_analyze_with_options() {
+        let query = parse_query(
+            "SELECT * FROM invoices |> ANALYZE WITH ('anomaly_detector') INCLUDE_SCORES"
+        ).unwrap();
+
+        let pipeline = query.pipeline.unwrap();
+        if let PipelineOp::Analyze { analyzers, include_scores } = &pipeline[0] {
+            assert!(analyzers.is_some());
+            assert!(*include_scores);
+        } else {
+            panic!("Expected Analyze operation");
+        }
+    }
+
+    #[test]
+    fn test_parse_pipe_chain() {
+        let query = parse_query(
+            "SELECT * FROM invoices WHERE total_amount > 1000 \
+             |> VALIDATE WITH ('math_check') \
+             |> ANALYZE"
+        ).unwrap();
+
+        let pipeline = query.pipeline.unwrap();
+        assert_eq!(pipeline.len(), 2);
+        assert!(matches!(pipeline[0], PipelineOp::Validate { .. }));
+        assert!(matches!(pipeline[1], PipelineOp::Analyze { .. }));
+    }
+
+    #[test]
+    fn test_parse_pipe_cross_validate() {
+        let query = parse_query(
+            "SELECT inv.*, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             |> CROSS_VALIDATE ON (inv.total_amount, con.total_value)"
+        ).unwrap();
+
+        let pipeline = query.pipeline.unwrap();
+        assert_eq!(pipeline.len(), 1);
+
+        if let PipelineOp::CrossValidate { fields, tolerance } = &pipeline[0] {
+            assert_eq!(fields.len(), 1);
+            assert_eq!(fields[0].0, "inv.total_amount");
+            assert_eq!(fields[0].1, "con.total_value");
+            assert!(*tolerance == 0.0);
+        } else {
+            panic!("Expected CrossValidate operation");
+        }
+    }
+
+    #[test]
+    fn test_parse_pipe_cross_validate_tolerance() {
+        let query = parse_query(
+            "SELECT * FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             |> CROSS_VALIDATE ON (inv.total_amount, con.total_value) TOLERANCE 0.05"
+        ).unwrap();
+
+        let pipeline = query.pipeline.unwrap();
+        if let PipelineOp::CrossValidate { fields, tolerance } = &pipeline[0] {
+            assert_eq!(fields.len(), 1);
+            assert!((*tolerance - 0.05).abs() < 0.001);
+        } else {
+            panic!("Expected CrossValidate operation");
+        }
+    }
+
+    #[test]
+    fn test_parse_pipe_aggregate() {
+        let query = parse_query(
+            "SELECT * FROM invoices \
+             |> AGGREGATE BY vendor_name INTO SUM(total_amount) AS total"
+        ).unwrap();
+
+        let pipeline = query.pipeline.unwrap();
+        if let PipelineOp::Aggregate { group_by, aggregations } = &pipeline[0] {
+            assert_eq!(group_by.len(), 1);
+            assert_eq!(aggregations.len(), 1);
+            assert_eq!(aggregations[0].alias, "total");
+        } else {
+            panic!("Expected Aggregate operation");
+        }
+    }
+
+    #[test]
+    fn test_parse_pipe_complete_flow() {
+        let query = parse_query(
+            "SELECT inv.invoice_number, inv.total_amount, con.title \
+             FROM invoices inv \
+             ZIP contracts con ON inv.vendor_name = con.party_name \
+             WHERE inv.total_amount > 1000 \
+             ORDER BY inv.total_amount DESC \
+             LIMIT 100 \
+             |> VALIDATE WITH ('math_check', 'date_check') \
+             |> CROSS_VALIDATE ON (inv.total_amount, con.total_value) TOLERANCE 0.01 \
+             |> ANALYZE"
+        ).unwrap();
+
+        assert!(query.is_zip_query());
+        assert!(query.filter.is_some());
+        assert!(query.order_by.is_some());
+        assert_eq!(query.limit, Some(100));
+
+        let pipeline = query.pipeline.unwrap();
+        assert_eq!(pipeline.len(), 3);
+        assert!(matches!(pipeline[0], PipelineOp::Validate { .. }));
+        assert!(matches!(pipeline[1], PipelineOp::CrossValidate { .. }));
+        assert!(matches!(pipeline[2], PipelineOp::Analyze { .. }));
+    }
+
+    #[test]
+    fn test_no_pipeline() {
+        let query = parse_query("SELECT * FROM invoices").unwrap();
+        assert!(!query.has_pipeline());
+        assert!(query.pipeline.is_none());
     }
 }

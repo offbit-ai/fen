@@ -16,9 +16,16 @@ pub use fulltext::{FullTextConfig, FullTextIndex, SearchResult as FullTextSearch
 pub use hot::RedbStorage;
 pub use location::{DocumentLocationIndex, TierDistribution};
 pub use query::{
-    parse_query, ColumnValue, ExecutionResult, ExecutorConfig, FenQuery, ParseError, QueryCache,
-    QueryEngine, QueryEngineConfig, QueryError, QueryExecutor, QueryParams, QueryParser, QueryResult,
-    ResultRow,
+    parse_query, ColumnValue, ExecutionResult, ExecutorConfig, FenQuery, ParseError, ParseErrorKind,
+    QueryCache, QueryEngine, QueryEngineConfig, QueryError, QueryExecutor, QueryParams, QueryParser,
+    QueryResult, ResultRow,
+    // JSON query format
+    JsonQuery, JsonQueryBuilder, JsonCondition, JsonPipelineOp, JsonZipClause,
+    // ZIP clause for SQL queries
+    ZipClause, ZipMode,
+    // ZIP executor for cross-table queries
+    ZipExecutor, ZipResult, ZipPair, ZipMetadata, PipelineResults,
+    CrossValidationIssue, CrossValidationIssueType, AggregateValue,
 };
 pub use tiered::{TieredStorage, TieredStorageConfig};
 pub use traits::{DocumentStore, InvoiceFilter, QueryMetrics, StorageTier, VectorSearchResult, VectorStore};

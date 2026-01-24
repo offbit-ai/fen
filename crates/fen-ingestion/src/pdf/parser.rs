@@ -86,6 +86,8 @@ impl InvoiceParser {
             validation_status: ValidationStatus::Pending,
             confidence_score: 0.5, // Low confidence for regex-based extraction
             extracted_text: text.to_string(),
+            contract_id: None,
+            contract_number: None,
         })
     }
 

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 
-use fen_core::domain::{Invoice, InvoiceId};
+use fen_core::domain::{Contract, ContractId, Invoice, InvoiceId};
 
 use crate::error::StorageError;
 use crate::fulltext::FullTextIndex;
@@ -145,11 +145,7 @@ impl QueryExecutor {
 
         let result = match query.from {
             QueryTarget::Invoices => self.execute_invoice_query(query, params).await?,
-            QueryTarget::Contracts => {
-                return Err(StorageError::Query(
-                    "Contract queries not yet implemented".to_string(),
-                ))
-            }
+            QueryTarget::Contracts => self.execute_contract_query(query, params).await?,
         };
 
         let execution_time_ms = start.elapsed().as_millis() as u64;
@@ -221,6 +217,263 @@ impl QueryExecutor {
             .collect();
 
         Ok(results)
+    }
+
+    async fn execute_contract_query(
+        &self,
+        query: &FenQuery,
+        params: &QueryParams,
+    ) -> Result<Vec<ResultRow>, StorageError> {
+        // Determine the limit
+        let limit = query
+            .limit
+            .map(|l| l as usize)
+            .unwrap_or(self.config.default_limit)
+            .min(self.config.max_limit);
+
+        let offset = query.offset.map(|o| o as usize).unwrap_or(0);
+
+        // For contracts, we primarily use hot storage (no vector search for contracts yet)
+        let uses_text = query.uses_text_search() || query.uses_contains();
+
+        // Get candidate contracts
+        let mut candidates = if uses_text {
+            self.text_search_contracts(query, params, limit * 3).await?
+        } else {
+            self.scan_contracts(limit * 3, offset).await?
+        };
+
+        // Apply WHERE filters
+        if let Some(filter) = &query.filter {
+            candidates.retain(|(contract, _)| self.evaluate_contract_filter(filter, contract, params));
+        }
+
+        // Apply ORDER BY (for contracts, we use a simpler sort)
+        if let Some(order_by) = &query.order_by {
+            self.sort_contract_results(&mut candidates, order_by, params);
+        }
+
+        // Apply OFFSET and LIMIT
+        let results: Vec<ResultRow> = candidates
+            .into_iter()
+            .skip(offset)
+            .take(limit)
+            .map(|(contract, score)| self.project_contract(&contract, &query.select, score))
+            .collect();
+
+        Ok(results)
+    }
+
+    async fn text_search_contracts(
+        &self,
+        query: &FenQuery,
+        params: &QueryParams,
+        limit: usize,
+    ) -> Result<Vec<(Contract, f64)>, StorageError> {
+        // Extract text search parameter
+        let search_terms = self.find_text_param(query, params)?;
+
+        let search_results = self.fulltext_index.search_contracts(&search_terms, limit)?;
+
+        // Fetch full contracts for each result
+        let mut contracts = Vec::new();
+        for result in search_results {
+            if let Ok(uuid) = result.id.parse::<uuid::Uuid>() {
+                let id = ContractId(uuid);
+                if let Ok(Some(contract)) = self.hot_storage.get_contract(&id).await {
+                    contracts.push((contract, result.score as f64));
+                }
+            }
+        }
+
+        Ok(contracts)
+    }
+
+    async fn scan_contracts(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<(Contract, f64)>, StorageError> {
+        let contracts = self.hot_storage.list_contracts(limit, offset).await?;
+        Ok(contracts.into_iter().map(|c| (c, 0.0)).collect())
+    }
+
+    fn evaluate_contract_filter(&self, filter: &FilterExpr, contract: &Contract, params: &QueryParams) -> bool {
+        self.evaluate_contract_expr_bool(&filter.expr, contract, params)
+    }
+
+    fn evaluate_contract_expr_bool(&self, expr: &Expr, contract: &Contract, params: &QueryParams) -> bool {
+        match expr {
+            Expr::BinaryOp { left, op, right } => {
+                match op {
+                    BinaryOperator::And => {
+                        self.evaluate_contract_expr_bool(left, contract, params)
+                            && self.evaluate_contract_expr_bool(right, contract, params)
+                    }
+                    BinaryOperator::Or => {
+                        self.evaluate_contract_expr_bool(left, contract, params)
+                            || self.evaluate_contract_expr_bool(right, contract, params)
+                    }
+                    BinaryOperator::Eq => {
+                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                        self.compare_values(&left_val, &right_val, |a, b| a == b)
+                    }
+                    BinaryOperator::NotEq => {
+                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                        self.compare_values(&left_val, &right_val, |a, b| a != b)
+                    }
+                    BinaryOperator::Lt => {
+                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                        self.compare_values_ord(&left_val, &right_val, |a, b| a < b)
+                    }
+                    BinaryOperator::LtEq => {
+                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                        self.compare_values_ord(&left_val, &right_val, |a, b| a <= b)
+                    }
+                    BinaryOperator::Gt => {
+                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                        self.compare_values_ord(&left_val, &right_val, |a, b| a > b)
+                    }
+                    BinaryOperator::GtEq => {
+                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                        self.compare_values_ord(&left_val, &right_val, |a, b| a >= b)
+                    }
+                    BinaryOperator::Like => {
+                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                        self.like_match(&left_val, &right_val, false)
+                    }
+                    BinaryOperator::ILike => {
+                        let left_val = self.evaluate_contract_expr_value(left, contract, params);
+                        let right_val = self.evaluate_contract_expr_value(right, contract, params);
+                        self.like_match(&left_val, &right_val, true)
+                    }
+                    _ => false,
+                }
+            }
+            Expr::Function(FunctionCall { name: FunctionName::Contains, args }) => {
+                if args.len() >= 2 {
+                    let text_val = self.evaluate_contract_expr_value(&args[0], contract, params);
+                    let search_val = self.evaluate_contract_expr_value(&args[1], contract, params);
+
+                    if let (ColumnValue::String(text), ColumnValue::String(search)) = (text_val, search_val) {
+                        return self.fulltext_index.contains(&text, &search);
+                    }
+                }
+                false
+            }
+            _ => true,
+        }
+    }
+
+    fn evaluate_contract_expr_value(&self, expr: &Expr, contract: &Contract, params: &QueryParams) -> ColumnValue {
+        match expr {
+            Expr::Column(col) => self.get_contract_column(contract, &col.column),
+            Expr::Literal(lit) => self.literal_to_value(lit),
+            Expr::Parameter(name) => self.param_to_value(params, name),
+            Expr::Function(FunctionCall { name: FunctionName::Bm25Score, args }) => {
+                if args.len() >= 2 {
+                    if let (Expr::Column(col), Expr::Parameter(param_name)) = (&args[0], &args[1]) {
+                        let text = self.get_contract_column(contract, &col.column);
+                        if let (ColumnValue::String(text), Some(query)) = (text, params.get_string(param_name)) {
+                            let score = self.fulltext_index.bm25_score(&text, query);
+                            return ColumnValue::Float(score as f64);
+                        }
+                    }
+                }
+                ColumnValue::Float(0.0)
+            }
+            _ => ColumnValue::Null,
+        }
+    }
+
+    fn get_contract_column(&self, contract: &Contract, column: &str) -> ColumnValue {
+        match column.to_lowercase().as_str() {
+            "id" => ColumnValue::String(contract.id.0.to_string()),
+            "document_id" => ColumnValue::String(contract.document_id.0.to_string()),
+            "contract_number" => contract.contract_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null),
+            "title" => ColumnValue::String(contract.title.clone()),
+            "contract_type" => ColumnValue::String(format!("{:?}", contract.contract_type)),
+            "effective_date" => ColumnValue::Date(contract.effective_date),
+            "expiration_date" => contract.expiration_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null),
+            "execution_date" => contract.execution_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null),
+            "total_value" => contract.total_value.map(ColumnValue::Decimal).unwrap_or(ColumnValue::Null),
+            "currency" => contract.currency.as_ref().map(|c| ColumnValue::String(format!("{:?}", c))).unwrap_or(ColumnValue::Null),
+            "validation_status" => ColumnValue::String(format!("{:?}", contract.validation_status)),
+            "confidence_score" => ColumnValue::Float(contract.confidence_score as f64),
+            "extracted_text" => ColumnValue::String(contract.extracted_text.clone()),
+            // Party name (first party if exists)
+            "party_name" | "vendor_name" => {
+                contract.parties.first()
+                    .map(|p| ColumnValue::String(p.name.clone()))
+                    .unwrap_or(ColumnValue::Null)
+            }
+            _ => ColumnValue::Null,
+        }
+    }
+
+    fn sort_contract_results(
+        &self,
+        results: &mut [(Contract, f64)],
+        order_by: &OrderByClause,
+        _params: &QueryParams,
+    ) {
+        if let Some(first) = order_by.items.first() {
+            let ascending = matches!(first.direction, SortDirection::Asc);
+
+            results.sort_by(|a, b| {
+                let cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
+                if ascending { cmp } else { cmp.reverse() }
+            });
+        }
+    }
+
+    fn project_contract(&self, contract: &Contract, select: &[SelectItem], score: f64) -> ResultRow {
+        let mut columns = HashMap::new();
+
+        for item in select {
+            match &item.expr {
+                Expr::Wildcard => {
+                    // Add all columns
+                    columns.insert("id".to_string(), ColumnValue::String(contract.id.0.to_string()));
+                    columns.insert("contract_number".to_string(),
+                        contract.contract_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null));
+                    columns.insert("title".to_string(), ColumnValue::String(contract.title.clone()));
+                    columns.insert("contract_type".to_string(), ColumnValue::String(format!("{:?}", contract.contract_type)));
+                    columns.insert("effective_date".to_string(), ColumnValue::Date(contract.effective_date));
+                    columns.insert("expiration_date".to_string(),
+                        contract.expiration_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null));
+                    columns.insert("total_value".to_string(),
+                        contract.total_value.map(ColumnValue::Decimal).unwrap_or(ColumnValue::Null));
+                    columns.insert("confidence_score".to_string(), ColumnValue::Float(contract.confidence_score as f64));
+                    // Add first party name if available
+                    if let Some(party) = contract.parties.first() {
+                        columns.insert("party_name".to_string(), ColumnValue::String(party.name.clone()));
+                    }
+                }
+                Expr::Column(col) => {
+                    let name = item.alias.clone().unwrap_or_else(|| col.column.clone());
+                    let value = self.get_contract_column(contract, &col.column);
+                    columns.insert(name, value);
+                }
+                Expr::Function(FunctionCall { name: FunctionName::Bm25Score, .. }) => {
+                    let name = item.alias.clone().unwrap_or_else(|| "bm25_score".to_string());
+                    columns.insert(name, ColumnValue::Float(score));
+                }
+                _ => {}
+            }
+        }
+
+        ResultRow {
+            columns,
+            score: Some(score),
+        }
     }
 
     async fn vector_search_invoices(

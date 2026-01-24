@@ -66,6 +66,8 @@ impl MlInvoiceParser {
             validation_status: ValidationStatus::Pending,
             confidence_score,
             extracted_text: text.clone(),
+            contract_id: None,
+            contract_number: None,
         })
     }
 
