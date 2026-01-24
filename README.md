@@ -44,6 +44,11 @@ Fen automatically ingests, parses, and analyzes invoices and contracts at scale 
 │  │   < 30 days     │  │   30-365 days   │  │   > 365 days                   │ │
 │  │   Sub-ms reads  │  │   < 10ms reads  │  │   < 100ms reads                │ │
 │  └─────────────────┘  └─────────────────┘  └─────────────────────────────────┘ │
+│  ┌─────────────────────────────────────┐  ┌─────────────────────────────────┐ │
+│  │        Anomaly Store (redb)         │  │      Baseline Store (redb)      │ │
+│  │  Historical anomaly records with    │  │  Vendor baselines with stats,   │ │
+│  │  z-scores, percentiles, trends      │  │  rolling windows, caching       │ │
+│  └─────────────────────────────────────┘  └─────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────────┘
                                         │
                                         ▼
@@ -52,16 +57,30 @@ Fen automatically ingests, parses, and analyzes invoices and contracts at scale 
 │  ┌────────────────────────────────────────────────────────────────────────────┐│
 │  │                      Unified Query Engine                                   ││
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   ││
-│  │  │ SQL Parser   │  │ Vector Search│  │ Full-Text   │  │ Query        │   ││
-│  │  │ (sqlparser)  │  │ (HNSW/IVF)   │  │ (Tantivy)   │  │ Optimizer    │   ││
+│  │  │ FQL Parser   │  │ Vector Search│  │ Full-Text   │  │ Query        │   ││
+│  │  │ (custom)     │  │ (HNSW/IVF)   │  │ (Tantivy)   │  │ Optimizer    │   ││
 │  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   ││
 │  └────────────────────────────────────────────────────────────────────────────┘│
 │  ┌────────────────────────────────────────────────────────────────────────────┐│
 │  │                   Anomaly Detection Pipeline                                ││
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   ││
-│  │  │ Rule Engine  │→ │ Datalog      │→ │ ML Detector │→ │ Semantic     │   ││
-│  │  │ (GoRules)    │  │ (Ascent)     │  │ (ONNX)      │  │ Analyzer     │   ││
+│  │  │ Rule Engine  │→ │ Statistical  │→ │ Datalog      │→ │ Semantic     │   ││
+│  │  │ (GoRules)    │  │ Analyzer     │  │ (Ascent)     │  │ Analyzer     │   ││
 │  │  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘   ││
+│  │         │                 │                                                 ││
+│  │         │                 ▼                                                 ││
+│  │         │    ┌─────────────────────────────────────────────────────────┐   ││
+│  │         │    │              Statistical Analysis                        │   ││
+│  │         │    │  ┌───────────┐  ┌───────────┐  ┌───────────┐            │   ││
+│  │         │    │  │ Z-Score   │  │ Percentile│  │ Trend     │            │   ││
+│  │         │    │  │ Detection │  │ Scoring   │  │ Detection │            │   ││
+│  │         │    │  └───────────┘  └───────────┘  └───────────┘            │   ││
+│  │         │    └─────────────────────────────────────────────────────────┘   ││
+│  └─────────┼──────────────────────────────────────────────────────────────────┘│
+│            ▼                                                                    │
+│  ┌────────────────────────────────────────────────────────────────────────────┐│
+│  │                      Pipeline Operations (FQL)                              ││
+│  │  VALIDATE │ ANALYZE │ ANALYZE BASELINE │ CROSS_VALIDATE │ AGGREGATE        ││
 │  └────────────────────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────────────────────┘
                                         │
@@ -109,8 +128,92 @@ Multi-layer detection with increasing latency/sophistication:
 
 1. **Layer 1 - Structural Validation** (us latency): GoRules Zen for math validation, format checks, range validation
 2. **Layer 2 - Relational Constraints** (us-ms latency): Ascent Datalog for invoice-contract matching, duplicate detection
-3. **Layer 3 - Statistical Anomaly** (ms latency): ONNX models for amount outliers, field-level anomaly scores
+3. **Layer 3 - Statistical Anomaly** (ms latency): Real-time z-score analysis against vendor baselines with trend detection
 4. **Layer 4 - Semantic Contradiction** (10s of ms): NLI model for invoice terms vs contract clauses
+
+### Statistical Anomaly Detection
+
+The statistical analysis layer compares incoming invoices against historical vendor baselines:
+
+- **Z-Score Analysis**: Flag invoices with amounts beyond configurable standard deviations from vendor mean
+- **Percentile Scoring**: Determine where an invoice falls in the vendor's historical distribution
+- **Trend Detection**: Identify increasing, decreasing, stable, or volatile spending patterns
+- **Seasonal Awareness**: Optional month-of-year baseline patterns for seasonal vendors
+- **Rolling Windows**: Configurable baseline windows (30, 90, 365 days)
+
+**Example Response:**
+
+```json
+{
+  "anomaly_type": "StatisticalOutlier",
+  "severity": "Medium",
+  "description": "Invoice amount $10000.00 is 6.2 standard deviations from vendor baseline (mean: $1050.00)",
+  "statistical_score": {
+    "z_score": 6.2,
+    "percentile": 99.8,
+    "trend": "Stable",
+    "is_outlier": true,
+    "baseline_mean": 1050.0,
+    "baseline_stddev": 145.0,
+    "sample_count": 47
+  }
+}
+```
+
+## Fen Query Language (FQL)
+
+Fen includes a powerful SQL-like query language with extensions for vector similarity search, cross-table ZIP queries, and pipeline operations for validation and analysis.
+
+### Query Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| **SQL-like Syntax** | SELECT, FROM, WHERE, ORDER BY, LIMIT, OFFSET |
+| **Vector Search** | `VECTOR_DISTANCE(embedding, :vector)` for semantic similarity |
+| **Full-text Search** | `BM25_SCORE()` and `CONTAINS()` for keyword search |
+| **ZIP Queries** | Cross-table joins between invoices and contracts |
+| **Pipeline Operations** | Post-query validation and analysis via `\|>` syntax |
+
+### Example Queries
+
+```sql
+-- Basic query with filter
+SELECT invoice_number, vendor_name, total_amount
+FROM invoices
+WHERE total_amount > 1000
+ORDER BY invoice_date DESC
+LIMIT 20
+
+-- Semantic search for similar invoices
+SELECT *, VECTOR_DISTANCE(embedding, :query_vector) AS similarity
+FROM invoices
+WHERE VECTOR_DISTANCE(embedding, :query_vector) < 0.3
+ORDER BY similarity ASC
+
+-- Cross-table analysis: find invoices exceeding contract limits
+SELECT inv.invoice_number, inv.total_amount, con.title, con.total_value
+FROM invoices inv
+ZIP contracts con ON inv.vendor_name = con.party_name
+WHERE inv.total_amount > con.total_value
+
+-- Pipeline: query with statistical baseline analysis
+SELECT * FROM invoices
+WHERE vendor_name = 'Acme Corp'
+|> ANALYZE BASELINE vendor_name WINDOW 90 DAYS THRESHOLD 2.0
+|> VALIDATE WITH ('math_check')
+```
+
+### Pipeline Operations
+
+| Operation | Description |
+|-----------|-------------|
+| `VALIDATE` | Run structural validation rules |
+| `ANALYZE` | Detect anomalies with optional analyzers |
+| `ANALYZE BASELINE` | Statistical outlier detection against vendor baselines |
+| `CROSS_VALIDATE` | Compare invoice fields against contract fields |
+| `AGGREGATE` | Group and compute aggregate metrics |
+
+See [Query Language Reference](docs/QUERY_LANGUAGE.md) for complete documentation.
 
 ## Quick Start
 
@@ -153,6 +256,31 @@ docker-compose up --build
 | `POST` | `/validate` | Validate documents for anomalies |
 | `POST` | `/query` | Execute hybrid query (SQL + vector) |
 | `GET` | `/health` | Health check |
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BIND_ADDRESS` | `0.0.0.0:3000` | Server bind address |
+| `DATABASE_PATH` | `data/fen.redb` | Path to redb database |
+| `RULES_PATH` | (none) | Path to GoRules decision file |
+| `MAX_UPLOAD_SIZE` | `52428800` | Max upload size in bytes (50MB) |
+| `RATE_LIMIT_RPS` | `100` | Requests per second limit |
+| `RATE_LIMIT_BURST` | `200` | Burst capacity |
+
+### Statistical Analysis Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STATISTICAL_ENABLED` | `true` | Enable statistical analysis |
+| `STATISTICAL_ON_INGEST` | `false` | Run analysis during document ingestion |
+| `STATISTICAL_ON_VALIDATE` | `true` | Run analysis during validation |
+| `STATISTICAL_THRESHOLD` | `2.0` | Z-score threshold for outlier detection |
+| `STATISTICAL_METRICS` | `total_amount` | Comma-separated metrics to analyze |
+| `STATISTICAL_WINDOW_DAYS` | `90` | Rolling window for baseline computation |
+| `STATISTICAL_SEASONAL` | `true` | Enable seasonal baseline awareness |
 
 ## Query Performance Targets
 

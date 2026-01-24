@@ -749,6 +749,7 @@ WHERE inv.total_amount > 1000
 |-----------|--------|-------------|
 | VALIDATE | `\|> VALIDATE [WITH (...)] [FAIL_FAST]` | Run validation rules |
 | ANALYZE | `\|> ANALYZE [WITH (...)] [INCLUDE_SCORES]` | Detect anomalies |
+| ANALYZE BASELINE | `\|> ANALYZE BASELINE field [WINDOW n DAYS] [THRESHOLD n]` | Statistical baseline analysis |
 | CROSS_VALIDATE | `\|> CROSS_VALIDATE ON (...) [TOLERANCE n]` | Compare fields |
 | AGGREGATE | `\|> AGGREGATE BY ... INTO ...` | Group and aggregate |
 
@@ -777,6 +778,84 @@ SELECT * FROM invoices |> ANALYZE
 
 -- With specific analyzers and scores
 SELECT * FROM invoices |> ANALYZE WITH ('anomaly_detector') INCLUDE_SCORES
+```
+
+#### ANALYZE BASELINE
+
+Perform statistical baseline analysis to detect outliers by comparing invoice values against historical vendor baselines. This operation computes z-scores, percentiles, and trend indicators.
+
+**Syntax:**
+
+```sql
+|> ANALYZE BASELINE <group_by_field> [WINDOW <n> DAYS] [THRESHOLD <n>] [METRICS (<metric_list>)]
+```
+
+**Parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `group_by_field` | (required) | Field to group baselines by (typically `vendor_name`) |
+| `WINDOW n DAYS` | 90 | Rolling window in days for baseline computation |
+| `THRESHOLD n` | 2.0 | Z-score threshold for outlier detection |
+| `METRICS (...)` | `total_amount` | Comma-separated list of metrics to analyze |
+
+**Examples:**
+
+```sql
+-- Basic baseline analysis grouped by vendor
+SELECT * FROM invoices
+|> ANALYZE BASELINE vendor_name
+
+-- Custom window and threshold
+SELECT * FROM invoices
+WHERE invoice_date >= '2024-01-01'
+|> ANALYZE BASELINE vendor_name WINDOW 30 DAYS THRESHOLD 3.0
+
+-- Analyze multiple metrics
+SELECT * FROM invoices
+|> ANALYZE BASELINE vendor_name WINDOW 90 DAYS METRICS (total_amount, line_item_count)
+
+-- Combined with other pipeline operations
+SELECT inv.*, con.title
+FROM invoices inv
+ZIP contracts con ON inv.vendor_name = con.party_name
+WHERE inv.total_amount > 1000
+|> ANALYZE BASELINE vendor_name THRESHOLD 2.5
+|> VALIDATE WITH ('math_check')
+```
+
+**Result Fields:**
+
+When an outlier is detected, the result includes a `StatisticalOutlier` anomaly with:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `z_score` | float | Number of standard deviations from mean |
+| `percentile` | float | Percentile rank (0-100) |
+| `trend` | string | `Increasing`, `Decreasing`, `Stable`, or `Volatile` |
+| `is_outlier` | bool | Whether value exceeds threshold |
+| `baseline_mean` | float | Historical mean for this vendor |
+| `baseline_stddev` | float | Historical standard deviation |
+| `sample_count` | int | Number of historical samples |
+
+**Example Response:**
+
+```json
+{
+  "anomaly_type": "StatisticalOutlier",
+  "severity": "Medium",
+  "description": "Invoice amount $10000.00 is 6.2 standard deviations from vendor baseline (mean: $1050.00)",
+  "field_path": "total_amount",
+  "statistical_score": {
+    "z_score": 6.2,
+    "percentile": 99.8,
+    "trend": "Stable",
+    "is_outlier": true,
+    "baseline_mean": 1050.0,
+    "baseline_stddev": 145.0,
+    "sample_count": 47
+  }
+}
 ```
 
 #### CROSS_VALIDATE
@@ -833,6 +912,33 @@ Pipeline operations can also be specified in JSON queries:
   ]
 }
 ```
+
+#### Analyze Baseline
+
+Statistical baseline analysis in JSON format:
+
+```json
+{
+  "pipeline": [
+    {
+      "op": "analyzeBaseline",
+      "groupBy": "vendor_name",
+      "windowDays": 90,
+      "threshold": 2.0,
+      "metrics": ["total_amount", "line_item_count"]
+    }
+  ]
+}
+```
+
+**Fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `groupBy` | string | (required) | Field to group baselines by |
+| `windowDays` | integer | 90 | Rolling window in days |
+| `threshold` | float | 2.0 | Z-score threshold for outliers |
+| `metrics` | array | `["total_amount"]` | Metrics to analyze |
 
 #### Cross-Validate
 
