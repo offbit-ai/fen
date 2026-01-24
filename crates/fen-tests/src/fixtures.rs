@@ -30,6 +30,7 @@ pub struct InvoiceFixture {
     pub currency: Currency,
     pub confidence_score: f32,
     pub validation_status: ValidationStatus,
+    pub extracted_text: String,
 }
 
 impl Default for InvoiceFixture {
@@ -52,6 +53,7 @@ impl Default for InvoiceFixture {
             currency: Currency::USD,
             confidence_score: 0.95,
             validation_status: ValidationStatus::Pending,
+            extracted_text: String::new(),
         }
     }
 }
@@ -192,6 +194,21 @@ impl InvoiceFixture {
         self
     }
 
+    /// Set extracted text content (for full-text search testing)
+    pub fn with_extracted_text(mut self, text: impl Into<String>) -> Self {
+        self.extracted_text = text.into();
+        self
+    }
+
+    /// Set total amount (adjusts subtotal to match for valid math)
+    pub fn with_total_amount(mut self, amount: Decimal) -> Self {
+        self.total_amount = amount;
+        self.subtotal = amount; // Simple case: no tax/discount
+        self.tax_amount = Decimal::ZERO;
+        self.discount_amount = Decimal::ZERO;
+        self
+    }
+
     /// Build the invoice
     pub fn build(self) -> Invoice {
         let document_id = DocumentId::new();
@@ -214,7 +231,7 @@ impl InvoiceFixture {
             total_amount: self.total_amount,
             validation_status: self.validation_status,
             confidence_score: self.confidence_score,
-            extracted_text: String::new(),
+            extracted_text: self.extracted_text,
         }
     }
 

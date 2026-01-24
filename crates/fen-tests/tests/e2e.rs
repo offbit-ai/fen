@@ -987,3 +987,664 @@ mod anomaly_scenarios {
         assert_eq!(usd_result.anomalies.len(), eur_result.anomalies.len());
     }
 }
+
+// ============================================================================
+// Module: Unified Query Language Tests
+// ============================================================================
+
+mod unified_query {
+    use super::*;
+    use fen_storage::{parse_query, QueryParams};
+
+    /// Test basic SELECT query parsing
+    #[test]
+    fn test_parse_simple_select() {
+        let query = parse_query("SELECT id, invoice_number FROM invoices").unwrap();
+
+        assert_eq!(query.select.len(), 2);
+        assert!(query.filter.is_none());
+        assert!(query.order_by.is_none());
+        assert!(query.limit.is_none());
+    }
+
+    /// Test SELECT with WHERE clause
+    #[test]
+    fn test_parse_select_with_where() {
+        let query = parse_query(
+            "SELECT id FROM invoices WHERE vendor_name = 'Acme Corp'"
+        ).unwrap();
+
+        assert!(query.filter.is_some());
+    }
+
+    /// Test SELECT with ORDER BY and LIMIT
+    #[test]
+    fn test_parse_select_with_order_limit() {
+        let query = parse_query(
+            "SELECT * FROM invoices ORDER BY invoice_date DESC LIMIT 10 OFFSET 5"
+        ).unwrap();
+
+        assert!(query.order_by.is_some());
+        assert_eq!(query.limit, Some(10));
+        assert_eq!(query.offset, Some(5));
+    }
+
+    /// Test VECTOR_DISTANCE function parsing
+    #[test]
+    fn test_parse_vector_distance() {
+        let query = parse_query(
+            "SELECT id, VECTOR_DISTANCE(embedding, :query_vector) AS score FROM invoices"
+        ).unwrap();
+
+        assert!(query.uses_vector_search());
+        let params = query.parameter_names();
+        assert!(params.contains(&"query_vector".to_string()));
+    }
+
+    /// Test BM25_SCORE function parsing
+    #[test]
+    fn test_parse_bm25_score() {
+        let query = parse_query(
+            "SELECT id, BM25_SCORE(extracted_text, :search_terms) AS relevance FROM invoices"
+        ).unwrap();
+
+        assert!(query.uses_text_search());
+        let params = query.parameter_names();
+        assert!(params.contains(&"search_terms".to_string()));
+    }
+
+    /// Test CONTAINS function parsing
+    #[test]
+    fn test_parse_contains() {
+        let query = parse_query(
+            "SELECT id FROM invoices WHERE CONTAINS(extracted_text, :search)"
+        ).unwrap();
+
+        assert!(query.uses_contains());
+    }
+
+    /// Test hybrid query with both vector and text search
+    #[test]
+    fn test_parse_hybrid_query() {
+        let query_str = r#"
+            SELECT inv.id, inv.invoice_number,
+                VECTOR_DISTANCE(inv.embedding, :query_vector) AS semantic_score,
+                BM25_SCORE(inv.extracted_text, :search_terms) AS text_score
+            FROM invoices inv
+            WHERE inv.vendor_name = 'Acme Corp'
+                AND VECTOR_DISTANCE(inv.embedding, :query_vector) < 0.3
+                AND CONTAINS(inv.extracted_text, :search_terms)
+            ORDER BY 0.7 * semantic_score + 0.3 * text_score ASC
+            LIMIT 10
+        "#;
+
+        let query = parse_query(query_str).unwrap();
+
+        assert!(query.uses_vector_search());
+        assert!(query.uses_text_search());
+        assert!(query.uses_contains());
+        assert_eq!(query.limit, Some(10));
+
+        let params = query.parameter_names();
+        assert!(params.contains(&"query_vector".to_string()));
+        assert!(params.contains(&"search_terms".to_string()));
+    }
+
+    /// Test query parameter building
+    #[test]
+    fn test_query_params() {
+        let params = QueryParams::new()
+            .with_vector("query_vector", vec![0.1, 0.2, 0.3])
+            .with_string("search_terms", "payment invoice")
+            .with_float("threshold", 0.5);
+
+        assert!(params.get_vector("query_vector").is_some());
+        assert_eq!(params.get_string("search_terms"), Some("payment invoice"));
+        assert!(params.get("threshold").is_some());
+    }
+
+    /// Test invalid query error reporting
+    #[test]
+    fn test_parse_error_unknown_table() {
+        let result = parse_query("SELECT id FROM unknown_table");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        let report = err.report();
+        assert!(report.contains("unknown_table"));
+    }
+
+    /// Test missing FROM clause error
+    #[test]
+    fn test_parse_error_missing_from() {
+        let result = parse_query("SELECT id WHERE x = 1");
+        assert!(result.is_err());
+    }
+
+    /// Test complex WHERE with AND/OR
+    #[test]
+    fn test_parse_complex_where() {
+        let query = parse_query(
+            "SELECT * FROM invoices \
+             WHERE (vendor_name = 'Acme' OR vendor_name = 'Beta') \
+             AND total_amount > 1000"
+        ).unwrap();
+
+        assert!(query.filter.is_some());
+    }
+
+    /// Test arithmetic expressions in ORDER BY
+    #[test]
+    fn test_parse_arithmetic_order_by() {
+        let query = parse_query(
+            "SELECT id, score1, score2 FROM invoices \
+             ORDER BY 0.7 * score1 + 0.3 * score2 ASC"
+        ).unwrap();
+
+        assert!(query.order_by.is_some());
+        let order = query.order_by.unwrap();
+        assert_eq!(order.items.len(), 1);
+    }
+
+    /// Test LIKE pattern matching
+    #[test]
+    fn test_parse_like_pattern() {
+        let query = parse_query(
+            "SELECT * FROM invoices WHERE invoice_number LIKE 'INV-%'"
+        ).unwrap();
+
+        assert!(query.filter.is_some());
+    }
+
+    /// Test NULL handling
+    #[test]
+    fn test_parse_null_check() {
+        let query = parse_query(
+            "SELECT * FROM invoices WHERE po_number IS NOT NULL"
+        ).unwrap();
+
+        assert!(query.filter.is_some());
+    }
+
+    /// Test contracts table query
+    #[test]
+    fn test_parse_contracts_query() {
+        let query = parse_query(
+            "SELECT id, title FROM contracts WHERE contract_type = 'ServiceAgreement'"
+        ).unwrap();
+
+        assert!(matches!(query.from, fen_storage::query::lang::QueryTarget::Contracts));
+    }
+}
+
+// ============================================================================
+// Module: Query Execution Tests
+// ============================================================================
+
+mod query_execution {
+    use super::*;
+    use fen_storage::{parse_query, QueryParams, DocumentStore};
+    use fen_tests::QueryExecutorTestEnv;
+    use rust_decimal_macros::dec;
+
+    /// Test basic SELECT * execution against stored invoices
+    #[tokio::test]
+    async fn test_execute_select_all() {
+        init_test_tracing();
+        let env = QueryExecutorTestEnv::new().await;
+
+        // Store test invoices
+        let inv1 = InvoiceFixture::new()
+            .with_number("EXEC-001")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(1000.00))
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("EXEC-002")
+            .with_vendor("Beta Inc")
+            .with_total_amount(dec!(2500.00))
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+
+        // Execute query
+        let query = parse_query("SELECT * FROM invoices LIMIT 10").unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Verify results
+        assert_eq!(result.rows.len(), 2);
+        assert!(result.metadata.rows_returned >= 2);
+    }
+
+    /// Test SELECT with specific columns
+    #[tokio::test]
+    async fn test_execute_select_columns() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        let invoice = InvoiceFixture::new()
+            .with_number("COL-001")
+            .with_vendor("Test Vendor")
+            .build();
+        env.store_invoice(&invoice).await.unwrap();
+
+        let query = parse_query(
+            "SELECT id, invoice_number, vendor_name FROM invoices"
+        ).unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        assert_eq!(result.rows.len(), 1);
+        let row = &result.rows[0];
+        assert!(row.columns.contains_key("id"));
+        assert!(row.columns.contains_key("invoice_number"));
+        assert!(row.columns.contains_key("vendor_name"));
+
+        // Verify values
+        if let Some(fen_storage::ColumnValue::String(num)) = row.columns.get("invoice_number") {
+            assert_eq!(num, "COL-001");
+        } else {
+            panic!("Expected string for invoice_number");
+        }
+    }
+
+    /// Test WHERE clause filtering with equality
+    #[tokio::test]
+    async fn test_execute_where_eq() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        // Store invoices with different vendors
+        let inv1 = InvoiceFixture::new()
+            .with_number("WHERE-001")
+            .with_vendor("Acme Corp")
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("WHERE-002")
+            .with_vendor("Beta Inc")
+            .build();
+        let inv3 = InvoiceFixture::new()
+            .with_number("WHERE-003")
+            .with_vendor("Acme Corp")
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+        env.store_invoice(&inv3).await.unwrap();
+
+        // Query for Acme Corp only
+        let query = parse_query(
+            "SELECT id, invoice_number FROM invoices WHERE vendor_name = 'Acme Corp'"
+        ).unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Should return 2 invoices (WHERE-001 and WHERE-003)
+        assert_eq!(result.rows.len(), 2);
+
+        // Verify all returned invoices are from Acme Corp
+        for row in &result.rows {
+            if let Some(fen_storage::ColumnValue::String(num)) = row.columns.get("invoice_number") {
+                assert!(num == "WHERE-001" || num == "WHERE-003");
+            }
+        }
+    }
+
+    /// Test WHERE clause with comparison operators
+    #[tokio::test]
+    async fn test_execute_where_comparison() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        // Store invoices with different amounts
+        let inv_small = InvoiceFixture::new()
+            .with_number("CMP-SMALL")
+            .with_total_amount(dec!(500.00))
+            .build();
+        let inv_medium = InvoiceFixture::new()
+            .with_number("CMP-MEDIUM")
+            .with_total_amount(dec!(1500.00))
+            .build();
+        let inv_large = InvoiceFixture::new()
+            .with_number("CMP-LARGE")
+            .with_total_amount(dec!(5000.00))
+            .build();
+
+        env.store_invoice(&inv_small).await.unwrap();
+        env.store_invoice(&inv_medium).await.unwrap();
+        env.store_invoice(&inv_large).await.unwrap();
+
+        // Query for invoices > 1000
+        let query = parse_query(
+            "SELECT invoice_number, total_amount FROM invoices WHERE total_amount > 1000"
+        ).unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Should return CMP-MEDIUM and CMP-LARGE
+        assert_eq!(result.rows.len(), 2);
+    }
+
+    /// Test LIMIT and OFFSET
+    #[tokio::test]
+    async fn test_execute_limit_offset() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        // Store 5 invoices
+        for i in 1..=5 {
+            let inv = InvoiceFixture::new()
+                .with_number(&format!("LIM-{:03}", i))
+                .build();
+            env.store_invoice(&inv).await.unwrap();
+        }
+
+        // Query with LIMIT 2
+        let query = parse_query("SELECT * FROM invoices LIMIT 2").unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+        assert_eq!(result.rows.len(), 2);
+
+        // Query with LIMIT 3 OFFSET 2
+        let query = parse_query("SELECT * FROM invoices LIMIT 3 OFFSET 2").unwrap();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+        assert!(result.rows.len() <= 3);
+    }
+
+    /// Test LIKE pattern matching
+    #[tokio::test]
+    async fn test_execute_like() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        let inv1 = InvoiceFixture::new()
+            .with_number("INV-2024-001")
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("INV-2024-002")
+            .build();
+        let inv3 = InvoiceFixture::new()
+            .with_number("PO-2024-001")
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+        env.store_invoice(&inv3).await.unwrap();
+
+        // Query with LIKE pattern
+        let query = parse_query(
+            "SELECT invoice_number FROM invoices WHERE invoice_number LIKE 'INV-%'"
+        ).unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Should return INV-2024-001 and INV-2024-002
+        assert_eq!(result.rows.len(), 2);
+    }
+
+    /// Test BM25 text search execution
+    #[tokio::test]
+    async fn test_execute_bm25_search() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        // Store invoices with different text content
+        let inv1 = InvoiceFixture::new()
+            .with_number("BM25-001")
+            .with_extracted_text("Payment for consulting services rendered in January")
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("BM25-002")
+            .with_extracted_text("Hardware equipment purchase and installation")
+            .build();
+        let inv3 = InvoiceFixture::new()
+            .with_number("BM25-003")
+            .with_extracted_text("Consulting fee for project management services")
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+        env.store_invoice(&inv3).await.unwrap();
+
+        // Search for "consulting services"
+        let query = parse_query(
+            "SELECT id, invoice_number, BM25_SCORE(extracted_text, :search) AS relevance \
+             FROM invoices \
+             ORDER BY relevance DESC \
+             LIMIT 10"
+        ).unwrap();
+
+        let params = QueryParams::new()
+            .with_string("search", "consulting services");
+
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Should find results with text search
+        assert!(result.metadata.used_text_search);
+        assert!(!result.rows.is_empty());
+
+        // First result should have a relevance score
+        if let Some(first) = result.rows.first() {
+            assert!(first.score.is_some());
+        }
+    }
+
+    /// Test CONTAINS function for full-text filtering
+    #[tokio::test]
+    async fn test_execute_contains() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        let inv1 = InvoiceFixture::new()
+            .with_number("CONT-001")
+            .with_extracted_text("This invoice is for software development work")
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("CONT-002")
+            .with_extracted_text("Hardware maintenance and repair services")
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+
+        // Query with CONTAINS
+        let query = parse_query(
+            "SELECT invoice_number FROM invoices \
+             WHERE CONTAINS(extracted_text, :search)"
+        ).unwrap();
+
+        let params = QueryParams::new()
+            .with_string("search", "software");
+
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Should find CONT-001
+        assert!(!result.rows.is_empty());
+    }
+
+    /// Test vector search with VECTOR_DISTANCE
+    #[tokio::test]
+    async fn test_execute_vector_search() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        // Create invoices with embeddings (simulated) - 384 dims for typical embedding
+        const EMBEDDING_DIM: usize = 768;
+        let embedding1 = consistent_embedding("payment invoice consulting", EMBEDDING_DIM);
+        let embedding2 = consistent_embedding("hardware equipment purchase", EMBEDDING_DIM);
+        let embedding3 = consistent_embedding("legal contract agreement", EMBEDDING_DIM);
+
+        let inv1 = InvoiceFixture::new()
+            .with_number("VEC-001")
+            .with_extracted_text("Payment invoice for consulting")
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("VEC-002")
+            .with_extracted_text("Hardware equipment purchase")
+            .build();
+        let inv3 = InvoiceFixture::new()
+            .with_number("VEC-003")
+            .with_extracted_text("Legal contract agreement")
+            .build();
+
+        env.store_invoice_with_embedding(&inv1, &embedding1).await.unwrap();
+        env.store_invoice_with_embedding(&inv2, &embedding2).await.unwrap();
+        env.store_invoice_with_embedding(&inv3, &embedding3).await.unwrap();
+
+        // Search for similar to "consulting payment"
+        let query_embedding = consistent_embedding("payment consulting invoice", EMBEDDING_DIM);
+
+        let query = parse_query(
+            "SELECT id, invoice_number, VECTOR_DISTANCE(embedding, :query_vec) AS distance \
+             FROM invoices \
+             ORDER BY distance ASC \
+             LIMIT 5"
+        ).unwrap();
+
+        let params = QueryParams::new()
+            .with_vector("query_vec", query_embedding.to_vec());
+
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Should have used vector search
+        assert!(result.metadata.used_vector_search);
+        assert!(!result.rows.is_empty());
+    }
+
+    /// Test hybrid search combining vector and text
+    #[tokio::test]
+    async fn test_execute_hybrid_search() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        const EMBEDDING_DIM: usize = 768;
+        let embedding1 = consistent_embedding("payment consulting services", EMBEDDING_DIM);
+        let embedding2 = consistent_embedding("hardware maintenance", EMBEDDING_DIM);
+
+        let inv1 = InvoiceFixture::new()
+            .with_number("HYB-001")
+            .with_vendor("Acme Consulting")
+            .with_extracted_text("Payment for consulting services rendered")
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("HYB-002")
+            .with_vendor("Tech Hardware")
+            .with_extracted_text("Hardware maintenance and support")
+            .build();
+
+        env.store_invoice_with_embedding(&inv1, &embedding1).await.unwrap();
+        env.store_invoice_with_embedding(&inv2, &embedding2).await.unwrap();
+
+        // Hybrid query with both vector and text search
+        let query_embedding = consistent_embedding("consulting services", EMBEDDING_DIM);
+
+        let query = parse_query(
+            "SELECT invoice_number, \
+                    VECTOR_DISTANCE(embedding, :vec) AS vec_score, \
+                    BM25_SCORE(extracted_text, :text) AS text_score \
+             FROM invoices \
+             ORDER BY 0.7 * vec_score + 0.3 * text_score ASC \
+             LIMIT 10"
+        ).unwrap();
+
+        let params = QueryParams::new()
+            .with_vector("vec", query_embedding.to_vec())
+            .with_string("text", "consulting services");
+
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Should use both search types
+        assert!(result.metadata.used_vector_search);
+        assert!(result.metadata.used_text_search);
+        assert!(!result.rows.is_empty());
+    }
+
+    /// Test AND/OR logical operators in WHERE
+    #[tokio::test]
+    async fn test_execute_complex_where() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        let inv1 = InvoiceFixture::new()
+            .with_number("LOGIC-001")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(1500.00))
+            .build();
+        let inv2 = InvoiceFixture::new()
+            .with_number("LOGIC-002")
+            .with_vendor("Beta Inc")
+            .with_total_amount(dec!(500.00))
+            .build();
+        let inv3 = InvoiceFixture::new()
+            .with_number("LOGIC-003")
+            .with_vendor("Acme Corp")
+            .with_total_amount(dec!(200.00))
+            .build();
+
+        env.store_invoice(&inv1).await.unwrap();
+        env.store_invoice(&inv2).await.unwrap();
+        env.store_invoice(&inv3).await.unwrap();
+
+        // Complex WHERE with AND
+        let query = parse_query(
+            "SELECT invoice_number FROM invoices \
+             WHERE vendor_name = 'Acme Corp' AND total_amount > 1000"
+        ).unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Should only return LOGIC-001 (Acme Corp with amount > 1000)
+        assert_eq!(result.rows.len(), 1);
+        if let Some(fen_storage::ColumnValue::String(num)) = result.rows[0].columns.get("invoice_number") {
+            assert_eq!(num, "LOGIC-001");
+        }
+    }
+
+    /// Test parameterized queries
+    #[tokio::test]
+    async fn test_execute_with_parameters() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        let inv = InvoiceFixture::new()
+            .with_number("PARAM-001")
+            .with_vendor("Test Vendor")
+            .build();
+        env.store_invoice(&inv).await.unwrap();
+
+        // Query with string parameter
+        let query = parse_query(
+            "SELECT invoice_number FROM invoices WHERE vendor_name = :vendor"
+        ).unwrap();
+
+        let params = QueryParams::new()
+            .with_string("vendor", "Test Vendor");
+
+        let result = env.executor.execute(&query, &params).await.unwrap();
+        assert_eq!(result.rows.len(), 1);
+    }
+
+    /// Test empty result set
+    #[tokio::test]
+    async fn test_execute_empty_result() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        // Query on empty storage
+        let query = parse_query("SELECT * FROM invoices").unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        assert!(result.rows.is_empty());
+        assert_eq!(result.metadata.rows_returned, 0);
+    }
+
+    /// Test query execution time is tracked
+    #[tokio::test]
+    async fn test_execution_metadata() {
+        let env = QueryExecutorTestEnv::new().await;
+
+        let inv = InvoiceFixture::new()
+            .with_number("META-001")
+            .build();
+        env.store_invoice(&inv).await.unwrap();
+
+        let query = parse_query("SELECT * FROM invoices").unwrap();
+        let params = QueryParams::new();
+        let result = env.executor.execute(&query, &params).await.unwrap();
+
+        // Execution time should be tracked
+        assert!(result.metadata.execution_time_ms >= 0);
+        assert_eq!(result.metadata.rows_returned, result.rows.len());
+    }
+}

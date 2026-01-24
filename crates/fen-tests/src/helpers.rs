@@ -167,6 +167,102 @@ impl QueryTestEnv {
     }
 }
 
+/// Test environment with query executor for unified query language tests
+pub struct QueryExecutorTestEnv {
+    /// Query executor for executing parsed queries
+    pub executor: fen_storage::QueryExecutor,
+    /// Direct access to hot storage
+    pub hot_storage: Arc<RedbStorage>,
+    /// Direct access to warm storage
+    pub warm_storage: Arc<tokio::sync::RwLock<fen_storage::LanceStorage>>,
+    /// Full-text index for BM25 search
+    pub fulltext_index: Arc<fen_storage::FullTextIndex>,
+    /// Temporary directory
+    _temp_dir: TempDir,
+}
+
+impl QueryExecutorTestEnv {
+    /// Create a new query executor test environment
+    pub async fn new() -> Self {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        let warm_path = temp_dir.path().join("warm");
+        let fulltext_path = temp_dir.path().join("fulltext");
+
+        let hot_storage = Arc::new(
+            RedbStorage::in_memory().expect("Failed to create hot storage"),
+        );
+
+        let warm_storage = Arc::new(tokio::sync::RwLock::new(
+            fen_storage::LanceStorage::new(&warm_path)
+                .await
+                .expect("Failed to create warm storage"),
+        ));
+
+        let fulltext_index = Arc::new(
+            fen_storage::FullTextIndex::new(&fulltext_path, fen_storage::FullTextConfig::default())
+                .expect("Failed to create fulltext index"),
+        );
+
+        let executor = fen_storage::QueryExecutor::new(
+            hot_storage.clone(),
+            warm_storage.clone(),
+            fulltext_index.clone(),
+            fen_storage::ExecutorConfig::default(),
+        );
+
+        Self {
+            executor,
+            hot_storage,
+            warm_storage,
+            fulltext_index,
+            _temp_dir: temp_dir,
+        }
+    }
+
+    /// Store an invoice with text indexing
+    pub async fn store_invoice(&self, invoice: &fen_core::domain::Invoice) -> Result<(), fen_storage::StorageError> {
+        use fen_storage::DocumentStore;
+
+        // Store in hot storage
+        self.hot_storage.store_invoice(invoice).await?;
+
+        // Index text for full-text search
+        self.fulltext_index.index_invoice(invoice).await?;
+
+        // Commit changes to make them visible
+        self.fulltext_index.commit().await?;
+
+        Ok(())
+    }
+
+    /// Store an invoice with embedding for vector search
+    pub async fn store_invoice_with_embedding(
+        &self,
+        invoice: &fen_core::domain::Invoice,
+        embedding: &[f32],
+    ) -> Result<(), fen_storage::StorageError> {
+        use fen_storage::DocumentStore;
+
+        // Store in hot storage
+        self.hot_storage.store_invoice(invoice).await?;
+
+        // Store in warm storage with embedding
+        {
+            let mut warm = self.warm_storage.write().await;
+            warm.store_invoice_with_embedding(invoice, Some(embedding)).await?;
+        }
+
+        // Index text for full-text search
+        self.fulltext_index.index_invoice(invoice).await?;
+
+        // Commit changes to make them visible
+        self.fulltext_index.commit().await?;
+
+        Ok(())
+    }
+}
+
 /// Initialize tracing for tests (call once at the start of test suite)
 pub fn init_test_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

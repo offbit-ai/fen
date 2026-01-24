@@ -28,8 +28,16 @@ uuid.workspace = true
 dashmap.workspace = true
 futures.workspace = true
 rust_decimal.workspace = true
-
 chrono.workspace = true
+
+# Full-text search & query language
+tantivy.workspace = true
+nom.workspace = true
+nom_locate.workspace = true
+miette.workspace = true
+ariadne.workspace = true
+lru.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

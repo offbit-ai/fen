@@ -23,6 +23,12 @@ pub enum StorageError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Index error: {0}")]
+    Index(String),
+
+    #[error("Query error: {0}")]
+    Query(String),
 }
 
 impl From<redb::Error> for StorageError {

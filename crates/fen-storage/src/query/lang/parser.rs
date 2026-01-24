@@ -1,0 +1,840 @@
+//! Parser for the Fen query language
+//!
+//! Converts tokens into an abstract syntax tree (AST).
+
+use crate::query::lang::ast::*;
+use crate::query::lang::error::{ParseError, ParseErrorKind};
+use crate::query::lang::lexer::{Lexer, Token, TokenKind};
+use crate::query::lang::span::Span;
+
+/// Query parser
+pub struct QueryParser<'a> {
+    source: &'a str,
+    tokens: Vec<Token<'a>>,
+    pos: usize,
+    file_name: String,
+}
+
+impl<'a> QueryParser<'a> {
+    /// Create a new parser
+    pub fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            tokens: Vec::new(),
+            pos: 0,
+            file_name: "<query>".to_string(),
+        }
+    }
+
+    /// Set the file name for error messages
+    pub fn with_file_name(mut self, name: impl Into<String>) -> Self {
+        self.file_name = name.into();
+        self
+    }
+
+    /// Parse the query
+    pub fn parse(&mut self) -> Result<FenQuery, ParseError> {
+        // Tokenize
+        let mut lexer = Lexer::new(self.source);
+        self.tokens = lexer.tokenize()?.to_vec();
+        self.pos = 0;
+
+        // Parse SELECT
+        self.expect_keyword(TokenKind::Select)?;
+        let select = self.parse_select_list()?;
+
+        // Parse FROM
+        self.expect_keyword(TokenKind::From)?;
+        let (from, alias) = self.parse_from_clause()?;
+
+        // Parse optional WHERE
+        let filter = if self.check(&TokenKind::Where) {
+            self.advance();
+            Some(FilterExpr::new(self.parse_expression()?))
+        } else {
+            None
+        };
+
+        // Parse optional ORDER BY
+        let order_by = if self.check(&TokenKind::OrderBy) {
+            self.advance();
+            Some(self.parse_order_by()?)
+        } else {
+            None
+        };
+
+        // Parse optional LIMIT
+        let limit = if self.check(&TokenKind::Limit) {
+            self.advance();
+            Some(self.parse_integer()?)
+        } else {
+            None
+        };
+
+        // Parse optional OFFSET
+        let offset = if self.check(&TokenKind::Offset) {
+            self.advance();
+            Some(self.parse_integer()?)
+        } else {
+            None
+        };
+
+        // Ensure we've consumed all input
+        if !self.is_at_end() {
+            let token = self.current();
+            return Err(self.error(
+                ParseErrorKind::UnexpectedToken {
+                    expected: vec!["end of query".to_string()],
+                    found: token.kind.as_str().to_string(),
+                },
+                token.span,
+            ));
+        }
+
+        Ok(FenQuery {
+            from,
+            alias,
+            select,
+            filter,
+            order_by,
+            limit,
+            offset,
+        })
+    }
+
+    // ========== Parsing helpers ==========
+
+    fn parse_select_list(&mut self) -> Result<Vec<SelectItem>, ParseError> {
+        let mut items = Vec::new();
+
+        loop {
+            items.push(self.parse_select_item()?);
+
+            if !self.check(&TokenKind::Comma) {
+                break;
+            }
+            self.advance(); // consume comma
+        }
+
+        Ok(items)
+    }
+
+    fn parse_select_item(&mut self) -> Result<SelectItem, ParseError> {
+        let expr = self.parse_expression()?;
+
+        // Parse optional alias
+        let alias = if self.check(&TokenKind::As) {
+            self.advance();
+            Some(self.parse_identifier()?)
+        } else if self.check_ident() && !self.check(&TokenKind::From) {
+            // Implicit alias (without AS)
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+
+        Ok(SelectItem { expr, alias })
+    }
+
+    fn parse_from_clause(&mut self) -> Result<(QueryTarget, Option<String>), ParseError> {
+        let table_name = self.parse_identifier()?;
+
+        let target = match table_name.to_lowercase().as_str() {
+            "invoices" => QueryTarget::Invoices,
+            "contracts" => QueryTarget::Contracts,
+            _ => {
+                let span = self.previous().span;
+                return Err(self.error(
+                    ParseErrorKind::UnknownTable(table_name),
+                    span,
+                ).with_help("valid tables are: invoices, contracts"));
+            }
+        };
+
+        // Parse optional alias
+        let alias = if self.check_ident()
+            && !self.check(&TokenKind::Where)
+            && !self.check(&TokenKind::OrderBy)
+            && !self.check(&TokenKind::Limit)
+            && !self.check(&TokenKind::Offset)
+        {
+            Some(self.parse_identifier()?)
+        } else {
+            None
+        };
+
+        Ok((target, alias))
+    }
+
+    fn parse_order_by(&mut self) -> Result<OrderByClause, ParseError> {
+        let mut items = Vec::new();
+
+        loop {
+            let expr = self.parse_expression()?;
+
+            let direction = if self.check(&TokenKind::Desc) {
+                self.advance();
+                SortDirection::Desc
+            } else if self.check(&TokenKind::Asc) {
+                self.advance();
+                SortDirection::Asc
+            } else {
+                SortDirection::Asc
+            };
+
+            let nulls = if self.check(&TokenKind::Nulls) {
+                self.advance();
+                if self.check(&TokenKind::First) {
+                    self.advance();
+                    Some(NullsOrder::First)
+                } else if self.check(&TokenKind::Last) {
+                    self.advance();
+                    Some(NullsOrder::Last)
+                } else {
+                    let token = self.current();
+                    return Err(self.error(
+                        ParseErrorKind::UnexpectedToken {
+                            expected: vec!["FIRST".to_string(), "LAST".to_string()],
+                            found: token.kind.as_str().to_string(),
+                        },
+                        token.span,
+                    ));
+                }
+            } else {
+                None
+            };
+
+            items.push(OrderByItem {
+                expr,
+                direction,
+                nulls,
+            });
+
+            if !self.check(&TokenKind::Comma) {
+                break;
+            }
+            self.advance();
+        }
+
+        Ok(OrderByClause { items })
+    }
+
+    // ========== Expression parsing (precedence climbing) ==========
+
+    fn parse_expression(&mut self) -> Result<Expr, ParseError> {
+        self.parse_or_expression()
+    }
+
+    fn parse_or_expression(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_and_expression()?;
+
+        while self.check(&TokenKind::Or) {
+            self.advance();
+            let right = self.parse_and_expression()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Or,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_and_expression(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_not_expression()?;
+
+        while self.check(&TokenKind::And) {
+            self.advance();
+            let right = self.parse_not_expression()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::And,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_not_expression(&mut self) -> Result<Expr, ParseError> {
+        if self.check(&TokenKind::Not) {
+            self.advance();
+            let expr = self.parse_not_expression()?;
+            return Ok(Expr::UnaryOp {
+                op: UnaryOperator::Not,
+                expr: Box::new(expr),
+            });
+        }
+
+        self.parse_comparison()
+    }
+
+    fn parse_comparison(&mut self) -> Result<Expr, ParseError> {
+        let left = self.parse_additive()?;
+
+        if let Some(op) = self.match_comparison_op() {
+            let right = self.parse_additive()?;
+            return Ok(Expr::BinaryOp {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+            });
+        }
+
+        // Handle LIKE / ILIKE
+        if self.check(&TokenKind::Like) {
+            self.advance();
+            let right = self.parse_additive()?;
+            return Ok(Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Like,
+                right: Box::new(right),
+            });
+        }
+
+        if self.check(&TokenKind::ILike) {
+            self.advance();
+            let right = self.parse_additive()?;
+            return Ok(Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::ILike,
+                right: Box::new(right),
+            });
+        }
+
+        // Handle IS NULL / IS NOT NULL
+        if self.check(&TokenKind::Is) {
+            self.advance();
+            let negated = if self.check(&TokenKind::Not) {
+                self.advance();
+                true
+            } else {
+                false
+            };
+            self.expect_keyword(TokenKind::Null)?;
+
+            let null_check = Expr::BinaryOp {
+                left: Box::new(left),
+                op: BinaryOperator::Eq,
+                right: Box::new(Expr::Literal(Literal::Null)),
+            };
+
+            return if negated {
+                Ok(Expr::UnaryOp {
+                    op: UnaryOperator::Not,
+                    expr: Box::new(null_check),
+                })
+            } else {
+                Ok(null_check)
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn match_comparison_op(&mut self) -> Option<BinaryOperator> {
+        let op = match self.current().kind {
+            TokenKind::Eq => BinaryOperator::Eq,
+            TokenKind::NotEq => BinaryOperator::NotEq,
+            TokenKind::Lt => BinaryOperator::Lt,
+            TokenKind::LtEq => BinaryOperator::LtEq,
+            TokenKind::Gt => BinaryOperator::Gt,
+            TokenKind::GtEq => BinaryOperator::GtEq,
+            _ => return None,
+        };
+        self.advance();
+        Some(op)
+    }
+
+    fn parse_additive(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_multiplicative()?;
+
+        loop {
+            let op = match self.current().kind {
+                TokenKind::Plus => BinaryOperator::Add,
+                TokenKind::Minus => BinaryOperator::Subtract,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_multiplicative()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_unary()?;
+
+        loop {
+            let op = match self.current().kind {
+                TokenKind::Star => BinaryOperator::Multiply,
+                TokenKind::Slash => BinaryOperator::Divide,
+                TokenKind::Percent => BinaryOperator::Modulo,
+                _ => break,
+            };
+            self.advance();
+            let right = self.parse_unary()?;
+            left = Expr::BinaryOp {
+                left: Box::new(left),
+                op,
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_unary(&mut self) -> Result<Expr, ParseError> {
+        if self.check(&TokenKind::Minus) {
+            self.advance();
+            let expr = self.parse_unary()?;
+            return Ok(Expr::UnaryOp {
+                op: UnaryOperator::Minus,
+                expr: Box::new(expr),
+            });
+        }
+
+        if self.check(&TokenKind::Plus) {
+            self.advance();
+            let expr = self.parse_unary()?;
+            return Ok(Expr::UnaryOp {
+                op: UnaryOperator::Plus,
+                expr: Box::new(expr),
+            });
+        }
+
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr, ParseError> {
+        let token = self.current();
+
+        match &token.kind {
+            // Parenthesized expression
+            TokenKind::LParen => {
+                self.advance();
+                let expr = self.parse_expression()?;
+                self.expect(&TokenKind::RParen)?;
+                Ok(expr)
+            }
+
+            // Literals
+            TokenKind::Integer(i) => {
+                let i = *i;
+                self.advance();
+                Ok(Expr::Literal(Literal::Integer(i)))
+            }
+            TokenKind::Float(f) => {
+                let f = *f;
+                self.advance();
+                Ok(Expr::Literal(Literal::Float(f)))
+            }
+            TokenKind::String(s) => {
+                let s = s.clone();
+                self.advance();
+                Ok(Expr::Literal(Literal::String(s)))
+            }
+            TokenKind::True => {
+                self.advance();
+                Ok(Expr::Literal(Literal::Boolean(true)))
+            }
+            TokenKind::False => {
+                self.advance();
+                Ok(Expr::Literal(Literal::Boolean(false)))
+            }
+            TokenKind::Null => {
+                self.advance();
+                Ok(Expr::Literal(Literal::Null))
+            }
+
+            // Parameter
+            TokenKind::Parameter(name) => {
+                let name = name.to_string();
+                self.advance();
+                Ok(Expr::Parameter(name))
+            }
+
+            // Wildcard
+            TokenKind::Star => {
+                self.advance();
+                Ok(Expr::Wildcard)
+            }
+
+            // Identifier (column, function, or qualified wildcard)
+            TokenKind::Ident(_) => {
+                let name = self.parse_identifier()?;
+
+                // Check for function call
+                if self.check(&TokenKind::LParen) {
+                    self.advance();
+                    let args = self.parse_function_args()?;
+                    self.expect(&TokenKind::RParen)?;
+
+                    let func_name = FunctionName::from_str(&name);
+                    return Ok(Expr::Function(FunctionCall {
+                        name: func_name,
+                        args,
+                    }));
+                }
+
+                // Check for qualified reference (table.column or table.*)
+                if self.check(&TokenKind::Dot) {
+                    self.advance();
+
+                    if self.check(&TokenKind::Star) {
+                        self.advance();
+                        return Ok(Expr::QualifiedWildcard(name));
+                    }
+
+                    let column = self.parse_identifier()?;
+                    return Ok(Expr::Column(ColumnRef::qualified(name, column)));
+                }
+
+                // Simple column reference
+                Ok(Expr::Column(ColumnRef::new(name)))
+            }
+
+            _ => {
+                let span = token.span;
+                Err(self.error(
+                    ParseErrorKind::ExpectedExpression,
+                    span,
+                ))
+            }
+        }
+    }
+
+    fn parse_function_args(&mut self) -> Result<Vec<Expr>, ParseError> {
+        if self.check(&TokenKind::RParen) {
+            return Ok(Vec::new());
+        }
+
+        let mut args = Vec::new();
+
+        loop {
+            args.push(self.parse_expression()?);
+
+            if !self.check(&TokenKind::Comma) {
+                break;
+            }
+            self.advance();
+        }
+
+        Ok(args)
+    }
+
+    fn parse_identifier(&mut self) -> Result<String, ParseError> {
+        let token = self.current();
+        match &token.kind {
+            TokenKind::Ident(s) => {
+                let s = s.to_string();
+                self.advance();
+                Ok(s)
+            }
+            _ => {
+                let span = token.span;
+                Err(self.error(ParseErrorKind::ExpectedIdentifier, span))
+            }
+        }
+    }
+
+    fn parse_integer(&mut self) -> Result<u64, ParseError> {
+        let token = self.current();
+        match &token.kind {
+            TokenKind::Integer(i) if *i >= 0 => {
+                let i = *i as u64;
+                self.advance();
+                Ok(i)
+            }
+            _ => {
+                let span = token.span;
+                Err(self.error(
+                    ParseErrorKind::UnexpectedToken {
+                        expected: vec!["positive integer".to_string()],
+                        found: token.kind.as_str().to_string(),
+                    },
+                    span,
+                ))
+            }
+        }
+    }
+
+    // ========== Token navigation ==========
+
+    fn current(&self) -> &Token<'a> {
+        self.tokens.get(self.pos).unwrap_or_else(|| {
+            // Return a synthetic EOF token
+            static EOF_TOKEN: Token<'static> = Token {
+                kind: TokenKind::Eof,
+                span: Span { start: 0, end: 0, line: 1, column: 1 },
+            };
+            &EOF_TOKEN
+        })
+    }
+
+    fn previous(&self) -> &Token<'a> {
+        self.tokens.get(self.pos.saturating_sub(1)).unwrap_or_else(|| {
+            static EOF_TOKEN: Token<'static> = Token {
+                kind: TokenKind::Eof,
+                span: Span { start: 0, end: 0, line: 1, column: 1 },
+            };
+            &EOF_TOKEN
+        })
+    }
+
+    fn advance(&mut self) {
+        if self.pos < self.tokens.len() {
+            self.pos += 1;
+        }
+    }
+
+    fn is_at_end(&self) -> bool {
+        self.pos >= self.tokens.len()
+    }
+
+    fn check(&self, kind: &TokenKind) -> bool {
+        if self.is_at_end() {
+            return false;
+        }
+        std::mem::discriminant(&self.current().kind) == std::mem::discriminant(kind)
+    }
+
+    fn check_ident(&self) -> bool {
+        if self.is_at_end() {
+            return false;
+        }
+        matches!(self.current().kind, TokenKind::Ident(_))
+    }
+
+    fn expect(&mut self, kind: &TokenKind) -> Result<(), ParseError> {
+        if self.check(kind) {
+            self.advance();
+            Ok(())
+        } else {
+            let token = self.current();
+            Err(self.error(
+                ParseErrorKind::UnexpectedToken {
+                    expected: vec![kind.as_str().to_string()],
+                    found: token.kind.as_str().to_string(),
+                },
+                token.span,
+            ))
+        }
+    }
+
+    fn expect_keyword(&mut self, kind: TokenKind) -> Result<(), ParseError> {
+        if self.check(&kind) {
+            self.advance();
+            Ok(())
+        } else {
+            let token = self.current();
+            Err(self.error(
+                ParseErrorKind::ExpectedKeyword(kind.as_str().to_string()),
+                token.span,
+            ))
+        }
+    }
+
+    // ========== Error construction ==========
+
+    fn error(&self, kind: ParseErrorKind, span: Span) -> ParseError {
+        let mut err = ParseError::new(kind.clone(), span, self.source)
+            .with_file_name(&self.file_name);
+
+        // Add automatic help based on error kind
+        if let Some(help) = kind.help() {
+            err = err.with_help(help);
+        }
+
+        err
+    }
+}
+
+/// Parse a query string
+pub fn parse_query(source: &str) -> Result<FenQuery, ParseError> {
+    QueryParser::new(source).parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_simple_select() {
+        let query = parse_query("SELECT id FROM invoices").unwrap();
+
+        assert_eq!(query.from, QueryTarget::Invoices);
+        assert_eq!(query.select.len(), 1);
+        assert!(query.filter.is_none());
+    }
+
+    #[test]
+    fn test_parse_select_with_alias() {
+        let query = parse_query("SELECT id, invoice_number AS num FROM invoices inv").unwrap();
+
+        assert_eq!(query.from, QueryTarget::Invoices);
+        assert_eq!(query.alias, Some("inv".to_string()));
+        assert_eq!(query.select.len(), 2);
+        assert_eq!(query.select[1].alias, Some("num".to_string()));
+    }
+
+    #[test]
+    fn test_parse_wildcard() {
+        let query = parse_query("SELECT * FROM invoices").unwrap();
+
+        assert_eq!(query.select.len(), 1);
+        assert!(matches!(query.select[0].expr, Expr::Wildcard));
+    }
+
+    #[test]
+    fn test_parse_qualified_column() {
+        let query = parse_query("SELECT inv.id FROM invoices inv").unwrap();
+
+        assert_eq!(query.select.len(), 1);
+        if let Expr::Column(col) = &query.select[0].expr {
+            assert_eq!(col.table, Some("inv".to_string()));
+            assert_eq!(col.column, "id");
+        } else {
+            panic!("Expected column expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_function_call() {
+        let query = parse_query(
+            "SELECT VECTOR_DISTANCE(embedding, :vec) AS score FROM invoices"
+        ).unwrap();
+
+        assert_eq!(query.select.len(), 1);
+        if let Expr::Function(func) = &query.select[0].expr {
+            assert_eq!(func.name, FunctionName::VectorDistance);
+            assert_eq!(func.args.len(), 2);
+        } else {
+            panic!("Expected function expression");
+        }
+    }
+
+    #[test]
+    fn test_parse_where_clause() {
+        let query = parse_query(
+            "SELECT id FROM invoices WHERE total_amount > 100"
+        ).unwrap();
+
+        assert!(query.filter.is_some());
+    }
+
+    #[test]
+    fn test_parse_complex_where() {
+        let query = parse_query(
+            "SELECT id FROM invoices \
+             WHERE vendor_name = 'Acme' AND total_amount > 100 OR status = 'pending'"
+        ).unwrap();
+
+        assert!(query.filter.is_some());
+    }
+
+    #[test]
+    fn test_parse_order_by() {
+        let query = parse_query(
+            "SELECT id FROM invoices ORDER BY invoice_date DESC, id ASC"
+        ).unwrap();
+
+        let order = query.order_by.unwrap();
+        assert_eq!(order.items.len(), 2);
+        assert_eq!(order.items[0].direction, SortDirection::Desc);
+        assert_eq!(order.items[1].direction, SortDirection::Asc);
+    }
+
+    #[test]
+    fn test_parse_limit_offset() {
+        let query = parse_query(
+            "SELECT id FROM invoices LIMIT 10 OFFSET 20"
+        ).unwrap();
+
+        assert_eq!(query.limit, Some(10));
+        assert_eq!(query.offset, Some(20));
+    }
+
+    #[test]
+    fn test_parse_arithmetic_in_order_by() {
+        let query = parse_query(
+            "SELECT id, VECTOR_DISTANCE(embedding, :vec) AS v_score, \
+                    BM25_SCORE(text, :terms) AS t_score \
+             FROM invoices \
+             ORDER BY 0.7 * v_score + 0.3 * t_score ASC"
+        ).unwrap();
+
+        let order = query.order_by.unwrap();
+        assert_eq!(order.items.len(), 1);
+        // The expression should be a binary op (addition of two multiplications)
+        assert!(matches!(order.items[0].expr, Expr::BinaryOp { .. }));
+    }
+
+    #[test]
+    fn test_parse_complete_hybrid_query() {
+        let query_str = r#"
+            SELECT inv.id, inv.invoice_number,
+                VECTOR_DISTANCE(inv.embedding, :query_vector) AS semantic_score,
+                BM25_SCORE(inv.extracted_text, :search_terms) AS text_score
+            FROM invoices inv
+            WHERE inv.vendor_name = 'Acme Corp'
+                AND VECTOR_DISTANCE(inv.embedding, :query_vector) < 0.3
+                AND CONTAINS(inv.extracted_text, :search_terms)
+            ORDER BY 0.7 * semantic_score + 0.3 * text_score ASC
+            LIMIT 10
+        "#;
+
+        let query = parse_query(query_str).unwrap();
+
+        assert_eq!(query.from, QueryTarget::Invoices);
+        assert_eq!(query.alias, Some("inv".to_string()));
+        assert_eq!(query.select.len(), 4);
+        assert!(query.filter.is_some());
+        assert!(query.order_by.is_some());
+        assert_eq!(query.limit, Some(10));
+
+        // Verify uses vector search
+        assert!(query.uses_vector_search());
+        assert!(query.uses_text_search());
+        assert!(query.uses_contains());
+
+        // Verify parameters
+        let params = query.parameter_names();
+        assert!(params.contains(&"query_vector".to_string()));
+        assert!(params.contains(&"search_terms".to_string()));
+    }
+
+    #[test]
+    fn test_error_unknown_table() {
+        let result = parse_query("SELECT id FROM unknown_table");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind, ParseErrorKind::UnknownTable(_)));
+    }
+
+    #[test]
+    fn test_error_missing_from() {
+        let result = parse_query("SELECT id WHERE x = 1");
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(matches!(err.kind, ParseErrorKind::ExpectedKeyword(_)));
+    }
+
+    #[test]
+    fn test_error_report_formatting() {
+        let result = parse_query("SELECT id FROM unknown_table");
+        let err = result.unwrap_err();
+
+        let report = err.report();
+        // The report should contain the error location
+        assert!(report.contains("unknown_table"));
+    }
+}
