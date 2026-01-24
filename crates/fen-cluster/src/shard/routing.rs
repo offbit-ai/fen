@@ -87,7 +87,7 @@ impl RoutingTable {
     pub fn get_all_nodes(&self, shard_id: &ShardId) -> Vec<NodeId> {
         let mut nodes = Vec::new();
         if let Some(primary) = self.shard_to_primary.get(shard_id) {
-            nodes.push(primary.clone());
+            nodes.push(*primary);
         }
         if let Some(replicas) = self.shard_to_replicas.get(shard_id) {
             nodes.extend(replicas.iter().cloned());
@@ -124,18 +124,16 @@ impl RoutingTable {
 
         // Update shard mappings
         for shard_id in &assignment.primary_shards {
-            self.shard_to_primary
-                .insert(shard_id.clone(), assignment.node_id.clone());
+            self.shard_to_primary.insert(*shard_id, assignment.node_id);
         }
         for shard_id in &assignment.replica_shards {
             self.shard_to_replicas
-                .entry(shard_id.clone())
-                .or_insert_with(Vec::new)
-                .push(assignment.node_id.clone());
+                .entry(*shard_id)
+                .or_default()
+                .push(assignment.node_id);
         }
 
-        self.node_assignments
-            .insert(assignment.node_id.clone(), assignment);
+        self.node_assignments.insert(assignment.node_id, assignment);
         self.version += 1;
     }
 

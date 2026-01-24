@@ -267,7 +267,7 @@ impl TieredStorage {
 
                 // Register in location index (Hot is the primary location)
                 self.location_index
-                    .register_invoice(invoice.id.clone(), StorageTier::Hot);
+                    .register_invoice(invoice.id, StorageTier::Hot);
 
                 // Also index in warm tier if embedding provided (for vector search)
                 // Note: This is for search indexing only, not primary storage
@@ -284,8 +284,7 @@ impl TieredStorage {
                     .await?;
 
                 // Register in location index
-                self.location_index
-                    .register_invoice(invoice.id.clone(), tier);
+                self.location_index.register_invoice(invoice.id, tier);
             }
         }
 
@@ -414,7 +413,7 @@ impl TieredStorage {
         self.hot.store_contract(contract).await?;
         // Contracts are always stored in hot tier for now
         self.location_index
-            .register_contract(contract.id.clone(), StorageTier::Hot);
+            .register_contract(contract.id, StorageTier::Hot);
         self.cache.invalidate_contract(&contract.id);
         Ok(())
     }

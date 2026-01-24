@@ -658,17 +658,10 @@ impl ZipExecutor {
         );
 
         // Determine which filter applies to which table based on primary table type
-        let (invoice_filter, contract_filter) = if query.from == QueryTarget::Invoices {
-            (
-                split.invoice_conditions.clone(),
-                split.contract_conditions.clone(),
-            )
-        } else {
-            (
-                split.invoice_conditions.clone(),
-                split.contract_conditions.clone(),
-            )
-        };
+        let (invoice_filter, contract_filter) = (
+            split.invoice_conditions.clone(),
+            split.contract_conditions.clone(),
+        );
 
         // Build queries for both tables with their specific filters
         let primary_query = if query.from == QueryTarget::Invoices {
@@ -751,10 +744,7 @@ impl ZipExecutor {
 
         // Apply cross-table conditions after join
         if let Some(ref cross_conditions) = split.cross_table_conditions {
-            pairs = pairs
-                .into_iter()
-                .filter(|pair| self.evaluate_cross_table_condition(pair, cross_conditions))
-                .collect();
+            pairs.retain(|pair| self.evaluate_cross_table_condition(pair, cross_conditions));
         }
 
         Ok(pairs)

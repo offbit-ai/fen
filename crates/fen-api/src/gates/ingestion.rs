@@ -58,7 +58,7 @@ impl RateLimiter {
         let key = format!("{}:{}", tenant_id, operation);
         let now = current_timestamp();
 
-        let mut entry = self.windows.entry(key).or_insert_with(Vec::new);
+        let mut entry = self.windows.entry(key).or_default();
         let window = entry.value_mut();
 
         // Clean old entries outside the window
@@ -88,7 +88,7 @@ impl RateLimiter {
         let key = format!("{}:{}", tenant_id, operation);
         let now = current_timestamp();
 
-        let mut entry = self.windows.entry(key).or_insert_with(Vec::new);
+        let mut entry = self.windows.entry(key).or_default();
         let window = entry.value_mut();
 
         // Try to merge with existing entry for same second
@@ -127,7 +127,7 @@ impl RateLimiter {
         let now = current_timestamp();
         let minute_ago = now.saturating_sub(60);
 
-        let entry = self.windows.entry(key).or_insert_with(Vec::new);
+        let entry = self.windows.entry(key).or_default();
         let window = entry.value();
 
         let count: u32 = window

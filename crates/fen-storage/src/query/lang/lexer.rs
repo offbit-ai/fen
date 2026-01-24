@@ -2,6 +2,10 @@
 //!
 //! Tokenizes SQL-like query strings with support for our custom functions.
 
+// ParseError is intentionally large to provide rich error context including source code.
+// This is acceptable since errors are not on the hot path.
+#![allow(clippy::result_large_err)]
+
 use nom::{
     branch::alt,
     bytes::complete::{tag, tag_no_case, take_until, take_while, take_while1},
@@ -311,7 +315,7 @@ fn token(input: Input) -> IResult<Input, Token> {
 }
 
 fn keyword_or_ident(input: Input) -> IResult<Input, Token> {
-    let start = input.clone();
+    let start = input;
 
     // First character must be alphabetic or underscore (not digit!)
     let (input, ident) = recognize(pair(
@@ -379,7 +383,7 @@ fn keyword_or_ident(input: Input) -> IResult<Input, Token> {
 }
 
 fn number(input: Input) -> IResult<Input, Token> {
-    let start = input.clone();
+    let start = input;
 
     // Try to parse a float first
     let float_result: IResult<Input, Input> = recognize(tuple((
@@ -392,7 +396,7 @@ fn number(input: Input) -> IResult<Input, Token> {
             opt(one_of("+-")),
             take_while1(|c: char| c.is_ascii_digit()),
         ))),
-    )))(input.clone());
+    )))(input);
 
     if let Ok((input, num_str)) = float_result {
         let s = *num_str.fragment();
@@ -409,17 +413,14 @@ fn number(input: Input) -> IResult<Input, Token> {
 
     let s = *num_str.fragment();
     let i = s.parse::<i64>().map_err(|_| {
-        nom::Err::Error(nom::error::Error::new(
-            input.clone(),
-            nom::error::ErrorKind::Digit,
-        ))
+        nom::Err::Error(nom::error::Error::new(input, nom::error::ErrorKind::Digit))
     })?;
 
     Ok((input, Token::new(TokenKind::Integer(i), start, s.len())))
 }
 
 fn string_literal(input: Input) -> IResult<Input, Token> {
-    let start = input.clone();
+    let start = input;
 
     // Single-quoted string
     let (input, _) = char('\'')(input)?;
@@ -433,7 +434,7 @@ fn string_literal(input: Input) -> IResult<Input, Token> {
 }
 
 fn parameter(input: Input) -> IResult<Input, Token> {
-    let start = input.clone();
+    let start = input;
     let (input, _) = char(':')(input)?;
     let (input, name) = take_while1(|c: char| c.is_alphanumeric() || c == '_')(input)?;
 
@@ -447,7 +448,7 @@ fn parameter(input: Input) -> IResult<Input, Token> {
 }
 
 fn operator(input: Input) -> IResult<Input, Token> {
-    let start = input.clone();
+    let start = input;
 
     let (input, kind) = alt((
         value(TokenKind::Pipe, tag("|>")),
@@ -474,7 +475,7 @@ fn operator(input: Input) -> IResult<Input, Token> {
 }
 
 fn punctuation(input: Input) -> IResult<Input, Token> {
-    let start = input.clone();
+    let start = input;
 
     let (input, kind) = alt((
         value(TokenKind::LParen, char('(')),

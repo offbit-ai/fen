@@ -55,6 +55,7 @@ impl IntoResponse for AuthzError {
 ///         require_permission(ResourceType::Invoice, Action::List)
 ///     ));
 /// ```
+#[allow(dead_code)]
 pub fn require_permission(
     resource_type: ResourceType,
     action: Action,
@@ -107,6 +108,7 @@ pub fn require_permission(
 ///     // ... fetch and return invoice
 /// }
 /// ```
+#[allow(dead_code)]
 pub fn check_resource_access(
     auth_context: &AuthContext,
     resource_type: &ResourceType,
@@ -131,6 +133,7 @@ pub fn check_resource_access(
 }
 
 /// Check if the authenticated user has a specific role.
+#[allow(dead_code)]
 pub fn check_role(
     auth_context: &AuthContext,
     required_role: &fen_core::domain::acl::Role,
@@ -147,6 +150,7 @@ pub fn check_role(
 }
 
 /// Check if the authenticated user is an admin (TenantAdmin or SystemAdmin).
+#[allow(dead_code)]
 pub fn require_admin(auth_context: &AuthContext) -> Result<(), StatusCode> {
     if !auth_context.permissions.is_admin() {
         tracing::warn!(
@@ -161,6 +165,7 @@ pub fn require_admin(auth_context: &AuthContext) -> Result<(), StatusCode> {
 /// Verify that a resource belongs to the authenticated user's tenant.
 ///
 /// This is a critical security check to prevent cross-tenant data access.
+#[allow(dead_code)]
 pub fn verify_tenant_ownership(
     auth_context: &AuthContext,
     resource_tenant_id: &fen_core::domain::cluster::TenantId,

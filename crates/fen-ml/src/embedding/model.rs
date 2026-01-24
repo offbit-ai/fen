@@ -242,8 +242,7 @@ impl EmbeddingModel {
         let mut embeddings = Vec::with_capacity(batch_size);
 
         // Mean pooling for each item in batch
-        for batch_idx in 0..batch_size {
-            let encoding = &encodings[batch_idx];
+        for (batch_idx, encoding) in encodings.iter().enumerate().take(batch_size) {
             let mask = encoding.get_attention_mask();
             let mask_len = mask.len().min(seq_len_out);
 

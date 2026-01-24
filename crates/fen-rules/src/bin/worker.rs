@@ -155,6 +155,7 @@ impl WorkerState {
         cache.get(vendor_name).cloned().unwrap_or_default()
     }
 
+    #[allow(dead_code)]
     async fn update_baselines(&self, vendor_name: String, baselines: Vec<VendorBaseline>) {
         let mut cache = self.baseline_cache.write().await;
         cache.insert(vendor_name, baselines);

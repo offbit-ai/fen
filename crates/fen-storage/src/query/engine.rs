@@ -70,7 +70,7 @@ impl DocumentLocationIndex {
     /// Register an invoice in a tier
     pub fn register_invoice(&self, id: &InvoiceId, tier: StorageTier) {
         self.invoices
-            .entry(id.clone())
+            .entry(*id)
             .and_modify(|loc| loc.add_tier(tier))
             .or_insert_with(|| DocumentLocation::new(tier));
     }
@@ -116,7 +116,7 @@ impl DocumentLocationIndex {
     /// Register a contract in a tier
     pub fn register_contract(&self, id: &ContractId, tier: StorageTier) {
         self.contracts
-            .entry(id.clone())
+            .entry(*id)
             .and_modify(|loc| loc.add_tier(tier))
             .or_insert_with(|| DocumentLocation::new(tier));
     }

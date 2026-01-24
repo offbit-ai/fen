@@ -259,6 +259,7 @@ impl OcrEngine {
     }
 
     /// Recognize text in a region (single)
+    #[allow(dead_code)]
     fn recognize_text(&self, input: Array4<f32>) -> Result<(String, f32), MlError> {
         let results = self.recognize_text_batch(&[input])?;
         Ok(results
@@ -434,9 +435,7 @@ impl OcrEngine {
         let mut total_log_prob = 0.0;
         let mut char_count = 0;
 
-        for t in 0..seq_len {
-            let frame = &log_probs[t];
-
+        for frame in log_probs.iter().take(seq_len) {
             // Find argmax
             let (best_idx, best_log_prob) = frame
                 .iter()
@@ -488,8 +487,7 @@ impl OcrEngine {
         // We track two probabilities: ending in blank vs ending in non-blank
         let mut beams: Vec<(String, f32, f32)> = vec![(String::new(), 0.0, f32::NEG_INFINITY)];
 
-        for t in 0..seq_len {
-            let frame = &log_probs[t];
+        for frame in log_probs.iter().take(seq_len) {
             let mut new_beams: std::collections::HashMap<String, (f32, f32)> =
                 std::collections::HashMap::new();
 
@@ -580,7 +578,7 @@ impl OcrEngine {
     }
 
     /// Sort text regions by reading order (top-to-bottom, left-to-right)
-    fn sort_by_reading_order(&self, regions: &mut Vec<TextRegion>) {
+    fn sort_by_reading_order(&self, regions: &mut [TextRegion]) {
         regions.sort_by(|a, b| {
             let y_diff = a.bbox.y - b.bbox.y;
             // If on roughly the same line (within 10 pixels), sort by x

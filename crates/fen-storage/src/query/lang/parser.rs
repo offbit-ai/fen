@@ -2,6 +2,10 @@
 //!
 //! Converts tokens into an abstract syntax tree (AST).
 
+// ParseError is intentionally large to provide rich error context including source code.
+// This is acceptable since errors are not on the hot path.
+#![allow(clippy::result_large_err)]
+
 use crate::query::lang::ast::{
     AggregateExpr, BinaryOperator, ColumnRef, Expr, FenQuery, FilterExpr, FunctionCall,
     FunctionName, Literal, NullsOrder, OrderByClause, OrderByItem, PipelineOp, QueryTarget,
@@ -369,8 +373,7 @@ impl<'a> QueryParser<'a> {
             && !self.check(&TokenKind::Threshold)
             && !self.check(&TokenKind::Metrics)
         {
-            let name = self.parse_identifier()?;
-            name
+            self.parse_identifier()?
         } else {
             "vendor_name".to_string()
         };
@@ -503,13 +506,9 @@ impl<'a> QueryParser<'a> {
         // For simplicity, support both ['a', 'b'] and ('a', 'b')
         if self.check(&TokenKind::LParen) {
             self.advance();
-            loop {
-                if let TokenKind::String(s) = &self.current().kind {
-                    strings.push(s.clone());
-                    self.advance();
-                } else {
-                    break;
-                }
+            while let TokenKind::String(s) = &self.current().kind {
+                strings.push(s.clone());
+                self.advance();
 
                 if !self.check(&TokenKind::Comma) {
                     break;
@@ -602,7 +601,7 @@ impl<'a> QueryParser<'a> {
             self.expect_keyword(TokenKind::As)?;
             let alias = self.parse_identifier()?;
 
-            let function = FunctionName::from_str(&name);
+            let function = name.parse::<FunctionName>().unwrap();
 
             aggs.push(AggregateExpr {
                 function,
@@ -929,7 +928,7 @@ impl<'a> QueryParser<'a> {
                     let args = self.parse_function_args()?;
                     self.expect(&TokenKind::RParen)?;
 
-                    let func_name = FunctionName::from_str(&name);
+                    let func_name = name.parse::<FunctionName>().unwrap();
                     return Ok(Expr::Function(FunctionCall {
                         name: func_name,
                         args,

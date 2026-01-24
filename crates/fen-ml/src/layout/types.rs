@@ -273,7 +273,7 @@ impl KeyValuePair {
 }
 
 /// Result of layout analysis
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LayoutResult {
     /// Document regions
     pub regions: Vec<LayoutRegion>,
@@ -289,16 +289,4 @@ pub struct LayoutResult {
 
     /// Processing time in milliseconds
     pub processing_time_ms: u64,
-}
-
-impl Default for LayoutResult {
-    fn default() -> Self {
-        Self {
-            regions: Vec::new(),
-            entities: Vec::new(),
-            key_value_pairs: Vec::new(),
-            text: String::new(),
-            processing_time_ms: 0,
-        }
-    }
 }

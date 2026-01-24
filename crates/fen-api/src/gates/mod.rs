@@ -3,6 +3,8 @@
 //! Gates provide a layer of policy enforcement before service operations,
 //! including rate limiting, quota enforcement, and feature flag checks.
 
+#![allow(dead_code)]
+
 pub mod ingestion;
 
 use async_trait::async_trait;
@@ -11,6 +13,7 @@ use thiserror::Error;
 
 use crate::middleware::AuthContext;
 
+#[allow(unused_imports)]
 pub use ingestion::{IngestionGate, QuotaTracker, RateLimiter};
 
 /// Errors from service gate checks.
@@ -106,7 +109,7 @@ pub trait ServiceGate: Send + Sync {
     /// Check if a specific operation is allowed.
     ///
     /// The `operation` parameter identifies the specific action being performed.
-    async fn check_operation(&self, ctx: &AuthContext, operation: &str) -> Result<(), GateError> {
+    async fn check_operation(&self, ctx: &AuthContext, _operation: &str) -> Result<(), GateError> {
         // Default implementation just calls the basic check
         self.check(ctx).await
     }

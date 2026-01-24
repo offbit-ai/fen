@@ -69,7 +69,7 @@ impl ParseError {
     pub fn write_report<W: Write>(&self, writer: W) -> std::io::Result<()> {
         let mut builder = Report::build(ReportKind::Error, &self.file_name, self.span.start)
             .with_config(Config::default().with_color(true))
-            .with_message(&self.kind.message());
+            .with_message(self.kind.message());
 
         // Main error label
         builder = builder.with_label(

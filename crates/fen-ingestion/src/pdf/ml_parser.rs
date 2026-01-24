@@ -465,7 +465,7 @@ fn parse_date(s: &str) -> Option<NaiveDate> {
     ];
 
     // Remove currency symbols and extra whitespace
-    let cleaned = s.trim().replace('$', "").replace('€', "").replace('£', "");
+    let cleaned = s.trim().replace(['$', '€', '£'], "");
 
     for fmt in formats {
         if let Ok(date) = NaiveDate::parse_from_str(&cleaned, fmt) {

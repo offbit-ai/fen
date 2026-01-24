@@ -149,23 +149,23 @@ impl FenQuery {
             || self
                 .filter
                 .as_ref()
-                .map_or(false, |f| f.uses_vector_distance())
+                .is_some_and(|f| f.uses_vector_distance())
             || self
                 .order_by
                 .as_ref()
-                .map_or(false, |o| o.uses_vector_distance())
+                .is_some_and(|o| o.uses_vector_distance())
     }
 
     /// Check if this query uses BM25 text search
     pub fn uses_text_search(&self) -> bool {
         self.select.iter().any(|s| s.uses_bm25())
-            || self.filter.as_ref().map_or(false, |f| f.uses_bm25())
-            || self.order_by.as_ref().map_or(false, |o| o.uses_bm25())
+            || self.filter.as_ref().is_some_and(|f| f.uses_bm25())
+            || self.order_by.as_ref().is_some_and(|o| o.uses_bm25())
     }
 
     /// Check if this query uses CONTAINS
     pub fn uses_contains(&self) -> bool {
-        self.filter.as_ref().map_or(false, |f| f.uses_contains())
+        self.filter.as_ref().is_some_and(|f| f.uses_contains())
     }
 
     /// Check if this is a ZIP (cross-table) query
@@ -175,7 +175,7 @@ impl FenQuery {
 
     /// Check if this query has pipeline operations
     pub fn has_pipeline(&self) -> bool {
-        self.pipeline.as_ref().map_or(false, |p| !p.is_empty())
+        self.pipeline.as_ref().is_some_and(|p| !p.is_empty())
     }
 
     /// Extract all parameter names used in this query
@@ -445,9 +445,11 @@ pub enum FunctionName {
     Other(String),
 }
 
-impl FunctionName {
-    pub fn from_str(s: &str) -> Self {
-        match s.to_uppercase().as_str() {
+impl std::str::FromStr for FunctionName {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s.to_uppercase().as_str() {
             "VECTOR_DISTANCE" => FunctionName::VectorDistance,
             "BM25_SCORE" => FunctionName::Bm25Score,
             "CONTAINS" => FunctionName::Contains,
@@ -457,7 +459,7 @@ impl FunctionName {
             "MIN" => FunctionName::Min,
             "MAX" => FunctionName::Max,
             _ => FunctionName::Other(s.to_string()),
-        }
+        })
     }
 }
 

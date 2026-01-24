@@ -23,10 +23,12 @@ pub struct AppConfig {
     pub rate_limit_burst: u32,
 
     /// Statistical anomaly detection configuration
+    #[allow(dead_code)]
     pub statistical: StatisticalConfig,
 }
 
 /// Configuration for statistical anomaly detection
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct StatisticalConfig {
     /// Enable statistical analysis

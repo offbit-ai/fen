@@ -7,6 +7,10 @@
 //! - Pipeline operations (validate, analyze)
 //! - Full SQL-like query capabilities
 
+// ParseError is intentionally large to provide rich error context including source code.
+// This is acceptable since errors are not on the hot path.
+#![allow(clippy::result_large_err)]
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -1288,9 +1292,13 @@ impl JsonCondition {
             },
         }
     }
+}
+
+impl std::ops::Not for JsonCondition {
+    type Output = Self;
 
     /// Negate condition
-    pub fn not(self) -> Self {
+    fn not(self) -> Self::Output {
         JsonCondition::Not {
             condition: Box::new(self),
         }

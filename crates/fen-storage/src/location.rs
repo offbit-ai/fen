@@ -43,7 +43,7 @@ impl DocumentLocationIndex {
 
     /// Move an invoice to a new tier (atomic operation)
     pub fn move_invoice(&self, id: &InvoiceId, new_tier: StorageTier) -> Option<StorageTier> {
-        self.invoices.insert(id.clone(), new_tier)
+        self.invoices.insert(*id, new_tier)
     }
 
     /// Remove an invoice from the index
@@ -68,7 +68,7 @@ impl DocumentLocationIndex {
 
     /// Move a contract to a new tier (atomic operation)
     pub fn move_contract(&self, id: &ContractId, new_tier: StorageTier) -> Option<StorageTier> {
-        self.contracts.insert(id.clone(), new_tier)
+        self.contracts.insert(*id, new_tier)
     }
 
     /// Remove a contract from the index
@@ -106,7 +106,7 @@ impl DocumentLocationIndex {
         self.invoices
             .iter()
             .filter(|r| *r.value() == tier)
-            .map(|r| r.key().clone())
+            .map(|r| *r.key())
             .collect()
     }
 
@@ -115,7 +115,7 @@ impl DocumentLocationIndex {
         self.contracts
             .iter()
             .filter(|r| *r.value() == tier)
-            .map(|r| r.key().clone())
+            .map(|r| *r.key())
             .collect()
     }
 

@@ -2,6 +2,8 @@
 //!
 //! This module provides JWT-based authentication with tenant context extraction.
 
+#![allow(dead_code)]
+
 use axum::{
     extract::{Request, State},
     http::{header, StatusCode},

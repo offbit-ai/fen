@@ -105,6 +105,7 @@ pub trait RetentionMetadataStore: Send + Sync {
 /// Production deployments should use a persistent store.
 pub struct InMemoryRetentionMetadata {
     /// Map of tenant_id -> resource_type -> resource_id -> metadata
+    #[allow(clippy::type_complexity)]
     data: RwLock<HashMap<String, HashMap<String, HashMap<String, DocumentMetadata>>>>,
 }
 

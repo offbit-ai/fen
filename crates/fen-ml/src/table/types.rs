@@ -185,22 +185,13 @@ impl TableCell {
 }
 
 /// Result of table extraction
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TableExtractionResult {
     /// Extracted tables
     pub tables: Vec<ExtractedTable>,
 
     /// Processing time in milliseconds
     pub processing_time_ms: u64,
-}
-
-impl Default for TableExtractionResult {
-    fn default() -> Self {
-        Self {
-            tables: Vec::new(),
-            processing_time_ms: 0,
-        }
-    }
 }
 
 /// Row detected in a table

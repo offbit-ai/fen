@@ -102,7 +102,7 @@ impl QueryCache {
         }
 
         self.invoices
-            .insert(invoice.id.clone(), CacheEntry::new(invoice, self.ttl));
+            .insert(invoice.id, CacheEntry::new(invoice, self.ttl));
     }
 
     /// Invalidate a cached invoice
@@ -138,7 +138,7 @@ impl QueryCache {
         }
 
         self.contracts
-            .insert(contract.id.clone(), CacheEntry::new(contract, self.ttl));
+            .insert(contract.id, CacheEntry::new(contract, self.ttl));
     }
 
     /// Invalidate a cached contract
@@ -154,7 +154,7 @@ impl QueryCache {
         // If still at capacity, remove entries until under limit
         // Collect all keys first to avoid holding locks during iteration
         if self.invoices.len() >= self.max_entries {
-            let keys: Vec<_> = self.invoices.iter().map(|e| e.key().clone()).collect();
+            let keys: Vec<_> = self.invoices.iter().map(|e| *e.key()).collect();
             // Remove entries until we're under the limit
             for key in keys {
                 if self.invoices.len() < self.max_entries {
@@ -172,7 +172,7 @@ impl QueryCache {
 
         // If still at capacity, remove entries until under limit
         if self.contracts.len() >= self.max_entries {
-            let keys: Vec<_> = self.contracts.iter().map(|e| e.key().clone()).collect();
+            let keys: Vec<_> = self.contracts.iter().map(|e| *e.key()).collect();
             for key in keys {
                 if self.contracts.len() < self.max_entries {
                     break;

@@ -172,12 +172,12 @@ impl ShardManager {
 
     /// List all local shard IDs.
     pub fn list_local_shards(&self) -> Vec<ShardId> {
-        self.local_shards.iter().map(|r| r.key().clone()).collect()
+        self.local_shards.iter().map(|r| *r.key()).collect()
     }
 
     /// Register a remote shard client.
     pub fn register_remote_client(&self, client: Arc<dyn RemoteShardClient>) {
-        let node_id = client.node_id().clone();
+        let node_id = *client.node_id();
         info!(node_id = ?node_id, address = %client.address(), "Registering remote client");
         self.remote_clients.insert(node_id, client);
     }
@@ -210,7 +210,7 @@ impl ShardManager {
             if let Some(client) = self.remote_clients.get(node_id) {
                 return Ok(ShardRoute::Remote {
                     shard_id,
-                    node_id: node_id.clone(),
+                    node_id: *node_id,
                     client: client.clone(),
                 });
             }
@@ -240,7 +240,7 @@ impl ShardManager {
             if let Some(client) = self.remote_clients.get(node_id) {
                 return Ok(ShardRoute::Remote {
                     shard_id,
-                    node_id: node_id.clone(),
+                    node_id: *node_id,
                     client: client.clone(),
                 });
             }
@@ -258,14 +258,14 @@ impl ShardManager {
         let nodes = table.get_all_nodes(shard_id);
 
         if nodes.is_empty() {
-            return Err(ShardError::ShardNotFound(shard_id.clone()));
+            return Err(ShardError::ShardNotFound(*shard_id));
         }
 
         let mut routes = Vec::new();
 
         for node_id in nodes {
             // Check if local
-            if &node_id == &self.node_id {
+            if node_id == self.node_id {
                 if let Some(handle) = self.local_shards.get(shard_id) {
                     if handle.is_ready() {
                         routes.push(ShardRoute::Local(handle.clone()));
@@ -276,7 +276,7 @@ impl ShardManager {
                 if let Some(client) = self.remote_clients.get(&node_id) {
                     if client.is_connected() {
                         routes.push(ShardRoute::Remote {
-                            shard_id: shard_id.clone(),
+                            shard_id: *shard_id,
                             node_id,
                             client: client.clone(),
                         });
@@ -286,7 +286,7 @@ impl ShardManager {
         }
 
         if routes.is_empty() {
-            Err(ShardError::NoHealthyNodes(shard_id.clone()))
+            Err(ShardError::NoHealthyNodes(*shard_id))
         } else {
             Ok(routes)
         }
@@ -297,7 +297,7 @@ impl ShardManager {
         let mut results = Vec::new();
 
         for entry in self.local_shards.iter() {
-            let shard_id = entry.key().clone();
+            let shard_id = *entry.key();
             let result = entry.value().health_check().await;
 
             if result.is_err() {
@@ -315,7 +315,7 @@ impl ShardManager {
         let mut results = Vec::new();
 
         for entry in self.remote_clients.iter() {
-            let node_id = entry.key().clone();
+            let node_id = *entry.key();
             let result = entry.value().health_check().await;
 
             if result.is_err() {

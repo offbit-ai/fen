@@ -340,7 +340,7 @@ impl TransactionCoordinator {
         for shard_id in &participants {
             let participant = self.participants.get(shard_id).ok_or_else(|| {
                 TransactionError::CommunicationError {
-                    shard_id: shard_id.clone(),
+                    shard_id: *shard_id,
                     reason: "Participant not registered".to_string(),
                 }
             })?;
@@ -351,15 +351,15 @@ impl TransactionCoordinator {
             match result {
                 Ok(Ok(())) => {
                     debug!(tx_id = %tx_id, shard_id = ?shard_id, "Participant prepared");
-                    prepare_results.push((shard_id.clone(), true));
+                    prepare_results.push((*shard_id, true));
                 }
                 Ok(Err(e)) => {
                     warn!(tx_id = %tx_id, shard_id = ?shard_id, error = %e, "Participant prepare failed");
-                    prepare_results.push((shard_id.clone(), false));
+                    prepare_results.push((*shard_id, false));
                 }
                 Err(_) => {
                     warn!(tx_id = %tx_id, shard_id = ?shard_id, "Participant prepare timed out");
-                    prepare_results.push((shard_id.clone(), false));
+                    prepare_results.push((*shard_id, false));
                 }
             }
         }
@@ -371,7 +371,7 @@ impl TransactionCoordinator {
             let mut tx = tx_lock.write().await;
             for (shard_id, success) in &prepare_results {
                 if *success {
-                    tx.prepared_participants.insert(shard_id.clone());
+                    tx.prepared_participants.insert(*shard_id);
                 }
             }
             tx.updated_at = Utc::now();
@@ -448,7 +448,7 @@ impl TransactionCoordinator {
                             shard_id = ?shard_id,
                             "Participant not found during commit - adding to failed"
                         );
-                        newly_failed.push(shard_id.clone());
+                        newly_failed.push(*shard_id);
                         continue;
                     }
                 };
@@ -460,7 +460,7 @@ impl TransactionCoordinator {
                 match result {
                     Ok(Ok(())) => {
                         debug!(tx_id = %tx_id, shard_id = ?shard_id, "Participant committed");
-                        newly_committed.push(shard_id.clone());
+                        newly_committed.push(*shard_id);
                     }
                     Ok(Err(e)) => {
                         warn!(
@@ -470,7 +470,7 @@ impl TransactionCoordinator {
                             retry = retry_count,
                             "Participant commit failed"
                         );
-                        newly_failed.push(shard_id.clone());
+                        newly_failed.push(*shard_id);
                     }
                     Err(_) => {
                         warn!(
@@ -479,7 +479,7 @@ impl TransactionCoordinator {
                             retry = retry_count,
                             "Participant commit timed out"
                         );
-                        newly_failed.push(shard_id.clone());
+                        newly_failed.push(*shard_id);
                     }
                 }
             }
@@ -488,11 +488,11 @@ impl TransactionCoordinator {
             {
                 let mut tx = tx_lock.write().await;
                 for shard_id in &newly_committed {
-                    tx.committed_participants.insert(shard_id.clone());
+                    tx.committed_participants.insert(*shard_id);
                     tx.failed_commit_participants.remove(shard_id);
                 }
                 for shard_id in &newly_failed {
-                    tx.failed_commit_participants.insert(shard_id.clone());
+                    tx.failed_commit_participants.insert(*shard_id);
                 }
                 tx.commit_retry_count = retry_count;
                 tx.updated_at = Utc::now();
@@ -635,14 +635,11 @@ impl TransactionCoordinator {
 
     /// Get a transaction by ID.
     pub async fn get_transaction(&self, tx_id: &TransactionId) -> Option<Transaction> {
-        self.transactions
-            .get(tx_id)
-            .map(|tx_lock| {
-                let tx_lock = tx_lock.clone();
-                // Use try_read to avoid blocking
-                tx_lock.try_read().ok().map(|tx| tx.clone())
-            })
-            .flatten()
+        self.transactions.get(tx_id).and_then(|tx_lock| {
+            let tx_lock = tx_lock.clone();
+            // Use try_read to avoid blocking
+            tx_lock.try_read().ok().map(|tx| tx.clone())
+        })
     }
 
     /// Get transaction state.

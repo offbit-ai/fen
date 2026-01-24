@@ -95,7 +95,7 @@ impl ConnectionPool {
         // Create new connection
         let config = ShardClientConfig {
             address,
-            node_id: node_id.clone(),
+            node_id: *node_id,
             connect_timeout: self.config.connect_timeout,
             request_timeout: self.config.request_timeout,
             keepalive_interval: self.config.keepalive_interval,
@@ -106,7 +106,7 @@ impl ConnectionPool {
         let wrapper = Arc::new(ShardClientWrapper::new(client));
 
         // Store and return
-        self.connections.insert(node_id.clone(), wrapper.clone());
+        self.connections.insert(*node_id, wrapper.clone());
 
         Ok(wrapper)
     }
@@ -138,7 +138,7 @@ impl ConnectionPool {
 
     /// List all registered node IDs.
     pub fn list_nodes(&self) -> Vec<NodeId> {
-        self.addresses.iter().map(|r| r.key().clone()).collect()
+        self.addresses.iter().map(|r| *r.key()).collect()
     }
 
     /// Check health of all connections.
@@ -146,7 +146,7 @@ impl ConnectionPool {
         let mut results = Vec::new();
 
         for entry in self.connections.iter() {
-            let node_id = entry.key().clone();
+            let node_id = *entry.key();
             let conn = entry.value().clone();
 
             match conn.health_check().await {

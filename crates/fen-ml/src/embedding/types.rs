@@ -32,7 +32,7 @@ impl Default for EmbeddingModelConfig {
 }
 
 /// Document embeddings at multiple granularities
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DocumentEmbeddings {
     /// Full document embedding
     pub document: Vec<f32>,
@@ -42,16 +42,6 @@ pub struct DocumentEmbeddings {
 
     /// Per-entity embeddings
     pub entities: Vec<EntityEmbedding>,
-}
-
-impl Default for DocumentEmbeddings {
-    fn default() -> Self {
-        Self {
-            document: Vec::new(),
-            sections: Vec::new(),
-            entities: Vec::new(),
-        }
-    }
 }
 
 impl DocumentEmbeddings {

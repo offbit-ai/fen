@@ -58,10 +58,13 @@ pub enum DeliveryError {
 /// Severity level for notifications.
 ///
 /// Ordered from lowest to highest: Info < Warning < Error < Critical
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     /// Informational notification.
+    #[default]
     Info,
     /// Warning notification.
     Warning,
@@ -69,12 +72,6 @@ pub enum Severity {
     Error,
     /// Critical notification requiring immediate attention.
     Critical,
-}
-
-impl Default for Severity {
-    fn default() -> Self {
-        Self::Info
-    }
 }
 
 impl std::str::FromStr for Severity {

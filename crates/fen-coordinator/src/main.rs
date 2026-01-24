@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{info, warn};
 
 /// Fen Cluster Coordinator
 #[derive(Parser, Debug)]
@@ -131,7 +131,9 @@ struct RegisterNodeResponse {
 #[derive(Debug, Deserialize)]
 struct HeartbeatRequest {
     node_id: String,
+    #[allow(dead_code)]
     shards: Vec<u32>,
+    #[allow(dead_code)]
     document_counts: HashMap<u32, u64>,
 }
 
@@ -204,7 +206,7 @@ impl CoordinatorState {
             .collect();
 
         // Register the node
-        let full_address = format!("{}:{}", address, grpc_port);
+        let _full_address = format!("{}:{}", address, grpc_port);
         nodes.insert(
             node_id,
             DataNodeInfo {
@@ -265,11 +267,9 @@ impl CoordinatorState {
 
         let mut nodes = self.data_nodes.write().await;
         for (node_id, info) in nodes.iter_mut() {
-            if now - info.last_heartbeat > timeout {
-                if info.healthy {
-                    warn!(node_id = ?node_id, "Data node marked unhealthy - missed heartbeat");
-                    info.healthy = false;
-                }
+            if now - info.last_heartbeat > timeout && info.healthy {
+                warn!(node_id = ?node_id, "Data node marked unhealthy - missed heartbeat");
+                info.healthy = false;
             }
         }
     }

@@ -80,6 +80,7 @@ struct Args {
 struct DataNodeHandler {
     node_id: NodeId,
     shards: Vec<ShardId>,
+    #[allow(dead_code)]
     data_dir: PathBuf,
     // In a real implementation, this would hold TieredStorage instances per shard
     document_counts: RwLock<HashMap<ShardId, u64>>,
@@ -420,11 +421,11 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&args.data_dir)?;
 
     // Create handler
-    let handler = DataNodeHandler::new(node_id.clone(), shards.clone(), args.data_dir.clone());
+    let handler = DataNodeHandler::new(node_id, shards.clone(), args.data_dir.clone());
     let handler = Arc::new(handler);
 
     // Create gRPC server
-    let server = ShardServer::new(DataNodeHandlerWrapper(handler.clone()), node_id.clone());
+    let server = ShardServer::new(DataNodeHandlerWrapper(handler.clone()), node_id);
 
     // Determine advertised address
     let advertised_addr = args

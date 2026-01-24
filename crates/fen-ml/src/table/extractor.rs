@@ -215,11 +215,7 @@ impl TableExtractor {
             };
 
             for i in 0..num_queries {
-                let offset = if shape.len() == 3 {
-                    i * stride
-                } else {
-                    i * stride
-                };
+                let offset = i * stride;
                 if offset + 4 >= data.len() {
                     break;
                 }

@@ -219,7 +219,7 @@ impl ShardClientWrapper {
     /// Create a new wrapper from a connected client.
     pub fn new(client: ShardClient) -> Self {
         Self {
-            node_id: client.config.node_id.clone(),
+            node_id: client.config.node_id,
             address: client.config.address.clone(),
             client: tokio::sync::Mutex::new(client),
         }

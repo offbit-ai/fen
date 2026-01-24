@@ -178,6 +178,7 @@ impl LayoutModel {
     }
 
     /// Prepare model inputs from image and OCR results
+    #[allow(clippy::type_complexity)]
     fn prepare_inputs(
         &self,
         image: &DynamicImage,
@@ -424,10 +425,12 @@ impl LayoutModel {
         let lower = text.to_lowercase();
 
         // Check for title (large text at top)
-        if region.bbox.y < 100.0 && region.bbox.height > 20.0 {
-            if text.len() < 100 && !text.contains('\n') {
-                return LayoutLabel::Title;
-            }
+        if region.bbox.y < 100.0
+            && region.bbox.height > 20.0
+            && text.len() < 100
+            && !text.contains('\n')
+        {
+            return LayoutLabel::Title;
         }
 
         // Check for header/footer by position
