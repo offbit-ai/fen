@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use tower_http::cors::{Any, CorsLayer};
@@ -10,7 +10,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::config::AppConfig;
 use crate::middleware::RateLimitLayer;
-use crate::routes::{documents, events, health, ingest, notifications, rules, search, storage, validate};
+use crate::routes::{admin, auth, documents, events, health, ingest, notifications, rules, search, storage, validate};
 use crate::state::AppState;
 
 /// Build the application router
@@ -63,6 +63,32 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/events/topics", get(events::list_topics))
         .route("/events/stream", get(events::event_stream))
         .route("/events/metrics", get(events::metrics_stream))
+        // Authentication endpoints (public)
+        .route("/auth/login", get(auth::login))
+        .route("/auth/callback", get(auth::callback))
+        .route("/auth/token", post(auth::token))
+        .route("/auth/userinfo", get(auth::userinfo))
+        .route("/auth/logout", post(auth::logout))
+        .route("/auth/providers", get(auth::list_providers))
+        // Admin endpoints - Tenant management (SystemAdmin only)
+        .route("/admin/tenants", get(admin::list_tenants).post(admin::create_tenant))
+        .route(
+            "/admin/tenants/:tenant_id",
+            get(admin::get_tenant).put(admin::update_tenant),
+        )
+        .route("/admin/tenants/:tenant_id/suspend", post(admin::suspend_tenant))
+        .route("/admin/tenants/:tenant_id/activate", post(admin::activate_tenant))
+        // Admin endpoints - User management (TenantAdmin or SystemAdmin)
+        .route("/admin/users", get(admin::list_users).post(admin::create_user))
+        .route(
+            "/admin/users/:user_id",
+            get(admin::get_user).put(admin::update_user).delete(admin::delete_user),
+        )
+        .route("/admin/users/:user_id/roles", put(admin::assign_roles))
+        .route("/admin/users/:user_id/suspend", post(admin::suspend_user))
+        .route("/admin/users/:user_id/activate", post(admin::activate_user))
+        // Admin dashboard
+        .route("/admin/dashboard", get(admin::dashboard))
         // Add middleware (order matters - rate limit first, then trace, then body limit)
         .layer(TraceLayer::new_for_http())
         .layer(rate_limit)

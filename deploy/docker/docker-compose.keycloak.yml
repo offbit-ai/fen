@@ -1,0 +1,50 @@
+version: "3.9"
+
+# Keycloak Identity Provider for Fen
+#
+# This docker-compose file sets up Keycloak with a pre-configured realm
+# for local development and testing of OAuth2/OIDC authentication.
+#
+# Usage:
+#   docker-compose -f deploy/docker/docker-compose.keycloak.yml up -d
+#
+# Access Keycloak Admin Console:
+#   http://localhost:8080/admin
+#   Username: admin
+#   Password: admin
+#
+# Fen Realm:
+#   http://localhost:8080/realms/fen
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: fen-keycloak
+    environment:
+      # Admin credentials
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      # Database (using embedded H2 for development)
+      KC_DB: dev-file
+      # Hostname configuration
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      # Import realm on startup
+      KC_IMPORT: /opt/keycloak/data/import/fen-realm.json
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/fen-realm.json:/opt/keycloak/data/import/fen-realm.json:ro
+      - keycloak-data:/opt/keycloak/data
+    command:
+      - start-dev
+      - --import-realm
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  keycloak-data:

@@ -11,6 +11,9 @@ use fen_storage::{
 };
 
 use crate::config::AppConfig;
+use crate::db::{DbConfig, DbPools, Repositories};
+use crate::middleware::AuthConfig;
+use crate::routes::auth::OidcConfig;
 
 /// Shared application state
 pub struct AppState {
@@ -28,6 +31,18 @@ pub struct AppState {
     /// Event bus for internal event routing (used by workers)
     #[allow(dead_code)]
     pub event_bus: Option<Arc<LocalEventBus>>,
+    // Authentication configuration
+    /// JWT authentication config
+    pub auth_config: AuthConfig,
+    /// OIDC provider config (optional, for SSO)
+    pub oidc_config: Option<OidcConfig>,
+    // Database layer (optional - for user/tenant management and observability)
+    /// Database pools (PostgreSQL + TimescaleDB)
+    #[allow(dead_code)]
+    pub db_pools: Option<DbPools>,
+    /// Database repositories (used by admin routes)
+    #[allow(dead_code)]
+    pub repositories: Option<Repositories>,
 }
 
 impl AppState {
@@ -79,6 +94,54 @@ impl AppState {
         let event_bus = Arc::new(LocalEventBus::new());
         tracing::info!("Local event bus initialized");
 
+        // Load auth configuration from environment
+        let auth_config = AuthConfig {
+            jwt_secret: std::env::var("JWT_SECRET")
+                .unwrap_or_else(|_| "development-secret-change-in-production".to_string()),
+            require_auth: std::env::var("REQUIRE_AUTH")
+                .map(|v| v.to_lowercase() != "false")
+                .unwrap_or(true),
+        };
+
+        // Load OIDC configuration from environment (optional)
+        let oidc_config = std::env::var("OIDC_ISSUER_URL").ok().map(|issuer_url| {
+            OidcConfig {
+                issuer_url,
+                client_id: std::env::var("OIDC_CLIENT_ID").unwrap_or_else(|_| "fen-api".to_string()),
+                client_secret: std::env::var("OIDC_CLIENT_SECRET").ok(),
+                redirect_uri: std::env::var("OIDC_REDIRECT_URI")
+                    .unwrap_or_else(|_| "http://localhost:3000/auth/callback".to_string()),
+                scopes: std::env::var("OIDC_SCOPES")
+                    .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
+                    .unwrap_or_else(|_| vec!["openid".to_string(), "profile".to_string(), "email".to_string()]),
+            }
+        });
+
+        if oidc_config.is_some() {
+            tracing::info!("OIDC authentication configured");
+        } else {
+            tracing::info!("OIDC not configured, using local JWT auth only");
+        }
+
+        // Initialize database connections (optional)
+        let (db_pools, repositories) = if std::env::var("DATABASE_URL").is_ok() {
+            let db_config = DbConfig::from_env();
+            match DbPools::new(&db_config).await {
+                Ok(pools) => {
+                    let repos = pools.repositories();
+                    tracing::info!("Database pools initialized");
+                    (Some(pools), Some(repos))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to connect to databases, admin features will be limited");
+                    (None, None)
+                }
+            }
+        } else {
+            tracing::info!("DATABASE_URL not set, running without PostgreSQL/TimescaleDB");
+            (None, None)
+        };
+
         Ok(Self {
             storage,
             ingestion,
@@ -90,6 +153,10 @@ impl AppState {
             tiered_storage: None, // Requires explicit configuration
             notification_hub: Some(notification_hub),
             event_bus: Some(event_bus),
+            auth_config,
+            oidc_config,
+            db_pools,
+            repositories,
         })
     }
 }

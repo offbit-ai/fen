@@ -12,11 +12,16 @@ pub enum ApiError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
     #[error("Not found: {0}")]
     NotFound(String),
 
     #[error("Internal error: {0}")]
-    #[allow(dead_code)]
     Internal(String),
 
     #[error("Ingestion error: {0}")]
@@ -40,6 +45,8 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, error_type, message) = match &self {
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone()),
+            ApiError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "unauthorized", msg.clone()),
+            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, "forbidden", msg.clone()),
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone()),
             ApiError::Internal(msg) => {
                 tracing::error!(error = %msg, "Internal server error");

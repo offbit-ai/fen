@@ -1,0 +1,64 @@
+# Example Terraform variables for Keycloak configuration
+# Copy this file to terraform.tfvars and customize values
+
+# =============================================================================
+# Keycloak Connection
+# =============================================================================
+
+keycloak_url            = "http://localhost:8080"
+keycloak_admin_user     = "admin"
+keycloak_admin_password = "admin"  # Change in production!
+
+# =============================================================================
+# Environment
+# =============================================================================
+
+environment = "dev"  # dev, staging, or prod
+
+# SSL requirement: "none" for dev, "external" or "all" for production
+ssl_required = "none"
+
+# =============================================================================
+# Client Secrets
+# =============================================================================
+
+fen_api_client_secret = "fen-api-secret"  # Generate a strong secret for production
+
+# =============================================================================
+# Redirect URIs
+# =============================================================================
+
+# API client redirect URIs
+api_redirect_uris = [
+  "http://localhost:3000/*",
+  "http://localhost:8000/*"
+]
+
+api_web_origins = [
+  "http://localhost:3000",
+  "http://localhost:8000"
+]
+
+# Web client redirect URIs
+web_redirect_uris = [
+  "http://localhost:3001/*",
+  "http://localhost:5173/*"
+]
+
+web_origins = [
+  "http://localhost:3001",
+  "http://localhost:5173"
+]
+
+# =============================================================================
+# Test Users
+# =============================================================================
+
+# Set to false in production
+create_test_users = true
+
+# Default test user passwords (change or remove in production)
+admin_password        = "admin123"
+tenant_admin_password = "tenant123"
+analyst_password      = "analyst123"
+viewer_password       = "viewer123"

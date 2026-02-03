@@ -95,6 +95,14 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Authentication
 jsonwebtoken = "9.3"
+base64 = "0.22"
+
+# HTTP Client
+reqwest = { version = "0.12", features = ["json"] }
+urlencoding = "2.1"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-native-tls", "postgres", "uuid", "chrono", "json"] }
 
 # Testing
 tokio-test = "0.4"

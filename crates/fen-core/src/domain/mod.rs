@@ -7,6 +7,7 @@ pub mod ids;
 pub mod invoice;
 pub mod party;
 pub mod tenant_config;
+pub mod user;
 
 pub use acl::{
     build_policies_from_roles, default_role_permissions, AclPolicy, Action, PolicyCondition,
@@ -25,3 +26,4 @@ pub use party::Party;
 pub use tenant_config::{
     FeatureFlags, QuotaConfig, RateLimitConfig, RetentionPolicy, TenantConfig, TenantStatus,
 };
+pub use user::{AuthProvider, CreateUserRequest, UpdateUserRequest, User, UserId, UserStatus};
