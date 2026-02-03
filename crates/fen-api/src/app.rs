@@ -10,7 +10,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::config::AppConfig;
 use crate::middleware::RateLimitLayer;
-use crate::routes::{documents, health, ingest, validate};
+use crate::routes::{documents, health, ingest, search, storage, validate};
 use crate::state::AppState;
 
 /// Build the application router
@@ -39,6 +39,15 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/validate", post(validate::validate_documents))
         // Stats
         .route("/stats", get(documents::get_stats))
+        // Search endpoints
+        .route("/search/text", get(search::text_search))
+        .route("/search/semantic", get(search::semantic_search))
+        .route("/search/query", post(search::execute_query))
+        // Storage management endpoints
+        .route("/storage/tiers", get(storage::tier_distribution))
+        .route("/storage/cache/stats", get(storage::cache_stats))
+        .route("/storage/cache/clear", post(storage::clear_cache))
+        .route("/storage/migrate", post(storage::trigger_migration))
         // Add middleware (order matters - rate limit first, then trace, then body limit)
         .layer(TraceLayer::new_for_http())
         .layer(rate_limit)
