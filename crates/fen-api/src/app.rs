@@ -10,7 +10,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::config::AppConfig;
 use crate::middleware::RateLimitLayer;
-use crate::routes::{documents, health, ingest, search, storage, validate};
+use crate::routes::{documents, events, health, ingest, notifications, rules, search, storage, validate};
 use crate::state::AppState;
 
 /// Build the application router
@@ -48,6 +48,21 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/storage/cache/stats", get(storage::cache_stats))
         .route("/storage/cache/clear", post(storage::clear_cache))
         .route("/storage/migrate", post(storage::trigger_migration))
+        // Rules management endpoints
+        .route("/rules/status", get(rules::rule_status))
+        .route("/rules/config", get(rules::rule_config))
+        // Notification endpoints
+        .route("/notifications/providers", get(notifications::list_providers))
+        .route("/notifications/health", get(notifications::provider_health))
+        .route("/notifications/send", post(notifications::send_notification))
+        .route(
+            "/notifications/preferences/:tenant_id",
+            get(notifications::get_preferences).put(notifications::set_preferences),
+        )
+        // Event streaming endpoints
+        .route("/events/topics", get(events::list_topics))
+        .route("/events/stream", get(events::event_stream))
+        .route("/events/metrics", get(events::metrics_stream))
         // Add middleware (order matters - rate limit first, then trace, then body limit)
         .layer(TraceLayer::new_for_http())
         .layer(rate_limit)

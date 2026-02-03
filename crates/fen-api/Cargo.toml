@@ -12,6 +12,8 @@ fen-core = { path = "../fen-core" }
 fen-storage = { path = "../fen-storage" }
 fen-ingestion = { path = "../fen-ingestion" }
 fen-rules = { path = "../fen-rules" }
+fen-events = { path = "../fen-events" }
+fen-notify = { path = "../fen-notify" }
 
 axum.workspace = true
 tower.workspace = true
@@ -31,6 +33,8 @@ chrono.workspace = true
 async-trait.workspace = true
 jsonwebtoken.workspace = true
 dashmap.workspace = true
+futures.workspace = true
+tokio-stream.workspace = true
 
 [lints]
 workspace = true

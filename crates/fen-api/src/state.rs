@@ -1,7 +1,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use fen_events::LocalEventBus;
 use fen_ingestion::IngestionPipeline;
+use fen_notify::NotificationHub;
 use fen_rules::RuleEngine;
 use fen_storage::{
     DocumentLocationIndex, FullTextConfig, FullTextIndex, QueryEngine, QueryExecutor, RedbStorage,
@@ -21,6 +23,11 @@ pub struct AppState {
     pub query_executor: Option<Arc<QueryExecutor>>,
     pub location_index: Option<Arc<DocumentLocationIndex>>,
     pub tiered_storage: Option<Arc<TieredStorage>>,
+    // Notification and event infrastructure
+    pub notification_hub: Option<Arc<NotificationHub>>,
+    /// Event bus for internal event routing (used by workers)
+    #[allow(dead_code)]
+    pub event_bus: Option<Arc<LocalEventBus>>,
 }
 
 impl AppState {
@@ -64,6 +71,14 @@ impl AppState {
         let query_engine: Option<Arc<QueryEngine>> = None;
         tracing::info!("Query engine not available (requires tiered storage setup)");
 
+        // Initialize notification hub for real-time notifications
+        let notification_hub = Arc::new(NotificationHub::new());
+        tracing::info!("Notification hub initialized");
+
+        // Initialize local event bus for in-process events
+        let event_bus = Arc::new(LocalEventBus::new());
+        tracing::info!("Local event bus initialized");
+
         Ok(Self {
             storage,
             ingestion,
@@ -73,6 +88,8 @@ impl AppState {
             query_executor: None, // Requires warm storage setup
             location_index: Some(location_index),
             tiered_storage: None, // Requires explicit configuration
+            notification_hub: Some(notification_hub),
+            event_bus: Some(event_bus),
         })
     }
 }

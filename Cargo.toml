@@ -91,6 +91,7 @@ rust_decimal_macros = "1.36"
 bytes = "1.0"
 mime = "0.3"
 futures = "0.3"
+tokio-stream = { version = "0.1", features = ["sync"] }
 
 # Authentication
 jsonwebtoken = "9.3"
