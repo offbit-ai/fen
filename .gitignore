@@ -22,6 +22,7 @@ Thumbs.db
 config/local.toml
 .env
 .env.*
+!.env.*.example
 
 # Logs
 *.log
