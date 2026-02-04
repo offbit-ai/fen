@@ -29,3 +29,8 @@ logs/
 
 # Test artifacts
 /tests/fixtures/*.pdf.extracted
+
+# Node.js
+node_modules/
+
+study/
