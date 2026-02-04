@@ -8,6 +8,9 @@ import { QueryWorkbenchPage } from '@/pages/analysis/workbench'
 import { AnomaliesPage } from '@/pages/analysis/anomalies'
 import { ReportsPage } from '@/pages/analysis/reports'
 import { BaselinesPage } from '@/pages/analysis/baselines'
+import { DecisionTablesPage } from '@/pages/rules/tables'
+import { RuleGraphPage } from '@/pages/rules/graph'
+import { ExecutionHistoryPage } from '@/pages/rules/history'
 import { UsersPage } from '@/pages/settings/users'
 import { TenantSettingsPage } from '@/pages/settings/tenant'
 import { AppShell } from '@/components/layout/app-shell'
@@ -58,10 +61,10 @@ function App() {
 
         {/* Rules Engine */}
         <Route path="rules">
-          <Route path="graph" element={<PlaceholderPage title="Rule Graph" />} />
-          <Route path="tables" element={<PlaceholderPage title="Decision Tables" />} />
+          <Route path="graph" element={<RuleGraphPage />} />
+          <Route path="tables" element={<DecisionTablesPage />} />
           <Route path="testing" element={<PlaceholderPage title="Rule Testing" />} />
-          <Route path="history" element={<PlaceholderPage title="Execution History" />} />
+          <Route path="history" element={<ExecutionHistoryPage />} />
         </Route>
 
         {/* Settings */}
