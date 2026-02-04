@@ -7,6 +7,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   ChevronRight,
+  CheckCircle,
+  Circle,
+  Loader2,
+  DollarSign,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -26,37 +30,110 @@ export function DashboardPage() {
       {/* KPI Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <KPICard
-          title="Documents Processed"
-          value="847"
+          title="Total Invoices"
+          value="12,847"
           change="+12%"
           changeType="increase"
           icon={<FileText className="h-5 w-5" />}
-          description="vs last month"
+          description="MTD"
         />
         <KPICard
-          title="Total Value Analyzed"
-          value="$2.1M"
+          title="Processed Today"
+          value="234"
           change="+8%"
           changeType="increase"
           icon={<TrendingUp className="h-5 w-5" />}
-          description="vs last month"
+          description="vs avg"
         />
         <KPICard
-          title="Anomaly Rate"
-          value="6.5%"
-          change="-2%"
+          title="Anomalies Detected"
+          value="47"
+          change="-15%"
           changeType="decrease"
           icon={<AlertTriangle className="h-5 w-5" />}
-          description="vs last month"
+          description="WoW"
+          highlight
         />
         <KPICard
-          title="Active Rules"
-          value="127"
-          change="+5"
+          title="At Risk Amount"
+          value="$2.4M"
+          change="+23%"
           changeType="increase"
-          icon={<Shield className="h-5 w-5" />}
-          description="rules running"
+          icon={<DollarSign className="h-5 w-5" />}
+          description="MoM"
+          isRisk
         />
+      </div>
+
+      {/* Processing Pipeline & Anomaly Breakdown */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Processing Pipeline */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Processing Pipeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* Progress bar */}
+            <div className="mb-6">
+              <div className="flex items-center justify-between text-sm mb-2">
+                <span className="text-primary-600">Today's Progress</span>
+                <span className="font-medium text-primary-900">78%</span>
+              </div>
+              <div className="h-3 w-full rounded-full bg-primary-100">
+                <div className="h-3 rounded-full bg-primary-600" style={{ width: '78%' }} />
+              </div>
+            </div>
+            {/* Pipeline stages */}
+            <div className="space-y-3">
+              <PipelineStage stage="Ingested" count={234} status="complete" />
+              <PipelineStage stage="Extracted" count={228} status="complete" />
+              <PipelineStage stage="Validated" count={215} status="processing" />
+              <PipelineStage stage="Pending Review" count={19} status="pending" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Anomalies by Category */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Anomalies by Category</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <AnomalyCategoryRow
+                category="Price Deviation"
+                count={21}
+                percentage={45}
+                color="bg-red-500"
+              />
+              <AnomalyCategoryRow
+                category="Duplicate Invoice"
+                count={13}
+                percentage={28}
+                color="bg-orange-500"
+              />
+              <AnomalyCategoryRow
+                category="Contract Mismatch"
+                count={8}
+                percentage={18}
+                color="bg-yellow-500"
+              />
+              <AnomalyCategoryRow
+                category="Volume Anomaly"
+                count={5}
+                percentage={9}
+                color="bg-blue-500"
+              />
+            </div>
+            {/* Mini legend */}
+            <div className="mt-6 pt-4 border-t border-primary-100">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-primary-500">Total Open Anomalies</span>
+                <span className="font-bold text-primary-900">47</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Main Content Grid */}
@@ -185,6 +262,8 @@ interface KPICardProps {
   changeType: 'increase' | 'decrease'
   icon: React.ReactNode
   description: string
+  highlight?: boolean
+  isRisk?: boolean
 }
 
 function KPICard({
@@ -194,27 +273,44 @@ function KPICard({
   changeType,
   icon,
   description,
+  highlight,
+  isRisk,
 }: KPICardProps) {
+  // Determine if the change is positive or negative for the business
+  const isPositiveChange =
+    (changeType === 'increase' && !highlight && !isRisk) ||
+    (changeType === 'decrease' && (highlight || title === 'Anomalies Detected'))
+
   return (
-    <Card>
+    <Card className={cn(highlight && 'border-red-200 bg-red-50/50')}>
       <CardContent className="p-6">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium text-primary-500">{title}</span>
-          <div className="rounded-lg bg-primary-100 p-2 text-primary-600">
+          <div
+            className={cn(
+              'rounded-lg p-2',
+              highlight
+                ? 'bg-red-100 text-red-600'
+                : 'bg-primary-100 text-primary-600'
+            )}
+          >
             {icon}
           </div>
         </div>
         <div className="mt-4">
-          <span className="text-3xl font-bold text-primary-900">{value}</span>
+          <span
+            className={cn(
+              'text-3xl font-bold',
+              highlight ? 'text-red-700' : 'text-primary-900'
+            )}
+          >
+            {value}
+          </span>
           <div className="mt-1 flex items-center gap-2">
             <span
               className={cn(
                 'flex items-center text-sm font-medium',
-                changeType === 'increase' && title !== 'Anomaly Rate'
-                  ? 'text-success'
-                  : changeType === 'decrease' && title === 'Anomaly Rate'
-                  ? 'text-success'
-                  : 'text-error'
+                isPositiveChange ? 'text-success' : 'text-error'
               )}
             >
               {changeType === 'increase' ? (
@@ -229,6 +325,82 @@ function KPICard({
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+interface PipelineStageProps {
+  stage: string
+  count: number
+  status: 'complete' | 'processing' | 'pending'
+}
+
+function PipelineStage({ stage, count, status }: PipelineStageProps) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        {status === 'complete' && (
+          <CheckCircle className="h-5 w-5 text-success" />
+        )}
+        {status === 'processing' && (
+          <Loader2 className="h-5 w-5 text-primary-500 animate-spin" />
+        )}
+        {status === 'pending' && (
+          <Circle className="h-5 w-5 text-primary-300" />
+        )}
+        <span
+          className={cn(
+            'text-sm',
+            status === 'complete'
+              ? 'text-primary-700'
+              : status === 'processing'
+              ? 'text-primary-900 font-medium'
+              : 'text-primary-500'
+          )}
+        >
+          {stage}
+        </span>
+      </div>
+      <span
+        className={cn(
+          'text-sm font-medium',
+          status === 'processing' ? 'text-primary-900' : 'text-primary-600'
+        )}
+      >
+        {count}
+      </span>
+    </div>
+  )
+}
+
+interface AnomalyCategoryRowProps {
+  category: string
+  count: number
+  percentage: number
+  color: string
+}
+
+function AnomalyCategoryRow({
+  category,
+  count,
+  percentage,
+  color,
+}: AnomalyCategoryRowProps) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between text-sm">
+        <div className="flex items-center gap-2">
+          <div className={cn('h-3 w-3 rounded-full', color)} />
+          <span className="text-primary-700">{category}</span>
+        </div>
+        <span className="font-medium text-primary-900">{count}</span>
+      </div>
+      <div className="h-2 w-full rounded-full bg-primary-100">
+        <div
+          className={cn('h-2 rounded-full transition-all', color)}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    </div>
   )
 }
 

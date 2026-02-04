@@ -11,11 +11,11 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useUIStore } from '@/store/ui'
 
 export function Header() {
   const [showUserMenu, setShowUserMenu] = useState(false)
-  // TODO: Implement mobile sidebar toggle
-  const [_showMobileMenu, setShowMobileMenu] = useState(false)
+  const toggleMobileSidebar = useUIStore((state) => state.toggleMobileSidebar)
 
   return (
     <header className="sticky top-0 z-40 flex h-header items-center justify-between border-b border-primary-200 bg-white px-6">
@@ -26,7 +26,7 @@ export function Header() {
           variant="ghost"
           size="icon"
           className="lg:hidden"
-          onClick={() => setShowMobileMenu(prev => !prev)}
+          onClick={toggleMobileSidebar}
         >
           <Menu className="h-5 w-5" />
         </Button>

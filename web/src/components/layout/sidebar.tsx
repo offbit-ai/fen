@@ -16,9 +16,11 @@ import {
   Bell,
   Link as LinkIcon,
   ScrollText,
+  X,
 } from 'lucide-react'
 import { Logo } from '@/components/shared/logo'
 import { cn } from '@/lib/utils'
+import { useUIStore } from '@/store/ui'
 
 interface NavItem {
   label: string
@@ -72,21 +74,16 @@ const navigation: NavSection[] = [
 
 export function Sidebar() {
   const location = useLocation()
+  const { sidebarMobileOpen, setMobileSidebarOpen } = useUIStore()
 
-  return (
-    <aside className="fixed inset-y-0 left-0 z-50 hidden w-sidebar flex-col border-r border-primary-200 bg-white lg:flex">
-      {/* Logo */}
-      <div className="flex h-header items-center border-b border-primary-200 px-6">
-        <Link to="/dashboard">
-          <Logo />
-        </Link>
-      </div>
-
+  const sidebarContent = (
+    <>
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto p-4 scrollbar-thin">
         {/* Dashboard Link */}
         <Link
           to="/dashboard"
+          onClick={() => setMobileSidebarOpen(false)}
           className={cn(
             'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors mb-4',
             location.pathname === '/dashboard'
@@ -105,22 +102,32 @@ export function Sidebar() {
               {section.title}
             </h3>
             <ul className="space-y-1">
-              {section.items.map((item) => (
-                <li key={item.href}>
-                  <Link
-                    to={item.href}
-                    className={cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                      location.pathname === item.href
-                        ? 'bg-primary-100 text-primary-900 font-medium'
-                        : 'text-primary-600 hover:bg-primary-50 hover:text-primary-900'
-                    )}
-                  >
-                    {item.icon}
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
+              {section.items.map((item) => {
+                const isActive = location.pathname === item.href
+                const showBadge = item.label === 'Anomalies'
+                return (
+                  <li key={item.href}>
+                    <Link
+                      to={item.href}
+                      onClick={() => setMobileSidebarOpen(false)}
+                      className={cn(
+                        'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
+                        isActive
+                          ? 'bg-primary-100 text-primary-900 font-medium'
+                          : 'text-primary-600 hover:bg-primary-50 hover:text-primary-900'
+                      )}
+                    >
+                      {item.icon}
+                      <span className="flex-1">{item.label}</span>
+                      {showBadge && (
+                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-error px-1.5 text-[10px] font-medium text-white">
+                          47
+                        </span>
+                      )}
+                    </Link>
+                  </li>
+                )
+              })}
             </ul>
           </div>
         ))}
@@ -142,6 +149,48 @@ export function Sidebar() {
           </div>
         </div>
       </div>
-    </aside>
+    </>
+  )
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <aside className="fixed inset-y-0 left-0 z-50 hidden w-sidebar flex-col border-r border-primary-200 bg-white lg:flex">
+        {/* Logo */}
+        <div className="flex h-header items-center border-b border-primary-200 px-6">
+          <Link to="/dashboard">
+            <Logo />
+          </Link>
+        </div>
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Sidebar Overlay */}
+      {sidebarMobileOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          {/* Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => setMobileSidebarOpen(false)}
+          />
+          {/* Drawer */}
+          <aside className="fixed inset-y-0 left-0 z-50 flex w-sidebar flex-col bg-white shadow-xl">
+            {/* Logo + Close */}
+            <div className="flex h-header items-center justify-between border-b border-primary-200 px-6">
+              <Link to="/dashboard" onClick={() => setMobileSidebarOpen(false)}>
+                <Logo />
+              </Link>
+              <button
+                onClick={() => setMobileSidebarOpen(false)}
+                className="rounded-lg p-2 text-primary-500 hover:bg-primary-100 hover:text-primary-900"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+    </>
   )
 }
