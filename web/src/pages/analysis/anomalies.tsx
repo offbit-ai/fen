@@ -285,13 +285,23 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
   }
 
   const typeLabels: Record<AnomalyType, string> = {
+    // Backend types
+    math_mismatch: 'Math Mismatch',
+    missing_field: 'Missing Field',
+    invalid_format: 'Invalid Format',
+    out_of_range: 'Out of Range',
+    potential_duplicate: 'Potential Duplicate',
+    date_inconsistency: 'Date Inconsistency',
+    contract_violation: 'Contract Violation',
+    validation_failure: 'Validation Failure',
+    statistical_outlier: 'Statistical Outlier',
+    // Frontend display aliases
     price_deviation: 'Price Deviation',
     duplicate_invoice: 'Duplicate Invoice',
     missing_contract: 'Missing Contract',
     quantity_mismatch: 'Quantity Mismatch',
     date_anomaly: 'Date Anomaly',
     vendor_mismatch: 'Vendor Mismatch',
-    statistical_outlier: 'Statistical Outlier',
     rule_violation: 'Rule Violation',
   }
 
@@ -309,15 +319,17 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
               >
                 {anomaly.severity.toUpperCase()}
               </span>
-              <span
-                className={cn(
-                  'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-                  statusBadge[anomaly.status].className
-                )}
-              >
-                {statusBadge[anomaly.status].icon}
-                {anomaly.status.charAt(0).toUpperCase() + anomaly.status.slice(1)}
-              </span>
+              {anomaly.status && (
+                <span
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
+                    statusBadge[anomaly.status].className
+                  )}
+                >
+                  {statusBadge[anomaly.status].icon}
+                  {anomaly.status.charAt(0).toUpperCase() + anomaly.status.slice(1)}
+                </span>
+              )}
               <span className="text-xs text-primary-500">
                 {typeLabels[anomaly.anomaly_type]}
               </span>
@@ -333,13 +345,15 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
               <span>
                 Vendor: {String(anomaly.details?.vendor || 'Unknown')}
               </span>
-              <span>
-                {new Date(anomaly.created_at).toLocaleDateString()}
-              </span>
+              {anomaly.created_at && (
+                <span>
+                  {new Date(anomaly.created_at).toLocaleDateString()}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2 ml-4">
-            {anomaly.status === 'open' || anomaly.status === 'investigating' ? (
+            {(anomaly.status === 'open' || anomaly.status === 'investigating') ? (
               <>
                 <Button size="sm" variant="outline">
                   Resolve

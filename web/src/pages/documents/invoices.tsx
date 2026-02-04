@@ -261,19 +261,19 @@ export function InvoicesPage() {
                     {new Date(invoice.invoice_date).toLocaleDateString()}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-primary-900">
-                    {formatCurrency(invoice.total_amount, invoice.currency)}
+                    {formatCurrency(Number(invoice.total_amount), invoice.currency)}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex justify-center">
-                      <StatusBadge status={invoice.status} />
+                      <StatusBadge status={invoice.status ?? 'pending'} />
                     </div>
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex justify-center">
-                      {invoice.anomalies.length > 0 ? (
+                      {(invoice.anomalies?.length ?? 0) > 0 ? (
                         <span className="flex items-center gap-1 text-sm text-error">
                           <AlertTriangle className="h-4 w-4" />
-                          {invoice.anomalies.length}
+                          {invoice.anomalies?.length ?? 0}
                         </span>
                       ) : (
                         <span className="text-sm text-primary-400">—</span>

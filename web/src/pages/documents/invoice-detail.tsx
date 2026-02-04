@@ -178,7 +178,7 @@ export function InvoiceDetailPage() {
                 <DetailItem
                   icon={<DollarSign className="h-4 w-4" />}
                   label="Total Amount"
-                  value={formatCurrency(invoice.total_amount, invoice.currency)}
+                  value={formatCurrency(Number(invoice.total_amount), invoice.currency)}
                   highlight
                 />
                 <DetailItem
@@ -195,7 +195,7 @@ export function InvoiceDetailPage() {
                           : 'bg-yellow-100 text-yellow-700'
                       )}
                     >
-                      {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
+                      {(invoice.status ?? 'pending').charAt(0).toUpperCase() + (invoice.status ?? 'pending').slice(1)}
                     </span>
                   }
                 />
@@ -257,10 +257,10 @@ export function InvoiceDetailPage() {
                             {item.quantity}
                           </td>
                           <td className="px-4 py-3 text-right text-primary-700">
-                            {formatCurrency(item.unit_price, invoice.currency)}
+                            {formatCurrency(Number(item.unit_price), invoice.currency)}
                           </td>
                           <td className="px-4 py-3 text-right font-medium text-primary-900">
-                            {formatCurrency(item.total, invoice.currency)}
+                            {formatCurrency(Number(item.total), invoice.currency)}
                           </td>
                         </tr>
                       )
@@ -272,7 +272,7 @@ export function InvoiceDetailPage() {
                         Total
                       </td>
                       <td className="px-4 py-3 text-right font-bold text-primary-900">
-                        {formatCurrency(invoice.total_amount, invoice.currency)}
+                        {formatCurrency(Number(invoice.total_amount), invoice.currency)}
                       </td>
                     </tr>
                   </tfoot>
@@ -327,7 +327,7 @@ export function InvoiceDetailPage() {
             </CardHeader>
             <CardContent>
               <dl className="space-y-3">
-                {Object.entries(invoice.metadata).map(([key, value]) => (
+                {invoice.metadata && Object.entries(invoice.metadata).map(([key, value]) => (
                   <div key={key}>
                     <dt className="text-xs font-medium text-primary-500 uppercase">
                       {key.replace(/_/g, ' ')}
@@ -335,14 +335,16 @@ export function InvoiceDetailPage() {
                     <dd className="text-sm text-primary-900">{String(value)}</dd>
                   </div>
                 ))}
-                <div>
-                  <dt className="text-xs font-medium text-primary-500 uppercase">
-                    Created
-                  </dt>
-                  <dd className="text-sm text-primary-900">
-                    {new Date(invoice.created_at).toLocaleString()}
-                  </dd>
-                </div>
+                {invoice.created_at && (
+                  <div>
+                    <dt className="text-xs font-medium text-primary-500 uppercase">
+                      Created
+                    </dt>
+                    <dd className="text-sm text-primary-900">
+                      {new Date(invoice.created_at).toLocaleString()}
+                    </dd>
+                  </div>
+                )}
               </dl>
             </CardContent>
           </Card>
