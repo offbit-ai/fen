@@ -5,6 +5,7 @@ import { InvoicesPage } from '@/pages/documents/invoices'
 import { InvoiceDetailPage } from '@/pages/documents/invoice-detail'
 import { ContractsPage } from '@/pages/documents/contracts'
 import { ContractDetailPage } from '@/pages/documents/contract-detail'
+import { AttachmentsPage } from '@/pages/documents/attachments'
 import { QueryWorkbenchPage } from '@/pages/analysis/workbench'
 import { AnomaliesPage } from '@/pages/analysis/anomalies'
 import { AnomalyDetailPage } from '@/pages/analysis/anomaly-detail'
@@ -16,6 +17,9 @@ import { RuleTestingPage } from '@/pages/rules/testing'
 import { ExecutionHistoryPage } from '@/pages/rules/history'
 import { UsersPage } from '@/pages/settings/users'
 import { TenantSettingsPage } from '@/pages/settings/tenant'
+import { NotificationsPage } from '@/pages/settings/notifications'
+import { IntegrationsPage } from '@/pages/settings/integrations'
+import { AuditLogPage } from '@/pages/settings/audit'
 import { AppShell } from '@/components/layout/app-shell'
 import { ProtectedRoute } from '@/components/auth/protected-route'
 
@@ -50,7 +54,7 @@ function App() {
           <Route path="invoices/:id" element={<InvoiceDetailPage />} />
           <Route path="contracts" element={<ContractsPage />} />
           <Route path="contracts/:id" element={<ContractDetailPage />} />
-          <Route path="attachments" element={<PlaceholderPage title="Attachments" />} />
+          <Route path="attachments" element={<AttachmentsPage />} />
         </Route>
 
         {/* Analysis */}
@@ -74,27 +78,15 @@ function App() {
         <Route path="settings">
           <Route path="users" element={<UsersPage />} />
           <Route path="tenant" element={<TenantSettingsPage />} />
-          <Route path="notifications" element={<PlaceholderPage title="Notifications" />} />
-          <Route path="integrations" element={<PlaceholderPage title="Integrations" />} />
-          <Route path="audit" element={<PlaceholderPage title="Audit Log" />} />
+          <Route path="notifications" element={<NotificationsPage />} />
+          <Route path="integrations" element={<IntegrationsPage />} />
+          <Route path="audit" element={<AuditLogPage />} />
         </Route>
       </Route>
 
       {/* Catch all */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
-  )
-}
-
-// Placeholder component for unimplemented pages
-function PlaceholderPage({ title }: { title: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center py-20">
-      <div className="rounded-lg border-2 border-dashed border-primary-200 p-12 text-center">
-        <h1 className="text-2xl font-bold text-primary-900">{title}</h1>
-        <p className="mt-2 text-primary-500">This page is coming soon.</p>
-      </div>
-    </div>
   )
 }
 
