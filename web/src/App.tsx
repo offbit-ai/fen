@@ -3,8 +3,13 @@ import { LoginPage } from '@/pages/auth/login'
 import { DashboardPage } from '@/pages/dashboard'
 import { InvoicesPage } from '@/pages/documents/invoices'
 import { InvoiceDetailPage } from '@/pages/documents/invoice-detail'
+import { ContractsPage } from '@/pages/documents/contracts'
 import { QueryWorkbenchPage } from '@/pages/analysis/workbench'
 import { AnomaliesPage } from '@/pages/analysis/anomalies'
+import { ReportsPage } from '@/pages/analysis/reports'
+import { BaselinesPage } from '@/pages/analysis/baselines'
+import { UsersPage } from '@/pages/settings/users'
+import { TenantSettingsPage } from '@/pages/settings/tenant'
 import { AppShell } from '@/components/layout/app-shell'
 import { ProtectedRoute } from '@/components/auth/protected-route'
 
@@ -37,7 +42,9 @@ function App() {
         <Route path="documents">
           <Route path="invoices" element={<InvoicesPage />} />
           <Route path="invoices/:id" element={<InvoiceDetailPage />} />
-          <Route path="contracts" element={<PlaceholderPage title="Contracts" />} />
+          <Route path="contracts" element={<ContractsPage />} />
+          <Route path="contracts/:id" element={<PlaceholderPage title="Contract Detail" />} />
+          <Route path="attachments" element={<PlaceholderPage title="Attachments" />} />
         </Route>
 
         {/* Analysis */}
@@ -45,8 +52,8 @@ function App() {
           <Route path="workbench" element={<QueryWorkbenchPage />} />
           <Route path="anomalies" element={<AnomaliesPage />} />
           <Route path="anomalies/:id" element={<PlaceholderPage title="Anomaly Detail" />} />
-          <Route path="reports" element={<PlaceholderPage title="Reports" />} />
-          <Route path="baselines" element={<PlaceholderPage title="Baselines" />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="baselines" element={<BaselinesPage />} />
         </Route>
 
         {/* Rules Engine */}
@@ -59,8 +66,8 @@ function App() {
 
         {/* Settings */}
         <Route path="settings">
-          <Route path="users" element={<PlaceholderPage title="Users" />} />
-          <Route path="tenant" element={<PlaceholderPage title="Tenant Settings" />} />
+          <Route path="users" element={<UsersPage />} />
+          <Route path="tenant" element={<TenantSettingsPage />} />
           <Route path="notifications" element={<PlaceholderPage title="Notifications" />} />
           <Route path="integrations" element={<PlaceholderPage title="Integrations" />} />
           <Route path="audit" element={<PlaceholderPage title="Audit Log" />} />
