@@ -37,37 +37,37 @@ const navigation: NavSection[] = [
   {
     title: 'Documents',
     items: [
-      { label: 'Invoices', href: '/documents/invoices', icon: <FileText className="w-4 h-4" /> },
-      { label: 'Contracts', href: '/documents/contracts', icon: <FileCheck className="w-4 h-4" /> },
-      { label: 'Attachments', href: '/documents/attachments', icon: <Paperclip className="w-4 h-4" /> },
+      { label: 'Invoices', href: '/app/documents/invoices', icon: <FileText className="w-4 h-4" /> },
+      { label: 'Contracts', href: '/app/documents/contracts', icon: <FileCheck className="w-4 h-4" /> },
+      { label: 'Attachments', href: '/app/documents/attachments', icon: <Paperclip className="w-4 h-4" /> },
     ],
   },
   {
     title: 'Analysis',
     items: [
-      { label: 'Query Workbench', href: '/analysis/workbench', icon: <Search className="w-4 h-4" /> },
-      { label: 'Reports', href: '/analysis/reports', icon: <BarChart3 className="w-4 h-4" /> },
-      { label: 'Anomalies', href: '/analysis/anomalies', icon: <AlertTriangle className="w-4 h-4" /> },
-      { label: 'Baselines', href: '/analysis/baselines', icon: <TrendingDown className="w-4 h-4" /> },
+      { label: 'Query Workbench', href: '/app/analysis/workbench', icon: <Search className="w-4 h-4" /> },
+      { label: 'Reports', href: '/app/analysis/reports', icon: <BarChart3 className="w-4 h-4" /> },
+      { label: 'Anomalies', href: '/app/analysis/anomalies', icon: <AlertTriangle className="w-4 h-4" /> },
+      { label: 'Baselines', href: '/app/analysis/baselines', icon: <TrendingDown className="w-4 h-4" /> },
     ],
   },
   {
     title: 'Rules Engine',
     items: [
-      { label: 'Rule Graph', href: '/rules/graph', icon: <GitBranch className="w-4 h-4" /> },
-      { label: 'Decision Tables', href: '/rules/tables', icon: <Table className="w-4 h-4" /> },
-      { label: 'Rule Testing', href: '/rules/testing', icon: <FlaskConical className="w-4 h-4" /> },
-      { label: 'Execution History', href: '/rules/history', icon: <History className="w-4 h-4" /> },
+      { label: 'Rule Graph', href: '/app/rules/graph', icon: <GitBranch className="w-4 h-4" /> },
+      { label: 'Decision Tables', href: '/app/rules/tables', icon: <Table className="w-4 h-4" /> },
+      { label: 'Rule Testing', href: '/app/rules/testing', icon: <FlaskConical className="w-4 h-4" /> },
+      { label: 'Execution History', href: '/app/rules/history', icon: <History className="w-4 h-4" /> },
     ],
   },
   {
     title: 'Settings',
     items: [
-      { label: 'Users', href: '/settings/users', icon: <Users className="w-4 h-4" /> },
-      { label: 'Tenant Settings', href: '/settings/tenant', icon: <Building2 className="w-4 h-4" /> },
-      { label: 'Notifications', href: '/settings/notifications', icon: <Bell className="w-4 h-4" /> },
-      { label: 'Integrations', href: '/settings/integrations', icon: <LinkIcon className="w-4 h-4" /> },
-      { label: 'Audit Log', href: '/settings/audit', icon: <ScrollText className="w-4 h-4" /> },
+      { label: 'Users', href: '/app/settings/users', icon: <Users className="w-4 h-4" /> },
+      { label: 'Tenant Settings', href: '/app/settings/tenant', icon: <Building2 className="w-4 h-4" /> },
+      { label: 'Notifications', href: '/app/settings/notifications', icon: <Bell className="w-4 h-4" /> },
+      { label: 'Integrations', href: '/app/settings/integrations', icon: <LinkIcon className="w-4 h-4" /> },
+      { label: 'Audit Log', href: '/app/settings/audit', icon: <ScrollText className="w-4 h-4" /> },
     ],
   },
 ]
@@ -82,11 +82,11 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto p-4 scrollbar-thin">
         {/* Dashboard Link */}
         <Link
-          to="/dashboard"
+          to="/app/dashboard"
           onClick={() => setMobileSidebarOpen(false)}
           className={cn(
             'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors mb-4',
-            location.pathname === '/dashboard'
+            location.pathname === '/app/dashboard'
               ? 'bg-primary-100 text-primary-900'
               : 'text-primary-600 hover:bg-primary-50 hover:text-primary-900'
           )}
@@ -158,7 +158,7 @@ export function Sidebar() {
       <aside className="fixed inset-y-0 left-0 z-50 hidden w-sidebar flex-col border-r border-primary-200 bg-white lg:flex">
         {/* Logo */}
         <div className="flex h-header items-center border-b border-primary-200 px-6">
-          <Link to="/dashboard">
+          <Link to="/app/dashboard">
             <Logo />
           </Link>
         </div>
@@ -177,7 +177,7 @@ export function Sidebar() {
           <aside className="fixed inset-y-0 left-0 z-50 flex w-sidebar flex-col bg-white shadow-xl">
             {/* Logo + Close */}
             <div className="flex h-header items-center justify-between border-b border-primary-200 px-6">
-              <Link to="/dashboard" onClick={() => setMobileSidebarOpen(false)}>
+              <Link to="/app/dashboard" onClick={() => setMobileSidebarOpen(false)}>
                 <Logo />
               </Link>
               <button

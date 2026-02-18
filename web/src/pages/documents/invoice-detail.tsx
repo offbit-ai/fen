@@ -94,7 +94,7 @@ export function InvoiceDetailPage() {
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
         <Link
-          to="/documents/invoices"
+          to="/app/documents/invoices"
           className="flex items-center gap-1 text-primary-500 hover:text-primary-700"
         >
           <ArrowLeft className="h-4 w-4" />

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   FileCheck,
@@ -12,15 +12,18 @@ import {
   Clock,
   ChevronLeft,
   ChevronRight,
+  Loader2,
+  WifiOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { useContracts } from '@/hooks/use-documents'
 import type { Contract, ContractStatus } from '@/types/api'
 
-// Mock data for development
-const mockContracts: Contract[] = [
+// Mock data fallback when API is unavailable
+const MOCK_CONTRACTS: Contract[] = [
   {
     id: 'ctr-001',
     tenant_id: 'tenant-1',
@@ -100,30 +103,66 @@ const mockContracts: Contract[] = [
 
 type TabType = 'all' | 'active' | 'expiring_soon' | 'expired' | 'draft'
 
-const tabs: { id: TabType; label: string; count: number }[] = [
-  { id: 'all', label: 'All', count: 156 },
-  { id: 'active', label: 'Active', count: 142 },
-  { id: 'expiring_soon', label: 'Expiring Soon', count: 12 },
-  { id: 'expired', label: 'Expired', count: 8 },
-  { id: 'draft', label: 'Draft', count: 2 },
-]
-
 export function ContractsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedTab, setSelectedTab] = useState<TabType>('all')
   const [selectedContracts, setSelectedContracts] = useState<Set<string>>(new Set())
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 20
 
-  const filteredContracts = mockContracts.filter((c) => {
-    if (selectedTab !== 'all' && c.status !== selectedTab) return false
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      return (
-        (c.vendor_name ?? '').toLowerCase().includes(query) ||
-        (c.contract_number ?? '').toLowerCase().includes(query)
-      )
-    }
-    return true
+  const { data: apiData, isLoading, error } = useContracts({
+    page: currentPage,
+    page_size: pageSize,
+    status: selectedTab !== 'all' ? selectedTab : undefined,
+    vendor: searchQuery || undefined,
   })
+
+  const isApiConnected = !error
+  const contracts = useMemo(() => {
+    if (apiData?.items?.length) return apiData.items
+    if (isLoading) return []
+    return MOCK_CONTRACTS
+  }, [apiData, isLoading])
+
+  const filteredContracts = useMemo(() => {
+    // If API is connected, filtering is server-side
+    if (isApiConnected && apiData?.items) return contracts
+    // Client-side filtering for mock data
+    return contracts.filter((c) => {
+      if (selectedTab !== 'all' && c.status !== selectedTab) return false
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase()
+        return (
+          (c.vendor_name ?? '').toLowerCase().includes(query) ||
+          (c.contract_number ?? '').toLowerCase().includes(query)
+        )
+      }
+      return true
+    })
+  }, [contracts, selectedTab, searchQuery, isApiConnected, apiData])
+
+  const totalItems = apiData?.total ?? MOCK_CONTRACTS.length
+  const totalPages = Math.ceil(totalItems / pageSize)
+
+  // Compute tab counts from available data
+  const tabCounts = useMemo(() => {
+    const source = apiData?.items?.length ? apiData.items : MOCK_CONTRACTS
+    return {
+      all: apiData?.total ?? source.length,
+      active: source.filter((c) => c.status === 'active').length,
+      expiring_soon: source.filter((c) => c.status === 'expiring_soon').length,
+      expired: source.filter((c) => c.status === 'expired').length,
+      draft: source.filter((c) => c.status === 'draft').length,
+    }
+  }, [apiData])
+
+  const tabs: { id: TabType; label: string; count: number }[] = [
+    { id: 'all', label: 'All', count: tabCounts.all },
+    { id: 'active', label: 'Active', count: tabCounts.active },
+    { id: 'expiring_soon', label: 'Expiring Soon', count: tabCounts.expiring_soon },
+    { id: 'expired', label: 'Expired', count: tabCounts.expired },
+    { id: 'draft', label: 'Draft', count: tabCounts.draft },
+  ]
 
   const toggleContract = (id: string) => {
     const newSelected = new Set(selectedContracts)
@@ -154,6 +193,12 @@ export function ContractsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {!isApiConnected && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+              <WifiOff className="h-3.5 w-3.5" />
+              API offline &middot; showing sample data
+            </div>
+          )}
           <Button variant="outline">
             <Download className="mr-2 h-4 w-4" />
             Export
@@ -234,7 +279,7 @@ export function ContractsPage() {
                   <th className="w-12 px-4 py-3">
                     <input
                       type="checkbox"
-                      checked={selectedContracts.size === filteredContracts.length && filteredContracts.length > 0}
+                      checked={filteredContracts.length > 0 && selectedContracts.size === filteredContracts.length}
                       onChange={toggleAll}
                       className="h-4 w-4 rounded border-primary-300"
                     />
@@ -261,14 +306,30 @@ export function ContractsPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredContracts.map((contract) => (
-                  <ContractRow
-                    key={contract.id}
-                    contract={contract}
-                    selected={selectedContracts.has(contract.id)}
-                    onToggle={() => toggleContract(contract.id)}
-                  />
-                ))}
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-12 text-center">
+                      <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary-400" />
+                      <p className="mt-2 text-sm text-primary-500">Loading contracts...</p>
+                    </td>
+                  </tr>
+                ) : filteredContracts.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-12 text-center">
+                      <FileCheck className="mx-auto h-8 w-8 text-primary-300" />
+                      <p className="mt-2 text-sm text-primary-500">No contracts found</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredContracts.map((contract) => (
+                    <ContractRow
+                      key={contract.id}
+                      contract={contract}
+                      selected={selectedContracts.has(contract.id)}
+                      onToggle={() => toggleContract(contract.id)}
+                    />
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -278,22 +339,26 @@ export function ContractsPage() {
       {/* Pagination */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-primary-500">
-          Showing 1-{filteredContracts.length} of {tabs[0].count} contracts
+          Showing {filteredContracts.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, totalItems)} of {totalItems} contracts
         </p>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" disabled>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={currentPage === 1}
+            onClick={() => setCurrentPage((p) => p - 1)}
+          >
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          <Button variant="outline" size="sm" className="bg-primary-100">
-            1
-          </Button>
-          <Button variant="outline" size="sm">
-            2
-          </Button>
-          <Button variant="outline" size="sm">
-            3
-          </Button>
-          <Button variant="outline" size="sm">
+          <span className="text-sm text-primary-700">
+            Page {currentPage} of {totalPages || 1}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={currentPage === totalPages || totalPages === 0}
+            onClick={() => setCurrentPage((p) => p + 1)}
+          >
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
@@ -332,9 +397,12 @@ function ContractRow({ contract, selected, onToggle }: ContractRowProps) {
     },
   }
 
-  const status = statusConfig[contract.status ?? 'draft']
-  const daysUntilExpiry = contract.end_date
-    ? Math.ceil((new Date(contract.end_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+  const effectiveStatus = contract.status ?? 'draft'
+  const status = statusConfig[effectiveStatus]
+  const endDate = contract.end_date ?? contract.expiration_date
+  const startDate = contract.start_date ?? contract.effective_date
+  const daysUntilExpiry = endDate
+    ? Math.ceil((new Date(endDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
     : 0
 
   return (
@@ -360,28 +428,28 @@ function ContractRow({ contract, selected, onToggle }: ContractRowProps) {
       </td>
       <td className="px-4 py-3">
         <Link
-          to={`/documents/contracts/${contract.id}`}
+          to={`/app/documents/contracts/${contract.id}`}
           className="font-medium text-primary-900 hover:text-primary-700 hover:underline"
         >
-          {contract.contract_number}
+          {contract.contract_number ?? contract.title ?? contract.id}
         </Link>
       </td>
       <td className="px-4 py-3">
-        <span className="text-primary-700">{contract.vendor_name}</span>
+        <span className="text-primary-700">{contract.vendor_name ?? contract.parties?.[0]?.name ?? '—'}</span>
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2 text-sm text-primary-600">
           <Calendar className="h-4 w-4" />
-          {contract.start_date ? new Date(contract.start_date).toLocaleDateString() : '—'}
+          {startDate ? new Date(startDate).toLocaleDateString() : '—'}
         </div>
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-col">
           <div className="flex items-center gap-2 text-sm text-primary-600">
             <Calendar className="h-4 w-4" />
-            {contract.end_date ? new Date(contract.end_date).toLocaleDateString() : '—'}
+            {endDate ? new Date(endDate).toLocaleDateString() : '—'}
           </div>
-          {contract.status === 'expiring_soon' && (
+          {effectiveStatus === 'expiring_soon' && (
             <span className="text-xs text-yellow-600">
               {daysUntilExpiry} days left
             </span>
@@ -392,7 +460,7 @@ function ContractRow({ contract, selected, onToggle }: ContractRowProps) {
         <span className="font-medium text-primary-900">
           {new Intl.NumberFormat('en-US', {
             style: 'currency',
-            currency: contract.currency ?? 'USD',
+            currency: typeof contract.currency === 'string' ? contract.currency : 'USD',
             maximumFractionDigits: 0,
           }).format(Number(contract.total_value ?? 0))}
         </span>

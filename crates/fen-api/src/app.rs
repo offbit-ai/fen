@@ -35,7 +35,13 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
             "/documents/:id",
             get(documents::get_document).delete(documents::delete_document),
         )
-        // Validation
+        // Ingest alias (frontend calls POST /ingest)
+        .route("/ingest", post(ingest::ingest_document))
+        // Per-document actions
+        .route("/documents/:id/validate", post(documents::validate_document))
+        .route("/documents/:id/approve", post(documents::approve_document))
+        .route("/documents/:id/reject", post(documents::reject_document))
+        // Validation (bulk)
         .route("/validate", post(validate::validate_documents))
         // Stats
         .route("/stats", get(documents::get_stats))

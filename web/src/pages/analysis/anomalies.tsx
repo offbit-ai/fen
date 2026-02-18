@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -8,15 +8,20 @@ import {
   Eye,
   ChevronLeft,
   ChevronRight,
+  Loader2,
+  WifiOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { useAnomalies, useAnomalyStats } from '@/hooks/use-anomalies'
+import { useMutation } from '@/hooks/use-api'
+import { anomaliesApi } from '@/api/endpoints/anomalies'
 import type { Anomaly, AnomalySeverity, AnomalyStatus, AnomalyType } from '@/types/api'
 
-// Mock data
-const mockAnomalies: Anomaly[] = [
+// Mock data fallback
+const MOCK_ANOMALIES: Anomaly[] = [
   {
     id: 'anom-1',
     document_id: 'inv-001',
@@ -88,30 +93,94 @@ export function AnomaliesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedSeverity, setSelectedSeverity] = useState<AnomalySeverity | 'all'>('all')
   const [selectedStatus, setSelectedStatus] = useState<AnomalyStatus | 'all'>('all')
+  const [currentPage, setCurrentPage] = useState(1)
+  const pageSize = 20
 
-  const filteredAnomalies = mockAnomalies.filter((a) => {
-    if (selectedSeverity !== 'all' && a.severity !== selectedSeverity) return false
-    if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
-    if (searchQuery && !a.description.toLowerCase().includes(searchQuery.toLowerCase())) return false
-    return true
+  const { data: apiData, isLoading, error, refetch } = useAnomalies({
+    page: currentPage,
+    page_size: pageSize,
+    severity: selectedSeverity !== 'all' ? selectedSeverity : undefined,
+    status: selectedStatus !== 'all' ? selectedStatus : undefined,
   })
+  const { data: apiStats } = useAnomalyStats()
 
-  // Stats
-  const stats = {
-    total: mockAnomalies.length,
-    open: mockAnomalies.filter((a) => a.status === 'open').length,
-    critical: mockAnomalies.filter((a) => a.severity === 'critical').length,
-    high: mockAnomalies.filter((a) => a.severity === 'high').length,
+  const { mutate: resolveAnomaly } = useMutation((id: string) => anomaliesApi.resolve(id))
+  const { mutate: dismissAnomaly } = useMutation((id: string) => anomaliesApi.dismiss(id, 'Dismissed by user'))
+
+  const isApiConnected = !error
+  const anomalies = useMemo(() => {
+    if (apiData?.items?.length) return apiData.items
+    if (isLoading) return []
+    return MOCK_ANOMALIES
+  }, [apiData, isLoading])
+
+  const totalItems = apiData?.total ?? MOCK_ANOMALIES.length
+  const totalPages = Math.ceil(totalItems / pageSize)
+
+  // Client-side filtering only when using mock data
+  const filteredAnomalies = useMemo(() => {
+    if (isApiConnected && apiData?.items) return anomalies
+    return anomalies.filter((a) => {
+      if (selectedSeverity !== 'all' && a.severity !== selectedSeverity) return false
+      if (selectedStatus !== 'all' && a.status !== selectedStatus) return false
+      if (searchQuery && !a.description.toLowerCase().includes(searchQuery.toLowerCase())) return false
+      return true
+    })
+  }, [anomalies, selectedSeverity, selectedStatus, searchQuery, isApiConnected, apiData])
+
+  // Stats from API or computed from mock data
+  const stats = useMemo(() => {
+    if (apiStats) {
+      return {
+        total: apiStats.total,
+        open: apiStats.by_status?.open ?? 0,
+        critical: apiStats.by_severity?.critical ?? 0,
+        high: apiStats.by_severity?.high ?? 0,
+      }
+    }
+    const source = apiData?.items?.length ? apiData.items : MOCK_ANOMALIES
+    return {
+      total: apiData?.total ?? source.length,
+      open: source.filter((a) => a.status === 'open').length,
+      critical: source.filter((a) => a.severity === 'critical').length,
+      high: source.filter((a) => a.severity === 'high').length,
+    }
+  }, [apiStats, apiData])
+
+  const handleResolve = async (id: string) => {
+    try {
+      await resolveAnomaly(id)
+      refetch()
+    } catch {
+      // Error handled by useMutation
+    }
+  }
+
+  const handleDismiss = async (id: string) => {
+    try {
+      await dismissAnomaly(id)
+      refetch()
+    } catch {
+      // Error handled by useMutation
+    }
   }
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-primary-900">Anomalies</h1>
-        <p className="text-sm text-primary-500">
-          Review and manage detected anomalies in your documents
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-primary-900">Anomalies</h1>
+          <p className="text-sm text-primary-500">
+            Review and manage detected anomalies in your documents
+          </p>
+        </div>
+        {!isApiConnected && (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+            <WifiOff className="h-3.5 w-3.5" />
+            API offline &middot; showing sample data
+          </div>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -120,24 +189,28 @@ export function AnomaliesPage() {
           title="Total Anomalies"
           value={stats.total}
           icon={<AlertTriangle className="h-5 w-5" />}
+          loading={isLoading}
         />
         <StatCard
           title="Open"
           value={stats.open}
           icon={<Eye className="h-5 w-5" />}
           color="yellow"
+          loading={isLoading}
         />
         <StatCard
           title="Critical"
           value={stats.critical}
           icon={<XCircle className="h-5 w-5" />}
           color="red"
+          loading={isLoading}
         />
         <StatCard
           title="High Severity"
           value={stats.high}
           icon={<AlertTriangle className="h-5 w-5" />}
           color="orange"
+          loading={isLoading}
         />
       </div>
 
@@ -183,15 +256,25 @@ export function AnomaliesPage() {
 
       {/* Anomaly List */}
       <div className="space-y-4">
-        {filteredAnomalies.map((anomaly) => (
-          <AnomalyCard key={anomaly.id} anomaly={anomaly} />
-        ))}
-
-        {filteredAnomalies.length === 0 && (
+        {isLoading ? (
+          <Card className="p-8 text-center">
+            <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary-400" />
+            <p className="mt-2 text-sm text-primary-500">Loading anomalies...</p>
+          </Card>
+        ) : filteredAnomalies.length === 0 ? (
           <Card className="p-8 text-center">
             <AlertTriangle className="mx-auto h-8 w-8 text-primary-300" />
             <p className="mt-2 text-primary-500">No anomalies found matching your filters.</p>
           </Card>
+        ) : (
+          filteredAnomalies.map((anomaly) => (
+            <AnomalyCard
+              key={anomaly.id ?? anomaly.document_id}
+              anomaly={anomaly}
+              onResolve={handleResolve}
+              onDismiss={handleDismiss}
+            />
+          ))
         )}
       </div>
 
@@ -199,14 +282,26 @@ export function AnomaliesPage() {
       {filteredAnomalies.length > 0 && (
         <div className="flex items-center justify-between">
           <div className="text-sm text-primary-500">
-            Showing {filteredAnomalies.length} of {mockAnomalies.length} anomalies
+            Showing {(currentPage - 1) * pageSize + 1}-{Math.min(currentPage * pageSize, totalItems)} of {totalItems} anomalies
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" disabled>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage === 1}
+              onClick={() => setCurrentPage((p) => p - 1)}
+            >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <span className="text-sm text-primary-700">Page 1 of 1</span>
-            <Button variant="outline" size="sm" disabled>
+            <span className="text-sm text-primary-700">
+              Page {currentPage} of {totalPages || 1}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage === totalPages || totalPages === 0}
+              onClick={() => setCurrentPage((p) => p + 1)}
+            >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -221,11 +316,13 @@ function StatCard({
   value,
   icon,
   color = 'gray',
+  loading = false,
 }: {
   title: string
   value: number
   icon: React.ReactNode
   color?: 'gray' | 'yellow' | 'red' | 'orange' | 'green'
+  loading?: boolean
 }) {
   const colorClasses = {
     gray: 'bg-primary-100 text-primary-600',
@@ -242,7 +339,11 @@ function StatCard({
           <div className={cn('rounded-lg p-2', colorClasses[color])}>{icon}</div>
           <div>
             <p className="text-sm text-primary-500">{title}</p>
-            <p className="text-2xl font-bold text-primary-900">{value}</p>
+            {loading ? (
+              <div className="h-8 w-12 animate-pulse rounded bg-primary-100" />
+            ) : (
+              <p className="text-2xl font-bold text-primary-900">{value}</p>
+            )}
           </div>
         </div>
       </CardContent>
@@ -250,7 +351,15 @@ function StatCard({
   )
 }
 
-function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
+function AnomalyCard({
+  anomaly,
+  onResolve,
+  onDismiss,
+}: {
+  anomaly: Anomaly
+  onResolve: (id: string) => void
+  onDismiss: (id: string) => void
+}) {
   const severityColors: Record<AnomalySeverity, string> = {
     critical: 'border-l-red-500',
     high: 'border-l-orange-500',
@@ -285,7 +394,6 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
   }
 
   const typeLabels: Record<AnomalyType, string> = {
-    // Backend types
     math_mismatch: 'Math Mismatch',
     missing_field: 'Missing Field',
     invalid_format: 'Invalid Format',
@@ -295,7 +403,6 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
     contract_violation: 'Contract Violation',
     validation_failure: 'Validation Failure',
     statistical_outlier: 'Statistical Outlier',
-    // Frontend display aliases
     price_deviation: 'Price Deviation',
     duplicate_invoice: 'Duplicate Invoice',
     missing_contract: 'Missing Contract',
@@ -304,6 +411,8 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
     vendor_mismatch: 'Vendor Mismatch',
     rule_violation: 'Rule Violation',
   }
+
+  const anomalyId = anomaly.id ?? anomaly.document_id
 
   return (
     <Card className={cn('border-l-4', severityColors[anomaly.severity])}>
@@ -331,7 +440,7 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
                 </span>
               )}
               <span className="text-xs text-primary-500">
-                {typeLabels[anomaly.anomaly_type]}
+                {typeLabels[anomaly.anomaly_type] ?? anomaly.anomaly_type.replace(/_/g, ' ')}
               </span>
               <span className="text-xs text-primary-400">
                 {Math.round(anomaly.confidence * 100)}% confidence
@@ -345,9 +454,9 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
               <span>
                 Vendor: {String(anomaly.details?.vendor || 'Unknown')}
               </span>
-              {anomaly.created_at && (
+              {(anomaly.created_at || anomaly.detected_at) && (
                 <span>
-                  {new Date(anomaly.created_at).toLocaleDateString()}
+                  {new Date(anomaly.created_at ?? anomaly.detected_at!).toLocaleDateString()}
                 </span>
               )}
             </div>
@@ -355,16 +464,16 @@ function AnomalyCard({ anomaly }: { anomaly: Anomaly }) {
           <div className="flex items-center gap-2 ml-4">
             {(anomaly.status === 'open' || anomaly.status === 'investigating') ? (
               <>
-                <Button size="sm" variant="outline">
+                <Button size="sm" variant="outline" onClick={() => onResolve(anomalyId)}>
                   Resolve
                 </Button>
-                <Button size="sm" variant="ghost">
+                <Button size="sm" variant="ghost" onClick={() => onDismiss(anomalyId)}>
                   Dismiss
                 </Button>
               </>
             ) : (
               <Button size="sm" variant="ghost" asChild>
-                <Link to={`/analysis/anomalies/${anomaly.id}`}>
+                <Link to={`/app/analysis/anomalies/${anomalyId}`}>
                   View Details
                 </Link>
               </Button>

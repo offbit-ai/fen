@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import {
   FileText,
@@ -12,15 +12,19 @@ import {
   CheckCircle,
   Clock,
   XCircle,
+  Loader2,
+  WifiOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { useInvoices } from '@/hooks/use-documents'
+import { UploadDialog } from '@/components/upload-dialog'
 import type { Invoice, InvoiceStatus } from '@/types/api'
 
-// Mock data for development
-const mockInvoices: Invoice[] = [
+// Mock data fallback when API is unavailable
+const MOCK_INVOICES: Invoice[] = [
   {
     id: 'inv-001',
     tenant_id: 'tenant-1',
@@ -107,11 +111,23 @@ export function InvoicesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [currentPage, setCurrentPage] = useState(1)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const pageSize = 10
 
-  // In real app, this would come from API
-  const invoices = mockInvoices
-  const totalPages = Math.ceil(invoices.length / pageSize)
+  const { data: apiData, isLoading, error, refetch } = useInvoices({
+    page: currentPage,
+    page_size: pageSize,
+    vendor: searchQuery || undefined,
+  })
+
+  const isApiConnected = !error
+  const invoices = useMemo(() => {
+    if (apiData?.items?.length) return apiData.items
+    if (isLoading) return []
+    return MOCK_INVOICES
+  }, [apiData, isLoading])
+  const totalItems = apiData?.total ?? MOCK_INVOICES.length
+  const totalPages = Math.ceil(totalItems / pageSize)
 
   const toggleSelection = (id: string) => {
     const newSelection = new Set(selectedIds)
@@ -141,10 +157,18 @@ export function InvoicesPage() {
             Manage and analyze your invoice documents
           </p>
         </div>
-        <Button>
-          <Upload className="mr-2 h-4 w-4" />
-          Upload Invoice
-        </Button>
+        <div className="flex items-center gap-3">
+          {!isApiConnected && (
+            <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
+              <WifiOff className="h-3.5 w-3.5" />
+              API offline &middot; showing sample data
+            </div>
+          )}
+          <Button onClick={() => setUploadOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" />
+            Upload Invoice
+          </Button>
+        </div>
       </div>
 
       {/* Filters and Search */}
@@ -201,7 +225,7 @@ export function InvoicesPage() {
                 <th className="px-4 py-3 text-left">
                   <input
                     type="checkbox"
-                    checked={selectedIds.size === invoices.length}
+                    checked={invoices.length > 0 && selectedIds.size === invoices.length}
                     onChange={toggleAll}
                     className="h-4 w-4 rounded border-primary-300"
                   />
@@ -230,67 +254,83 @@ export function InvoicesPage() {
               </tr>
             </thead>
             <tbody>
-              {invoices.map((invoice) => (
-                <tr
-                  key={invoice.id}
-                  className="border-b border-primary-100 hover:bg-primary-50 transition-colors"
-                >
-                  <td className="px-4 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(invoice.id)}
-                      onChange={() => toggleSelection(invoice.id)}
-                      className="h-4 w-4 rounded border-primary-300"
-                    />
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link
-                      to={`/documents/invoices/${invoice.id}`}
-                      className="flex items-center gap-2 hover:text-accent"
-                    >
-                      <FileText className="h-4 w-4 text-primary-400" />
-                      <span className="font-medium text-primary-900">
-                        {invoice.invoice_number}
-                      </span>
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-primary-700">
-                    {invoice.vendor_name}
-                  </td>
-                  <td className="px-4 py-3 text-primary-500 text-sm">
-                    {new Date(invoice.invoice_date).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3 text-right font-medium text-primary-900">
-                    {formatCurrency(Number(invoice.total_amount), invoice.currency)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-center">
-                      <StatusBadge status={invoice.status ?? 'pending'} />
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-center">
-                      {(invoice.anomalies?.length ?? 0) > 0 ? (
-                        <span className="flex items-center gap-1 text-sm text-error">
-                          <AlertTriangle className="h-4 w-4" />
-                          {invoice.anomalies?.length ?? 0}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-primary-400">—</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link to={`/documents/invoices/${invoice.id}`}>
-                          View
-                        </Link>
-                      </Button>
-                    </div>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center">
+                    <Loader2 className="mx-auto h-6 w-6 animate-spin text-primary-400" />
+                    <p className="mt-2 text-sm text-primary-500">Loading invoices...</p>
                   </td>
                 </tr>
-              ))}
+              ) : invoices.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-4 py-12 text-center">
+                    <FileText className="mx-auto h-8 w-8 text-primary-300" />
+                    <p className="mt-2 text-sm text-primary-500">No invoices found</p>
+                  </td>
+                </tr>
+              ) : (
+                invoices.map((invoice) => (
+                  <tr
+                    key={invoice.id}
+                    className="border-b border-primary-100 hover:bg-primary-50 transition-colors"
+                  >
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(invoice.id)}
+                        onChange={() => toggleSelection(invoice.id)}
+                        className="h-4 w-4 rounded border-primary-300"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <Link
+                        to={`/app/documents/invoices/${invoice.id}`}
+                        className="flex items-center gap-2 hover:text-accent"
+                      >
+                        <FileText className="h-4 w-4 text-primary-400" />
+                        <span className="font-medium text-primary-900">
+                          {invoice.invoice_number}
+                        </span>
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-primary-700">
+                      {invoice.vendor_name ?? invoice.vendor?.name ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 text-primary-500 text-sm">
+                      {new Date(invoice.invoice_date).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-primary-900">
+                      {formatCurrency(Number(invoice.total_amount), typeof invoice.currency === 'string' ? invoice.currency : 'USD')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-center">
+                        <StatusBadge status={invoice.status ?? mapValidationStatus(invoice.validation_status)} />
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-center">
+                        {(invoice.anomalies?.length ?? 0) > 0 ? (
+                          <span className="flex items-center gap-1 text-sm text-error">
+                            <AlertTriangle className="h-4 w-4" />
+                            {invoice.anomalies?.length ?? 0}
+                          </span>
+                        ) : (
+                          <span className="text-sm text-primary-400">—</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link to={`/app/documents/invoices/${invoice.id}`}>
+                            View
+                          </Link>
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -298,8 +338,8 @@ export function InvoicesPage() {
         {/* Pagination */}
         <div className="flex items-center justify-between border-t border-primary-200 px-4 py-3">
           <div className="text-sm text-primary-500">
-            Showing {(currentPage - 1) * pageSize + 1} to{' '}
-            {Math.min(currentPage * pageSize, invoices.length)} of {invoices.length} invoices
+            Showing {invoices.length === 0 ? 0 : (currentPage - 1) * pageSize + 1} to{' '}
+            {Math.min(currentPage * pageSize, totalItems)} of {totalItems} invoices
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -311,12 +351,12 @@ export function InvoicesPage() {
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <span className="text-sm text-primary-700">
-              Page {currentPage} of {totalPages}
+              Page {currentPage} of {totalPages || 1}
             </span>
             <Button
               variant="outline"
               size="sm"
-              disabled={currentPage === totalPages}
+              disabled={currentPage === totalPages || totalPages === 0}
               onClick={() => setCurrentPage((p) => p + 1)}
             >
               <ChevronRight className="h-4 w-4" />
@@ -324,8 +364,23 @@ export function InvoicesPage() {
           </div>
         </div>
       </Card>
+
+      <UploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        onUploadComplete={() => refetch()}
+      />
     </div>
   )
+}
+
+function mapValidationStatus(vs?: string): InvoiceStatus {
+  switch (vs) {
+    case 'passed': return 'validated'
+    case 'passed_with_warnings': return 'flagged'
+    case 'failed': return 'rejected'
+    default: return 'pending'
+  }
 }
 
 function StatusBadge({ status }: { status: InvoiceStatus }) {

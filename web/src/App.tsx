@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { LandingPage } from '@/pages/landing'
 import { LoginPage } from '@/pages/auth/login'
 import { DashboardPage } from '@/pages/dashboard'
 import { InvoicesPage } from '@/pages/documents/invoices'
@@ -29,12 +30,13 @@ function App() {
 
   return (
     <Routes>
-      {/* Auth routes */}
+      {/* Public routes */}
+      <Route path="/" element={<LandingPage />} />
       <Route path="/login" element={<LoginPage />} />
 
       {/* Protected routes */}
       <Route
-        path="/"
+        path="/app"
         element={
           isDev ? (
             <AppShell />
@@ -45,7 +47,7 @@ function App() {
           )
         }
       >
-        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route index element={<Navigate to="/app/dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
 
         {/* Documents */}
@@ -85,7 +87,7 @@ function App() {
       </Route>
 
       {/* Catch all */}
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   )
 }

@@ -20,7 +20,7 @@ export function LoginPage() {
     // For now, simulate login and redirect
     setTimeout(() => {
       setIsLoading(false)
-      navigate('/dashboard')
+      navigate('/app/dashboard')
     }, 1000)
   }
 

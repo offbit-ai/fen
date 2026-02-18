@@ -88,12 +88,12 @@ export function Header() {
                 </div>
                 <div className="py-1">
                   <DropdownItem
-                    href="/settings/profile"
+                    href="/app/settings/tenant"
                     icon={<User className="h-4 w-4" />}
                     label="Profile"
                   />
                   <DropdownItem
-                    href="/settings"
+                    href="/app/settings/tenant"
                     icon={<Settings className="h-4 w-4" />}
                     label="Settings"
                   />

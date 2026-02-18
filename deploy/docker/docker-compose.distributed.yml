@@ -43,6 +43,7 @@ services:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
       ZOOKEEPER_SYNC_LIMIT: 2
+      KAFKA_OPTS: "-Dzookeeper.4lw.commands.whitelist=ruok,srvr,stat"
     ports:
       - "2181:2181"
     volumes:
@@ -221,6 +222,35 @@ services:
       - fen-distributed
 
   # ==========================================================================
+  # Keycloak - Authentication & SSO
+  # ==========================================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: fen-keycloak
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: dev-file
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./keycloak/fen-realm.json:/opt/keycloak/data/import/fen-realm.json:ro
+      - keycloak-data:/opt/keycloak/data
+    command:
+      - start-dev
+      - --import-realm
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/localhost/8080"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+    networks:
+      - fen-distributed
+
+  # ==========================================================================
   # Fen Coordinator - Cluster Coordination (Raft consensus)
   # For local dev, we run a single coordinator. Production uses 3 replicas.
   # ==========================================================================
@@ -384,6 +414,7 @@ volumes:
   kafka-data:
   postgres-data:
   timescale-data:
+  keycloak-data:
   coordinator-data:
   data-node-0:
   data-node-1:
