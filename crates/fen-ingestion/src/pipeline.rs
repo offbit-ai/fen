@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use fen_core::domain::{DocumentId, Invoice};
+use fen_core::domain::{Contract, DocumentId, Invoice};
 use fen_ml::DocumentIntelligence;
 use fen_storage::DocumentStore;
 use image::DynamicImage;
 
+use crate::contract::{ContractParser, MlContractParser};
 use crate::error::IngestionError;
 use crate::pdf::{ExtractedPdf, InvoiceParser, MlInvoiceParser, PdfExtractor};
 
@@ -31,6 +32,8 @@ pub struct IngestionPipeline<S: DocumentStore> {
     config: IngestionConfig,
     invoice_parser: InvoiceParser,
     ml_parser: MlInvoiceParser,
+    contract_parser: ContractParser,
+    ml_contract_parser: MlContractParser,
     ml_pipeline: Option<Arc<DocumentIntelligence>>,
     storage: Arc<S>,
 }
@@ -63,6 +66,8 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             config,
             invoice_parser: InvoiceParser::new(),
             ml_parser: MlInvoiceParser::new(),
+            contract_parser: ContractParser::new(),
+            ml_contract_parser: MlContractParser::new(),
             ml_pipeline,
             storage,
         })
@@ -199,6 +204,134 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         self.storage.store_invoice(&invoice).await?;
 
         Ok(invoice)
+    }
+
+    /// Ingest a contract PDF document from bytes
+    pub async fn ingest_contract_pdf(
+        &self,
+        bytes: &[u8],
+        filename: &str,
+    ) -> Result<Contract, IngestionError> {
+        let document_id = DocumentId::new();
+
+        tracing::info!(
+            document_id = %document_id,
+            filename = %filename,
+            size = bytes.len(),
+            use_ml = %self.config.use_ml,
+            "Starting contract PDF ingestion"
+        );
+
+        // Extract PDF text and optionally render pages
+        let bytes_owned = bytes.to_vec();
+        let use_ml = self.config.use_ml && self.ml_pipeline.is_some();
+        let min_text = self.config.min_text_for_skip_ocr;
+
+        let (extracted, rendered_pages): (ExtractedPdf, Option<Vec<DynamicImage>>) =
+            tokio::task::spawn_blocking(move || {
+                let pdf_extractor = PdfExtractor::new()?;
+                let extracted = pdf_extractor.extract_from_bytes(&bytes_owned)?;
+
+                let rendered = if use_ml && (!extracted.has_text || extracted.text.len() < min_text)
+                {
+                    let pages = pdf_extractor.render_pages_from_bytes(&bytes_owned)?;
+                    Some(pages.into_iter().map(|p| p.image).collect())
+                } else if use_ml {
+                    let pages = pdf_extractor.render_pages_from_bytes(&bytes_owned)?;
+                    Some(pages.into_iter().take(1).map(|p| p.image).collect())
+                } else {
+                    None
+                };
+
+                Ok::<_, IngestionError>((extracted, rendered))
+            })
+            .await
+            .map_err(|e| IngestionError::Internal(format!("Task join error: {}", e)))??;
+
+        tracing::info!(
+            document_id = %document_id,
+            page_count = %extracted.page_count,
+            text_length = %extracted.text.len(),
+            has_text = %extracted.has_text,
+            has_rendered_pages = %rendered_pages.is_some(),
+            "Contract PDF extracted"
+        );
+
+        // Parse contract - use ML if available, otherwise regex
+        let contract =
+            if let (Some(ml), Some(pages)) = (&self.ml_pipeline, rendered_pages) {
+                self.parse_contract_with_ml(ml, &pages, &extracted, document_id)
+                    .await?
+            } else {
+                self.contract_parser.parse(&extracted.text, document_id)?
+            };
+
+        tracing::info!(
+            document_id = %document_id,
+            contract_id = %contract.id,
+            contract_number = ?contract.contract_number,
+            contract_type = ?contract.contract_type,
+            confidence = %contract.confidence_score,
+            "Contract parsed"
+        );
+
+        // Store in storage
+        self.storage.store_contract(&contract).await?;
+
+        tracing::info!(
+            contract_id = %contract.id,
+            "Contract stored successfully"
+        );
+
+        Ok(contract)
+    }
+
+    /// Parse contract using ML pipeline
+    async fn parse_contract_with_ml(
+        &self,
+        ml: &DocumentIntelligence,
+        pages: &[DynamicImage],
+        extracted: &ExtractedPdf,
+        document_id: DocumentId,
+    ) -> Result<Contract, IngestionError> {
+        let image = pages.first().ok_or_else(|| {
+            IngestionError::MlProcessing("No rendered pages available".to_string())
+        })?;
+
+        // Run ML document intelligence pipeline (same generic pipeline)
+        let processed = ml
+            .process_image(image)
+            .await
+            .map_err(|e: fen_ml::error::MlError| IngestionError::MlProcessing(e.to_string()))?;
+
+        // If ML didn't extract text, use PDF-extracted text
+        let processed = if processed.text.is_empty() && !extracted.text.is_empty() {
+            fen_ml::ProcessedDocument {
+                text: extracted.text.clone(),
+                ..processed
+            }
+        } else {
+            processed
+        };
+
+        // Parse contract from ML results
+        self.ml_contract_parser.parse(&processed, document_id)
+    }
+
+    /// Ingest contract from raw text (for testing or non-PDF sources)
+    pub async fn ingest_contract_text(&self, text: &str) -> Result<Contract, IngestionError> {
+        let document_id = DocumentId::new();
+
+        tracing::info!(
+            document_id = %document_id,
+            text_length = text.len(),
+            "Starting contract text ingestion"
+        );
+
+        let contract = self.contract_parser.parse(text, document_id)?;
+        self.storage.store_contract(&contract).await?;
+
+        Ok(contract)
     }
 
     /// Get the underlying storage

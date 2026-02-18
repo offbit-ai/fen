@@ -66,7 +66,7 @@ export const documentsApi = {
     return getApiClient().post<Invoice>(`/documents/${id}/reject`, { reason })
   },
 
-  // Upload
+  // Upload invoice
   uploadDocument: async (file: File, metadata?: Record<string, unknown>): Promise<Invoice> => {
     const formData = new FormData()
     formData.append('file', file)
@@ -77,13 +77,30 @@ export const documentsApi = {
     const response = await fetch('/api/v1/ingest', {
       method: 'POST',
       body: formData,
-      headers: {
-        // Don't set Content-Type - browser will set it with boundary
-      },
     })
 
     if (!response.ok) {
       throw new Error('Upload failed')
+    }
+
+    return response.json()
+  },
+
+  // Upload contract
+  uploadContract: async (file: File, metadata?: Record<string, unknown>): Promise<Contract> => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (metadata) {
+      formData.append('metadata', JSON.stringify(metadata))
+    }
+
+    const response = await fetch('/api/v1/ingest/contract', {
+      method: 'POST',
+      body: formData,
+    })
+
+    if (!response.ok) {
+      throw new Error('Contract upload failed')
     }
 
     return response.json()

@@ -37,6 +37,8 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         )
         // Ingest alias (frontend calls POST /ingest)
         .route("/ingest", post(ingest::ingest_document))
+        // Contract ingest (frontend calls POST /ingest/contract)
+        .route("/ingest/contract", post(ingest::ingest_contract))
         // Per-document actions
         .route("/documents/:id/validate", post(documents::validate_document))
         .route("/documents/:id/approve", post(documents::approve_document))

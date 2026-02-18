@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 import { useContracts } from '@/hooks/use-documents'
+import { UploadDialog } from '@/components/upload-dialog'
 import type { Contract, ContractStatus } from '@/types/api'
 
 // Mock data fallback when API is unavailable
@@ -108,9 +109,10 @@ export function ContractsPage() {
   const [selectedTab, setSelectedTab] = useState<TabType>('all')
   const [selectedContracts, setSelectedContracts] = useState<Set<string>>(new Set())
   const [currentPage, setCurrentPage] = useState(1)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const pageSize = 20
 
-  const { data: apiData, isLoading, error } = useContracts({
+  const { data: apiData, isLoading, error, refetch } = useContracts({
     page: currentPage,
     page_size: pageSize,
     status: selectedTab !== 'all' ? selectedTab : undefined,
@@ -203,12 +205,19 @@ export function ContractsPage() {
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
-          <Button>
+          <Button onClick={() => setUploadOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Add Contract
           </Button>
         </div>
       </div>
+
+      <UploadDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        onUploadComplete={refetch}
+        documentType="contract"
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-primary-200">

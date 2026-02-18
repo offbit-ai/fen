@@ -222,3 +222,49 @@ pub async fn ingest_document(
 
     Ok((StatusCode::CREATED, Json(response)))
 }
+
+/// POST /ingest/contract - Upload and ingest a contract PDF
+pub async fn ingest_contract(
+    State(state): State<Arc<AppState>>,
+    mut multipart: Multipart,
+) -> Result<impl IntoResponse, ApiError> {
+    let mut file_data: Option<(String, Vec<u8>)> = None;
+
+    while let Some(field) = multipart.next_field().await? {
+        let name = field.name().unwrap_or("").to_string();
+
+        if name == "file" {
+            let filename = field.file_name().unwrap_or("unknown.pdf").to_string();
+
+            let data = field
+                .bytes()
+                .await
+                .map_err(|e| ApiError::BadRequest(format!("Failed to read file: {}", e)))?;
+
+            file_data = Some((filename, data.to_vec()));
+            break;
+        }
+    }
+
+    let (filename, data) = file_data.ok_or_else(|| {
+        ApiError::BadRequest("No file provided. Use form field 'file'.".to_string())
+    })?;
+
+    if !filename.to_lowercase().ends_with(".pdf") {
+        return Err(ApiError::BadRequest(
+            "Only PDF files are supported".to_string(),
+        ));
+    }
+
+    if data.is_empty() {
+        return Err(ApiError::BadRequest("Empty file".to_string()));
+    }
+
+    tracing::info!(filename = %filename, size = data.len(), "Processing uploaded contract");
+
+    let contract = state.ingestion.ingest_contract_pdf(&data, &filename).await?;
+
+    let response = crate::routes::documents::contract_to_response(&contract);
+
+    Ok((StatusCode::CREATED, Json(response)))
+}

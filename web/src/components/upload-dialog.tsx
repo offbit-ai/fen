@@ -16,21 +16,32 @@ interface UploadDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onUploadComplete?: () => void
+  documentType?: 'invoice' | 'contract'
 }
 
 type UploadState = 'idle' | 'uploading' | 'success' | 'error'
 
-export function UploadDialog({ open, onOpenChange, onUploadComplete }: UploadDialogProps) {
+interface UploadResult {
+  label: string
+  name: string
+  amount: string
+}
+
+export function UploadDialog({
+  open,
+  onOpenChange,
+  onUploadComplete,
+  documentType = 'invoice',
+}: UploadDialogProps) {
   const [file, setFile] = useState<File | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [uploadState, setUploadState] = useState<UploadState>('idle')
   const [errorMessage, setErrorMessage] = useState('')
-  const [uploadResult, setUploadResult] = useState<{
-    invoice_number: string
-    vendor_name: string
-    total_amount: string
-  } | null>(null)
+  const [uploadResult, setUploadResult] = useState<UploadResult | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const isContract = documentType === 'contract'
+  const typeLabel = isContract ? 'Contract' : 'Invoice'
 
   const resetState = useCallback(() => {
     setFile(null)
@@ -93,19 +104,29 @@ export function UploadDialog({ open, onOpenChange, onUploadComplete }: UploadDia
     setErrorMessage('')
 
     try {
-      const result = await documentsApi.uploadDocument(file)
-      setUploadState('success')
-      setUploadResult({
-        invoice_number: result.invoice_number || 'N/A',
-        vendor_name: result.vendor_name || result.vendor?.name || 'Unknown',
-        total_amount: result.total_amount?.toString() || '0',
-      })
+      if (isContract) {
+        const result = await documentsApi.uploadContract(file)
+        setUploadState('success')
+        setUploadResult({
+          label: result.contract_number || result.title || 'N/A',
+          name: result.vendor_name || result.parties?.[0]?.name || 'Unknown',
+          amount: result.total_value?.toString() || '0',
+        })
+      } else {
+        const result = await documentsApi.uploadDocument(file)
+        setUploadState('success')
+        setUploadResult({
+          label: result.invoice_number || 'N/A',
+          name: result.vendor_name || result.vendor?.name || 'Unknown',
+          amount: result.total_amount?.toString() || '0',
+        })
+      }
       onUploadComplete?.()
     } catch (err) {
       setUploadState('error')
       setErrorMessage(err instanceof Error ? err.message : 'Upload failed')
     }
-  }, [file, onUploadComplete])
+  }, [file, isContract, onUploadComplete])
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`
@@ -117,9 +138,9 @@ export function UploadDialog({ open, onOpenChange, onUploadComplete }: UploadDia
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Upload Document</DialogTitle>
+          <DialogTitle>Upload {typeLabel}</DialogTitle>
           <DialogDescription>
-            Upload a PDF invoice for processing and analysis
+            Upload a PDF {typeLabel.toLowerCase()} for processing and analysis
           </DialogDescription>
         </DialogHeader>
 
@@ -191,17 +212,19 @@ export function UploadDialog({ open, onOpenChange, onUploadComplete }: UploadDia
             <div className="rounded-lg border border-green-200 bg-green-50 p-4">
               <div className="flex items-center gap-2 text-green-700">
                 <CheckCircle className="h-5 w-5" />
-                <span className="font-medium">Document processed</span>
+                <span className="font-medium">{typeLabel} processed</span>
               </div>
               <div className="mt-3 space-y-1 text-sm text-green-600">
                 <p>
-                  Invoice: <span className="font-medium">{uploadResult.invoice_number}</span>
+                  {isContract ? 'Contract' : 'Invoice'}:{' '}
+                  <span className="font-medium">{uploadResult.label}</span>
                 </p>
                 <p>
-                  Vendor: <span className="font-medium">{uploadResult.vendor_name}</span>
+                  Vendor: <span className="font-medium">{uploadResult.name}</span>
                 </p>
                 <p>
-                  Amount: <span className="font-medium">${uploadResult.total_amount}</span>
+                  {isContract ? 'Value' : 'Amount'}:{' '}
+                  <span className="font-medium">${uploadResult.amount}</span>
                 </p>
               </div>
             </div>
