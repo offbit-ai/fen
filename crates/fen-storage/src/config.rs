@@ -201,6 +201,41 @@ impl HotStorageBackend {
     }
 }
 
+/// Knowledge graph backend configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum GraphBackend {
+    /// Embedded graph database (RyuGraph) on local filesystem
+    Embedded {
+        /// Path to graph database directory
+        path: String,
+    },
+
+    /// In-memory graph database (testing only)
+    InMemory,
+
+    /// Graph disabled
+    Disabled,
+}
+
+impl Default for GraphBackend {
+    fn default() -> Self {
+        Self::Disabled
+    }
+}
+
+impl GraphBackend {
+    /// Create an embedded graph backend
+    pub fn embedded(path: impl Into<String>) -> Self {
+        Self::Embedded { path: path.into() }
+    }
+
+    /// Check if the graph is enabled
+    pub fn is_enabled(&self) -> bool {
+        !matches!(self, Self::Disabled)
+    }
+}
+
 /// Environment detection helpers
 pub mod env {
     use super::*;

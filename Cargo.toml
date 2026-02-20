@@ -13,6 +13,8 @@ members = [
     "crates/fen-notify",
     "crates/fen-cluster",
     "crates/fen-grpc",
+    # Knowledge graph
+    "crates/fen-graph",
     # Deployment binaries
     "crates/fen-coordinator",
     "crates/fen-data",

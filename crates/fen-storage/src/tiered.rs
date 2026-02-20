@@ -6,7 +6,7 @@ use tokio::sync::RwLock;
 
 use fen_core::domain::{Contract, ContractId, Invoice, InvoiceId};
 
-use crate::config::{HotStorageBackend, WarmStorageBackend};
+use crate::config::{GraphBackend, HotStorageBackend, WarmStorageBackend};
 use crate::error::StorageError;
 use crate::hot::RedbStorage;
 use crate::location::{DocumentLocationIndex, TierDistribution};
@@ -40,6 +40,8 @@ pub struct TieredStorageConfig {
     pub hot_backend: HotStorageBackend,
     /// Warm tier storage backend (LanceDB - embedded or remote)
     pub warm_backend: WarmStorageBackend,
+    /// Knowledge graph backend (RyuGraph)
+    pub graph_backend: GraphBackend,
     /// Age threshold (days) for hot tier data
     pub hot_tier_days: u32,
     /// Age threshold (days) for warm tier data
@@ -57,6 +59,7 @@ impl Default for TieredStorageConfig {
         Self {
             hot_backend: HotStorageBackend::default(),
             warm_backend: WarmStorageBackend::default(),
+            graph_backend: GraphBackend::default(),
             hot_tier_days: 30,
             warm_tier_days: 365,
             auto_migration: true,

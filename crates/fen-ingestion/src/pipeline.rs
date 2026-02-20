@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
 use fen_core::domain::{Contract, DocumentId, Invoice};
+#[cfg(feature = "graph")]
+use fen_graph::GraphStore;
 use fen_ml::DocumentIntelligence;
 use fen_storage::DocumentStore;
 use image::DynamicImage;
@@ -35,6 +37,8 @@ pub struct IngestionPipeline<S: DocumentStore> {
     contract_parser: ContractParser,
     ml_contract_parser: MlContractParser,
     ml_pipeline: Option<Arc<DocumentIntelligence>>,
+    #[cfg(feature = "graph")]
+    graph: Option<Arc<dyn GraphStore>>,
     storage: Arc<S>,
 }
 
@@ -56,6 +60,29 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         Self::with_config(storage, config, Some(ml_pipeline))
     }
 
+    /// Create a new ingestion pipeline with ML and knowledge graph
+    #[cfg(feature = "graph")]
+    pub fn with_ml_and_graph(
+        storage: Arc<S>,
+        ml_pipeline: Arc<DocumentIntelligence>,
+        graph: Arc<dyn GraphStore>,
+    ) -> Result<Self, IngestionError> {
+        let config = IngestionConfig {
+            use_ml: true,
+            ..Default::default()
+        };
+        Ok(Self {
+            config,
+            invoice_parser: InvoiceParser::new(),
+            ml_parser: MlInvoiceParser::new(),
+            contract_parser: ContractParser::new(),
+            ml_contract_parser: MlContractParser::new(),
+            ml_pipeline: Some(ml_pipeline),
+            graph: Some(graph),
+            storage,
+        })
+    }
+
     /// Create a new ingestion pipeline with custom configuration
     pub fn with_config(
         storage: Arc<S>,
@@ -69,8 +96,17 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             contract_parser: ContractParser::new(),
             ml_contract_parser: MlContractParser::new(),
             ml_pipeline,
+            #[cfg(feature = "graph")]
+            graph: None,
             storage,
         })
+    }
+
+    /// Set the graph store (can be called after construction)
+    #[cfg(feature = "graph")]
+    pub fn with_graph(mut self, graph: Arc<dyn GraphStore>) -> Self {
+        self.graph = Some(graph);
+        self
     }
 
     /// Ingest a PDF document from bytes
@@ -142,6 +178,18 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             confidence = %invoice.confidence_score,
             "Invoice parsed"
         );
+
+        // Write to knowledge graph (non-fatal)
+        #[cfg(feature = "graph")]
+        if let Some(graph) = &self.graph {
+            if let Err(e) = graph.write_invoice(&invoice).await {
+                tracing::warn!(
+                    error = %e,
+                    invoice_id = %invoice.id,
+                    "Failed to write invoice to knowledge graph"
+                );
+            }
+        }
 
         // Store in storage
         self.storage.store_invoice(&invoice).await?;
@@ -275,6 +323,18 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             "Contract parsed"
         );
 
+        // Write to knowledge graph (non-fatal)
+        #[cfg(feature = "graph")]
+        if let Some(graph) = &self.graph {
+            if let Err(e) = graph.write_contract(&contract).await {
+                tracing::warn!(
+                    error = %e,
+                    contract_id = %contract.id,
+                    "Failed to write contract to knowledge graph"
+                );
+            }
+        }
+
         // Store in storage
         self.storage.store_contract(&contract).await?;
 
@@ -342,5 +402,11 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
     /// Check if ML is enabled
     pub fn has_ml(&self) -> bool {
         self.config.use_ml && self.ml_pipeline.is_some()
+    }
+
+    /// Check if knowledge graph is enabled
+    #[cfg(feature = "graph")]
+    pub fn has_graph(&self) -> bool {
+        self.graph.is_some()
     }
 }

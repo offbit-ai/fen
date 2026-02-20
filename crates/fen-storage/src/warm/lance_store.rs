@@ -17,8 +17,8 @@ use fen_core::domain::{Invoice, InvoiceId};
 use crate::config::WarmStorageBackend;
 use crate::error::StorageError;
 
-/// Embedding dimensions for document vectors
-pub const EMBEDDING_DIM: i32 = 768;
+/// Embedding dimensions for document vectors (all-MiniLM-L6-v2 produces 384-dim)
+pub const EMBEDDING_DIM: i32 = 384;
 
 /// LanceDB-based warm tier storage with vector search capabilities
 pub struct LanceStorage {

@@ -10,12 +10,14 @@ path = "src/bin/worker.rs"
 [features]
 default = []
 kafka = ["fen-events/kafka"]
+graph = ["fen-graph"]
 
 [dependencies]
 fen-core = { path = "../fen-core" }
 fen-storage = { path = "../fen-storage" }
 fen-ml = { path = "../fen-ml" }
 fen-events = { path = "../fen-events" }
+fen-graph = { path = "../fen-graph", optional = true }
 
 # CLI (for worker binary)
 clap.workspace = true

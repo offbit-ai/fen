@@ -12,10 +12,10 @@ pub mod warm;
 
 #[cfg(feature = "remote-storage")]
 pub use config::S3Config;
-pub use config::{HotStorageBackend, WarmStorageBackend};
+pub use config::{GraphBackend, HotStorageBackend, WarmStorageBackend};
 pub use error::StorageError;
 pub use fulltext::{FullTextConfig, FullTextIndex, SearchResult as FullTextSearchResult};
-pub use hot::{AnomalyRecord, AnomalyStore, BaselineStore, CacheStats, RedbStorage};
+pub use hot::{AnomalyRecord, AnomalyStats, AnomalyStatus, AnomalyStore, BaselineStore, CacheStats, RedbStorage};
 pub use location::{DocumentLocationIndex, TierDistribution};
 pub use query::{
     parse_query,
