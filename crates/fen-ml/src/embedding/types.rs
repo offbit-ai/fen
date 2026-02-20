@@ -23,7 +23,7 @@ impl Default for EmbeddingModelConfig {
     fn default() -> Self {
         Self {
             model_path: None,
-            embedding_dim: 768,
+            embedding_dim: 384,
             max_seq_length: 512,
             model_name: "all-MiniLM-L6-v2".to_string(),
             gpu_enabled: false,

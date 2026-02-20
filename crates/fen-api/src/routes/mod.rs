@@ -1,5 +1,7 @@
 pub mod admin;
+pub mod anomalies;
 pub mod auth;
+
 pub mod documents;
 pub mod events;
 pub mod health;

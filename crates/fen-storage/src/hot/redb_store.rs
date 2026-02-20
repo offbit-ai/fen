@@ -19,6 +19,11 @@ pub struct RedbStorage {
 }
 
 impl RedbStorage {
+    /// Get a reference to the underlying database handle
+    pub fn db(&self) -> &Arc<Database> {
+        &self.db
+    }
+
     /// Create a new redb storage at the given path
     pub fn new(path: impl AsRef<Path>) -> Result<Self, StorageError> {
         let db = Database::create(path)?;

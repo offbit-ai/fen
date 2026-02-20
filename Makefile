@@ -8,7 +8,7 @@
 #   make dev        # Start full distributed stack
 #   make api        # Run API locally (standalone)
 
-.PHONY: help build test clean dev infra api api-dist coordinator data logs status stop
+.PHONY: help build test test-ml clean dev infra api api-dist coordinator data logs status stop models models-force models-clean
 
 # Default target
 help:
@@ -33,7 +33,13 @@ help:
 	@echo "  make build-docker Build Docker images"
 	@echo "  make test         Run unit tests"
 	@echo "  make test-int     Run integration tests"
+	@echo "  make test-ml      Run ML integration tests (requires models)"
 	@echo "  make lint         Run clippy and format check"
+	@echo ""
+	@echo "ML Models:"
+	@echo "  make models       Download ONNX models from HuggingFace"
+	@echo "  make models-force Re-download all models"
+	@echo "  make models-clean Remove models and venv"
 	@echo ""
 	@echo "Frontend:"
 	@echo "  make web          Start frontend dev server"
@@ -58,12 +64,38 @@ test:
 test-int:
 	./scripts/run-local.sh test
 
+test-ml:
+	@echo "Running fen-ml integration tests with real ONNX models..."
+	@test -d "$${FEN_TEST_MODELS_DIR:-./models}" || (echo "Models not found. Run 'make models' first." && exit 1)
+	FEN_TEST_MODELS_DIR=$${FEN_TEST_MODELS_DIR:-$(CURDIR)/models} \
+	cargo test -p fen-ml \
+		--test ocr_tests \
+		--test layout_tests \
+		--test table_tests \
+		--test embedding_tests \
+		--test pipeline_tests \
+		--test pdf_tests \
+		-- --ignored
+
 lint:
 	cargo clippy --workspace -- -D warnings
 	cargo fmt --all -- --check
 
 fmt:
 	cargo fmt --all
+
+# =============================================================================
+# ML Models
+# =============================================================================
+
+models:
+	./scripts/setup-models.sh --models-dir ./models
+
+models-force:
+	./scripts/setup-models.sh --models-dir ./models --force
+
+models-clean:
+	rm -rf ./models ./.venv-models
 
 # =============================================================================
 # Docker-based Development

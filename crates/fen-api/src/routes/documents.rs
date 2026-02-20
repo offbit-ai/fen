@@ -177,6 +177,10 @@ pub enum ListResponse {
 pub struct StatsResponse {
     pub total_invoices: usize,
     pub total_contracts: usize,
+    pub total_value: f64,
+    pub total_anomalies: usize,
+    pub open_anomalies: usize,
+    pub anomaly_rate: f64,
 }
 
 /// GET /documents - List documents (supports ?type=invoice|contract, page/page_size)
@@ -268,16 +272,36 @@ pub async fn delete_document(
     Err(ApiError::NotFound(format!("Document not found: {}", id)))
 }
 
-/// GET /stats - Get storage statistics
+/// GET /stats - Get storage statistics with dashboard metrics
 pub async fn get_stats(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<StatsResponse>, ApiError> {
     let total_invoices = state.storage.count_invoices().await?;
     let total_contracts = state.storage.count_contracts().await?;
 
+    // Compute total invoice value
+    let invoices = state.storage.list_invoices(10000, 0).await?;
+    let total_value: f64 = invoices
+        .iter()
+        .filter_map(|inv| inv.total_amount.to_string().parse::<f64>().ok())
+        .sum();
+
+    // Get anomaly stats
+    let anomaly_stats = state.anomaly_store.get_stats().await?;
+    let total_docs = total_invoices + total_contracts;
+    let anomaly_rate = if total_docs > 0 {
+        (anomaly_stats.by_status_open as f64 / total_docs as f64) * 100.0
+    } else {
+        0.0
+    };
+
     Ok(Json(StatsResponse {
         total_invoices,
         total_contracts,
+        total_value,
+        total_anomalies: anomaly_stats.total,
+        open_anomalies: anomaly_stats.by_status_open,
+        anomaly_rate,
     }))
 }
 

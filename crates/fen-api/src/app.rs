@@ -10,7 +10,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::config::AppConfig;
 use crate::middleware::RateLimitLayer;
-use crate::routes::{admin, auth, documents, events, health, ingest, notifications, rules, search, storage, validate};
+use crate::routes::{admin, anomalies, auth, documents, events, health, ingest, notifications, rules, search, storage, validate};
 use crate::state::AppState;
 
 /// Build the application router
@@ -47,6 +47,15 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/validate", post(validate::validate_documents))
         // Stats
         .route("/stats", get(documents::get_stats))
+        // Anomaly endpoints
+        .route("/anomalies", get(anomalies::list_anomalies))
+        .route("/anomalies/stats", get(anomalies::get_anomaly_stats))
+        .route("/anomalies/bulk/resolve", post(anomalies::bulk_resolve))
+        .route("/anomalies/bulk/dismiss", post(anomalies::bulk_dismiss))
+        .route("/anomalies/:id", get(anomalies::get_anomaly))
+        .route("/anomalies/:id/resolve", post(anomalies::resolve_anomaly))
+        .route("/anomalies/:id/dismiss", post(anomalies::dismiss_anomaly))
+        .route("/anomalies/:id/investigate", post(anomalies::investigate_anomaly))
         // Search endpoints
         .route("/search/text", get(search::text_search))
         .route("/search/semantic", get(search::semantic_search))
@@ -57,8 +66,11 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/storage/cache/clear", post(storage::clear_cache))
         .route("/storage/migrate", post(storage::trigger_migration))
         // Rules management endpoints
+        .route("/rules", get(rules::list_rules))
         .route("/rules/status", get(rules::rule_status))
         .route("/rules/config", get(rules::rule_config))
+        .route("/rules/:id", get(rules::get_rule))
+        .route("/rules/:id/test", post(rules::test_rule))
         // Notification endpoints
         .route("/notifications/providers", get(notifications::list_providers))
         .route("/notifications/health", get(notifications::provider_health))

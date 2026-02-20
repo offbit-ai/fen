@@ -31,14 +31,17 @@ RUN apt-get update && apt-get install -y \
 # Copy binary from builder
 COPY --from=builder /app/target/release/fen-api /usr/local/bin/fen-api
 
-# Create data directory
-RUN mkdir -p /app/data /app/rules
+# Create data and models directories
+RUN mkdir -p /app/data /app/rules /app/models
 
 # Set environment variables
 ENV BIND_ADDRESS=0.0.0.0:3000
 ENV DATABASE_PATH=/app/data/fen.redb
 ENV RULES_PATH=/app/rules
 ENV RUST_LOG=info,fen_api=debug,fen_ingestion=debug,fen_rules=debug
+ENV ML_ENABLED=false
+ENV ML_MODELS_DIR=/app/models
+ENV ML_GPU_ENABLED=false
 
 # Expose port
 EXPOSE 3000

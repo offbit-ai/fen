@@ -14,6 +14,7 @@ fen-ingestion = { path = "../fen-ingestion" }
 fen-rules = { path = "../fen-rules" }
 fen-events = { path = "../fen-events" }
 fen-notify = { path = "../fen-notify" }
+fen-ml = { path = "../fen-ml" }
 
 axum.workspace = true
 tower.workspace = true

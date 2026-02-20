@@ -183,7 +183,7 @@ impl TableExtractor {
 
         let outputs = {
             let _span = tracing::info_span!("table_detection_inference").entered();
-            session.run(ort::inputs!["input" => input_tensor])?
+            session.run(ort::inputs!["pixel_values" => input_tensor])?
         };
 
         let output = if let Some(out) = outputs.get("output") {
@@ -281,7 +281,7 @@ impl TableExtractor {
 
         let outputs = {
             let _span = tracing::info_span!("table_structure_inference").entered();
-            session.run(ort::inputs!["input" => input_tensor])?
+            session.run(ort::inputs!["pixel_values" => input_tensor])?
         };
 
         // Parse structure output (rows, columns, cells)

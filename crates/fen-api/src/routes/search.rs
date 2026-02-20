@@ -8,151 +8,173 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use fen_storage::{parse_query, FullTextSearchResult, QueryParams};
+use fen_storage::{parse_query, DocumentStore, FullTextSearchResult, QueryParams};
 
 use crate::error::ApiError;
+use crate::routes::documents::contract_to_response;
+use crate::routes::ingest::invoice_to_full_response;
 use crate::state::AppState;
 
 /// Query parameters for text search
 #[derive(Deserialize)]
 pub struct TextSearchParams {
-    /// Search query string
     pub q: String,
-    /// Maximum results to return (default: 10, max: 100)
     pub limit: Option<usize>,
+    #[allow(dead_code)]
+    pub offset: Option<usize>,
 }
 
 /// Query parameters for semantic search
 #[derive(Deserialize)]
 pub struct SemanticSearchParams {
-    /// Search query for embedding generation
     pub q: String,
-    /// Maximum results to return (default: 10, max: 100)
     pub limit: Option<usize>,
+    #[allow(dead_code)]
+    pub offset: Option<usize>,
 }
 
-/// Search result item
+/// Search result item (matches frontend SearchResult type)
 #[derive(Serialize)]
 pub struct SearchResultItem {
-    /// Document ID
     pub id: String,
-    /// Relevance score
+    pub document_type: String,
     pub score: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<String>,
+    pub data: serde_json::Value,
 }
 
-impl From<FullTextSearchResult> for SearchResultItem {
-    fn from(r: FullTextSearchResult) -> Self {
-        Self {
-            id: r.id,
-            score: r.score,
-        }
-    }
-}
-
-/// Response for text search
+/// Response for search (matches frontend SearchResponse type)
 #[derive(Serialize)]
-pub struct TextSearchResponse {
-    /// Search results
+pub struct SearchResponse {
     pub results: Vec<SearchResultItem>,
-    /// Original query
-    pub query: String,
-    /// Total results found
     pub total: usize,
+    pub query: String,
+    pub took_ms: u64,
 }
 
 /// Request body for query execution
 #[derive(Deserialize)]
 pub struct QueryRequest {
-    /// SQL-like query string (e.g., "SELECT * FROM invoices WHERE vendor_name = 'Acme'")
     pub sql: String,
 }
 
 /// Response for query execution
 #[derive(Serialize)]
 pub struct QueryResponse {
-    /// Query result rows
     pub rows: Vec<serde_json::Value>,
-    /// Metadata about the query execution
     pub metadata: QueryMetadata,
 }
 
 #[derive(Serialize)]
 pub struct QueryMetadata {
-    /// Execution time in milliseconds
     pub execution_time_ms: u64,
-    /// Number of rows scanned
     pub rows_scanned: usize,
-    /// Number of rows returned
     pub rows_returned: usize,
 }
 
+/// Enrich search results with full document data
+async fn enrich_results(
+    state: &AppState,
+    raw_results: Vec<FullTextSearchResult>,
+) -> Vec<SearchResultItem> {
+    let mut enriched = Vec::with_capacity(raw_results.len());
+
+    for r in raw_results {
+        // Try to parse as UUID and look up invoice or contract
+        if let Ok(uuid) = uuid::Uuid::parse_str(&r.id) {
+            let invoice_id = fen_core::domain::InvoiceId(uuid);
+            if let Ok(Some(invoice)) = state.storage.get_invoice(&invoice_id).await {
+                let data = invoice_to_full_response(&invoice);
+                enriched.push(SearchResultItem {
+                    id: r.id,
+                    document_type: "invoice".to_string(),
+                    score: r.score,
+                    highlight: None,
+                    data: serde_json::to_value(data).unwrap_or_default(),
+                });
+                continue;
+            }
+
+            let contract_id = fen_core::domain::ContractId(uuid);
+            if let Ok(Some(contract)) = state.storage.get_contract(&contract_id).await {
+                let data = contract_to_response(&contract);
+                enriched.push(SearchResultItem {
+                    id: r.id,
+                    document_type: "contract".to_string(),
+                    score: r.score,
+                    highlight: None,
+                    data: serde_json::to_value(data).unwrap_or_default(),
+                });
+                continue;
+            }
+        }
+
+        // Fallback: return bare result
+        enriched.push(SearchResultItem {
+            id: r.id,
+            document_type: "unknown".to_string(),
+            score: r.score,
+            highlight: None,
+            data: serde_json::Value::Null,
+        });
+    }
+
+    enriched
+}
+
 /// GET /search/text - Full-text search across documents
-///
-/// Search invoices using BM25-based full-text search.
 pub async fn text_search(
     State(state): State<Arc<AppState>>,
     Query(params): Query<TextSearchParams>,
-) -> Result<Json<TextSearchResponse>, ApiError> {
+) -> Result<Json<SearchResponse>, ApiError> {
     let limit = params.limit.unwrap_or(10).min(100);
+    let start = std::time::Instant::now();
 
-    // Use the fulltext index if available
     let results = if let Some(ref index) = state.fulltext_index {
         index
             .search_invoices(&params.q, limit)
             .map_err(|e| ApiError::Internal(format!("Search failed: {}", e)))?
     } else {
-        // Fallback: return empty results if no fulltext index
         Vec::new()
     };
 
-    let total = results.len();
-    let items: Vec<SearchResultItem> = results.into_iter().map(Into::into).collect();
+    let enriched = enrich_results(&state, results).await;
+    let total = enriched.len();
+    let took_ms = start.elapsed().as_millis() as u64;
 
-    Ok(Json(TextSearchResponse {
-        results: items,
-        query: params.q,
+    Ok(Json(SearchResponse {
+        results: enriched,
         total,
+        query: params.q,
+        took_ms,
     }))
 }
 
 /// GET /search/semantic - Semantic/vector similarity search
-///
-/// Search invoices using vector embeddings for semantic similarity.
-/// Note: Requires documents to have embeddings stored in warm tier (LanceDB).
 pub async fn semantic_search(
     State(_state): State<Arc<AppState>>,
     Query(params): Query<SemanticSearchParams>,
-) -> Result<Json<TextSearchResponse>, ApiError> {
+) -> Result<Json<SearchResponse>, ApiError> {
     let _limit = params.limit.unwrap_or(10).min(100);
 
-    // TODO: Implement semantic search when embedding generation is available
-    // This requires:
-    // 1. Generate embedding from query text using ML model
-    // 2. Search warm storage (LanceDB) with vector similarity
-    // 3. Return results with similarity scores
-
-    // For now, return empty results with a note
-    Ok(Json(TextSearchResponse {
+    Ok(Json(SearchResponse {
         results: Vec::new(),
-        query: params.q,
         total: 0,
+        query: params.q,
+        took_ms: 0,
     }))
 }
 
 /// POST /search/query - Execute a FenQuery (SQL-like query)
-///
-/// Execute an SQL-like query against the document store.
-/// Supports SELECT, WHERE, ORDER BY, LIMIT, and OFFSET clauses.
 pub async fn execute_query(
     State(state): State<Arc<AppState>>,
     Json(request): Json<QueryRequest>,
 ) -> Result<Json<QueryResponse>, ApiError> {
-    // Parse the query
     let query = parse_query(&request.sql).map_err(|e| {
         ApiError::BadRequest(format!("Invalid query syntax: {}", e))
     })?;
 
-    // Execute if we have a query executor
     if let Some(ref executor) = state.query_executor {
         let params = QueryParams::new();
         let result = executor
@@ -160,7 +182,6 @@ pub async fn execute_query(
             .await
             .map_err(|e| ApiError::Internal(format!("Query execution failed: {}", e)))?;
 
-        // Convert rows to JSON
         let rows: Vec<serde_json::Value> = result
             .rows
             .into_iter()
@@ -187,7 +208,6 @@ pub async fn execute_query(
     }
 }
 
-/// Convert a ColumnValue to JSON
 fn column_value_to_json(v: fen_storage::ColumnValue) -> serde_json::Value {
     use fen_storage::ColumnValue;
     match v {

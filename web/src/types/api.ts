@@ -369,6 +369,10 @@ export interface DashboardStats {
 export interface StatsResponse {
   total_invoices: number
   total_contracts: number
+  total_value: number
+  total_anomalies: number
+  open_anomalies: number
+  anomaly_rate: number
 }
 
 export interface AnomalyTrend {

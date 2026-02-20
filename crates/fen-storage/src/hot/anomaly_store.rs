@@ -21,6 +21,33 @@ const ANOMALY_HISTORY_TABLE: TableDefinition<&[u8], &[u8]> =
 const VENDOR_ANOMALY_INDEX: TableDefinition<&str, &[u8]> =
     TableDefinition::new("vendor_anomaly_index");
 
+/// Status of an anomaly in the workflow
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AnomalyStatus {
+    Open,
+    Investigating,
+    Resolved,
+    Dismissed,
+}
+
+impl Default for AnomalyStatus {
+    fn default() -> Self {
+        Self::Open
+    }
+}
+
+impl std::fmt::Display for AnomalyStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Open => write!(f, "open"),
+            Self::Investigating => write!(f, "investigating"),
+            Self::Resolved => write!(f, "resolved"),
+            Self::Dismissed => write!(f, "dismissed"),
+        }
+    }
+}
+
 /// Persisted anomaly record with full context for historical analysis
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnomalyRecord {
@@ -58,6 +85,15 @@ pub struct AnomalyRecord {
     pub detected_at: DateTime<Utc>,
     /// Invoice date (for time-based analysis)
     pub invoice_date: Option<NaiveDate>,
+    /// Workflow status
+    #[serde(default)]
+    pub status: AnomalyStatus,
+    /// Who resolved/dismissed this anomaly
+    pub resolved_by: Option<String>,
+    /// When resolved/dismissed
+    pub resolved_at: Option<DateTime<Utc>>,
+    /// Notes from resolution/dismissal
+    pub resolution_notes: Option<String>,
 }
 
 impl AnomalyRecord {
@@ -87,6 +123,10 @@ impl AnomalyRecord {
             baseline_stddev: None,
             detected_at: Utc::now(),
             invoice_date: None,
+            status: AnomalyStatus::Open,
+            resolved_by: None,
+            resolved_at: None,
+            resolution_notes: None,
         }
     }
 
@@ -389,6 +429,101 @@ impl AnomalyStore {
         let table = read_txn.open_table(ANOMALY_HISTORY_TABLE)?;
         Ok(table.len()? as usize)
     }
+
+    /// List all anomalies with pagination, sorted by detected_at descending
+    pub async fn list_all(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<AnomalyRecord>, StorageError> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(ANOMALY_HISTORY_TABLE)?;
+
+        let mut all: Vec<AnomalyRecord> = table
+            .iter()?
+            .filter_map(|result| {
+                let (_, value) = result.ok()?;
+                serde_json::from_slice(value.value()).ok()
+            })
+            .collect();
+
+        // Sort by detected_at descending
+        all.sort_by(|a, b| b.detected_at.cmp(&a.detected_at));
+
+        // Apply pagination
+        Ok(all.into_iter().skip(offset).take(limit).collect())
+    }
+
+    /// Update an anomaly record (overwrites in place)
+    pub async fn update_anomaly(&self, record: &AnomalyRecord) -> Result<(), StorageError> {
+        let key = record.id.as_bytes();
+        let value =
+            serde_json::to_vec(record).map_err(|e| StorageError::Serialization(e.to_string()))?;
+
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut table = write_txn.open_table(ANOMALY_HISTORY_TABLE)?;
+            table.insert(key.as_slice(), value.as_slice())?;
+        }
+        write_txn.commit()?;
+
+        Ok(())
+    }
+
+    /// Get anomaly statistics (counts by severity, status, type)
+    pub async fn get_stats(
+        &self,
+    ) -> Result<AnomalyStats, StorageError> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(ANOMALY_HISTORY_TABLE)?;
+
+        let mut stats = AnomalyStats::default();
+
+        for result in table.iter()? {
+            let (_, value) = result.map_err(|e| StorageError::Database(e.to_string()))?;
+            let bytes: &[u8] = value.value();
+            if let Ok(record) = serde_json::from_slice::<AnomalyRecord>(bytes) {
+                stats.total += 1;
+
+                // By severity
+                match record.severity {
+                    Severity::Low => stats.by_severity_low += 1,
+                    Severity::Medium => stats.by_severity_medium += 1,
+                    Severity::High => stats.by_severity_high += 1,
+                    Severity::Critical => stats.by_severity_critical += 1,
+                }
+
+                // By status
+                match record.status {
+                    AnomalyStatus::Open => stats.by_status_open += 1,
+                    AnomalyStatus::Investigating => stats.by_status_investigating += 1,
+                    AnomalyStatus::Resolved => stats.by_status_resolved += 1,
+                    AnomalyStatus::Dismissed => stats.by_status_dismissed += 1,
+                }
+
+                // By type
+                let type_key = format!("{:?}", record.anomaly_type);
+                *stats.by_type.entry(type_key).or_insert(0) += 1;
+            }
+        }
+
+        Ok(stats)
+    }
+}
+
+/// Aggregated anomaly statistics
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct AnomalyStats {
+    pub total: usize,
+    pub by_severity_low: usize,
+    pub by_severity_medium: usize,
+    pub by_severity_high: usize,
+    pub by_severity_critical: usize,
+    pub by_status_open: usize,
+    pub by_status_investigating: usize,
+    pub by_status_resolved: usize,
+    pub by_status_dismissed: usize,
+    pub by_type: std::collections::HashMap<String, usize>,
 }
 
 #[cfg(test)]

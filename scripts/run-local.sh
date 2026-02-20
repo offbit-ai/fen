@@ -42,6 +42,8 @@ cmd_api() {
     export RULES_PATH="$PROJECT_ROOT/rules"
     export REQUIRE_AUTH="false"
     export MAX_UPLOAD_SIZE=52428800
+    export ML_ENABLED="${ML_ENABLED:-true}"
+    export ML_MODELS_DIR="$PROJECT_ROOT/models"
 
     mkdir -p "$PROJECT_ROOT/data"
 

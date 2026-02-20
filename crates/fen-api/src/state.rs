@@ -3,11 +3,15 @@ use std::sync::Arc;
 
 use fen_events::LocalEventBus;
 use fen_ingestion::IngestionPipeline;
+use fen_ml::{
+    DocumentIntelligence, DocumentIntelligenceConfig, EmbeddingModelConfig, LayoutModelConfig,
+    OcrConfig, TableExtractorConfig,
+};
 use fen_notify::NotificationHub;
 use fen_rules::RuleEngine;
 use fen_storage::{
-    DocumentLocationIndex, FullTextConfig, FullTextIndex, QueryEngine, QueryExecutor, RedbStorage,
-    TieredStorage,
+    AnomalyStore, DocumentLocationIndex, FullTextConfig, FullTextIndex, QueryEngine,
+    QueryExecutor, RedbStorage, TieredStorage,
 };
 
 use crate::config::AppConfig;
@@ -20,6 +24,7 @@ pub struct AppState {
     pub storage: Arc<RedbStorage>,
     pub ingestion: Arc<IngestionPipeline<RedbStorage>>,
     pub rule_engine: Arc<RuleEngine>,
+    pub anomaly_store: Arc<AnomalyStore>,
     // Optional advanced storage features
     pub fulltext_index: Option<Arc<FullTextIndex>>,
     pub query_engine: Option<Arc<QueryEngine>>,
@@ -31,6 +36,10 @@ pub struct AppState {
     /// Event bus for internal event routing (used by workers)
     #[allow(dead_code)]
     pub event_bus: Option<Arc<LocalEventBus>>,
+    // ML document intelligence pipeline
+    /// Optional ML pipeline (requires ONNX model files)
+    #[allow(dead_code)]
+    pub document_intelligence: Option<Arc<DocumentIntelligence>>,
     // Authentication configuration
     /// JWT authentication config
     pub auth_config: AuthConfig,
@@ -57,6 +66,10 @@ impl AppState {
         let storage = Arc::new(RedbStorage::new(&config.database_path)?);
         tracing::info!(path = %config.database_path, "Storage initialized");
 
+        // Initialize anomaly store (shares same redb database)
+        let anomaly_store = Arc::new(AnomalyStore::new(storage.db().clone())?);
+        tracing::info!("Anomaly store initialized");
+
         // Initialize ingestion pipeline
         let ingestion = Arc::new(IngestionPipeline::new(storage.clone())?);
         tracing::info!("Ingestion pipeline initialized");
@@ -64,6 +77,71 @@ impl AppState {
         // Initialize rule engine
         let rule_engine = Arc::new(RuleEngine::new(config.rules_path.as_deref()).await?);
         tracing::info!("Rule engine initialized");
+
+        // Initialize ML document intelligence (optional)
+        let document_intelligence = if config.ml.enabled {
+            match &config.ml.models_dir {
+                Some(models_dir) if models_dir.exists() => {
+                    let ml_config = DocumentIntelligenceConfig {
+                        ocr: OcrConfig {
+                            detection_model_path: Some("ocr_detection.onnx".to_string()),
+                            recognition_model_path: Some("ocr_recognition.onnx".to_string()),
+                            gpu_enabled: config.ml.gpu_enabled,
+                            ..Default::default()
+                        },
+                        layout: LayoutModelConfig {
+                            model_path: Some("layout_model.onnx".to_string()),
+                            gpu_enabled: config.ml.gpu_enabled,
+                            ..Default::default()
+                        },
+                        table: TableExtractorConfig {
+                            detection_model_path: Some("table_detection.onnx".to_string()),
+                            structure_model_path: Some("table_structure.onnx".to_string()),
+                            gpu_enabled: config.ml.gpu_enabled,
+                            ..Default::default()
+                        },
+                        embedding: EmbeddingModelConfig {
+                            model_path: Some("embedding_model.onnx".to_string()),
+                            gpu_enabled: config.ml.gpu_enabled,
+                            ..Default::default()
+                        },
+                    };
+
+                    match DocumentIntelligence::with_models(ml_config, models_dir) {
+                        Ok(di) => {
+                            tracing::info!(
+                                models_dir = %models_dir.display(),
+                                "ML document intelligence initialized with models"
+                            );
+                            Some(Arc::new(di))
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Failed to load ML models, using rule-based fallback");
+                            match DocumentIntelligence::new(DocumentIntelligenceConfig::default()) {
+                                Ok(di) => Some(Arc::new(di)),
+                                Err(e) => {
+                                    tracing::error!(error = %e, "Failed to create rule-based fallback");
+                                    None
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    tracing::info!("ML_MODELS_DIR not set or does not exist, using rule-based document intelligence");
+                    match DocumentIntelligence::new(DocumentIntelligenceConfig::default()) {
+                        Ok(di) => Some(Arc::new(di)),
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Failed to create rule-based document intelligence");
+                            None
+                        }
+                    }
+                }
+            }
+        } else {
+            tracing::info!("ML document intelligence disabled (ML_ENABLED=false)");
+            None
+        };
 
         // Initialize optional fulltext index
         let fulltext_index = match FullTextIndex::in_memory(FullTextConfig::default()) {
@@ -146,6 +224,8 @@ impl AppState {
             storage,
             ingestion,
             rule_engine,
+            anomaly_store,
+            document_intelligence,
             fulltext_index,
             query_engine,
             query_executor: None, // Requires warm storage setup

@@ -15,6 +15,9 @@ pub struct OcrConfig {
     /// Confidence threshold for character recognition
     pub confidence_threshold: f32,
 
+    /// Detection threshold for text region binarization (lower = more sensitive)
+    pub detection_threshold: f32,
+
     /// Maximum image dimension (resize larger images)
     pub max_dimension: u32,
 
@@ -31,7 +34,8 @@ impl Default for OcrConfig {
             detection_model_path: None,
             recognition_model_path: None,
             languages: vec![Language::English],
-            confidence_threshold: 0.7,
+            confidence_threshold: 0.5,
+            detection_threshold: 0.3,
             max_dimension: 2048,
             gpu_enabled: false,
             decoder_config: CtcDecoderConfig::default(),

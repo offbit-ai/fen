@@ -396,10 +396,14 @@ services:
       RULES_PATH: /app/rules
       MAX_UPLOAD_SIZE: 52428800
       RUST_LOG: info,fen_api=debug,fen_ingestion=debug,fen_rules=debug
+      ML_ENABLED: "${ML_ENABLED:-false}"
+      ML_MODELS_DIR: /app/models
+      ML_GPU_ENABLED: "${ML_GPU_ENABLED:-false}"
     ports:
       - "3000:3000"
     volumes:
       - ../../rules:/app/rules:ro
+      - ../../models:/app/models:ro
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
       interval: 10s

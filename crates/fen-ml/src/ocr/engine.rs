@@ -79,12 +79,17 @@ impl OcrEngine {
         self.detection_session.is_some() && self.recognition_session.is_some()
     }
 
+    /// Round up to the nearest multiple of 32 (required by PaddleOCR detection model).
+    fn round_to_32(val: u32) -> u32 {
+        ((val + 31) / 32) * 32
+    }
+
     /// Preprocess image for detection model
     #[tracing::instrument(skip(self, image), fields(width = %image.width(), height = %image.height()))]
     fn preprocess_for_detection(&self, image: &DynamicImage) -> Result<Array4<f32>, MlError> {
         let (width, height) = image.dimensions();
 
-        // Resize if needed
+        // Resize if larger than max_dimension
         let (new_width, new_height) =
             if width > self.config.max_dimension || height > self.config.max_dimension {
                 let scale = self.config.max_dimension as f32 / width.max(height) as f32;
@@ -96,19 +101,26 @@ impl OcrEngine {
                 (width, height)
             };
 
+        // PaddleOCR detection model requires dimensions to be multiples of 32
+        let padded_width = Self::round_to_32(new_width);
+        let padded_height = Self::round_to_32(new_height);
+
         let resized =
             image.resize_exact(new_width, new_height, image::imageops::FilterType::Lanczos3);
         let rgb = resized.to_rgb8();
 
-        // Convert to NCHW format with normalization
-        let mut arr = Array4::<f32>::zeros((1, 3, new_height as usize, new_width as usize));
+        // Convert to NCHW format with ImageNet normalization (required by PaddleOCR)
+        // zero-padded to multiples of 32
+        let mean = [0.485f32, 0.456, 0.406];
+        let std = [0.229f32, 0.224, 0.225];
+        let mut arr = Array4::<f32>::zeros((1, 3, padded_height as usize, padded_width as usize));
 
         for (x, y, pixel) in rgb.enumerate_pixels() {
             let x = x as usize;
             let y = y as usize;
-            arr[[0, 0, y, x]] = pixel[0] as f32 / 255.0;
-            arr[[0, 1, y, x]] = pixel[1] as f32 / 255.0;
-            arr[[0, 2, y, x]] = pixel[2] as f32 / 255.0;
+            arr[[0, 0, y, x]] = (pixel[0] as f32 / 255.0 - mean[0]) / std[0];
+            arr[[0, 1, y, x]] = (pixel[1] as f32 / 255.0 - mean[1]) / std[1];
+            arr[[0, 2, y, x]] = (pixel[2] as f32 / 255.0 - mean[2]) / std[2];
         }
 
         Ok(arr)
@@ -129,8 +141,8 @@ impl OcrEngine {
 
         let cropped = image.crop_imm(x, y, w.max(1), h.max(1));
 
-        // Resize to recognition model input size (typically 32xN for CRNN-based models)
-        let target_height = 32u32;
+        // Resize to recognition model input size (48xN for PaddleOCR SVTR model)
+        let target_height = 48u32;
         let aspect_ratio = cropped.width() as f32 / cropped.height() as f32;
         let target_width = ((target_height as f32 * aspect_ratio) as u32).max(1);
 
@@ -172,7 +184,7 @@ impl OcrEngine {
         let input_tensor = TensorRef::from_array_view(&input)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let outputs = detection_session.run(ort::inputs!["input" => input_tensor])?;
+        let outputs = detection_session.run(ort::inputs!["x" => input_tensor])?;
 
         // Parse detection output - format depends on model
         let output = if let Some(out) = outputs.get("output") {
@@ -186,55 +198,112 @@ impl OcrEngine {
             .map_err(|e| MlError::Postprocessing(e.to_string()))?;
 
         let (img_width, img_height) = image.dimensions();
+
+        // PaddleOCR DBNet outputs a probability map: [batch, 1, map_h, map_w]
+        // Each pixel value is the probability of being text.
+        let (map_h, map_w) = if shape.len() == 4 {
+            (shape[2] as usize, shape[3] as usize)
+        } else if shape.len() == 3 {
+            (shape[1] as usize, shape[2] as usize)
+        } else {
+            return Err(MlError::Postprocessing(format!(
+                "Unexpected detection output shape: {:?}",
+                shape
+            )));
+        };
+
+        // Extract bounding boxes from the probability map using connected components
+        let boxes = self.extract_boxes_from_prob_map(
+            data,
+            map_h,
+            map_w,
+            img_width,
+            img_height,
+            self.config.detection_threshold,
+        );
+
+        Ok(boxes)
+    }
+
+    /// Extract bounding boxes from DBNet probability map using simple thresholding
+    /// and connected-component-like scanning.
+    fn extract_boxes_from_prob_map(
+        &self,
+        data: &[f32],
+        map_h: usize,
+        map_w: usize,
+        img_width: u32,
+        img_height: u32,
+        threshold: f32,
+    ) -> Vec<BoundingBox> {
+        // Binary threshold the probability map
+        let mut visited = vec![false; map_h * map_w];
         let mut boxes = Vec::new();
 
-        // Parse output based on model format (assuming YOLO-style output)
-        // [batch, num_boxes, 5+num_classes] where 5 = x, y, w, h, confidence
-        // Shape derefs to [i64] slice
+        let scale_x = img_width as f32 / map_w as f32;
+        let scale_y = img_height as f32 / map_h as f32;
 
-        if shape.len() >= 2 {
-            let num_boxes = if shape.len() == 3 {
-                shape[1] as usize
-            } else {
-                shape[0] as usize
-            };
-            let stride = if shape.len() == 3 {
-                shape[2] as usize
-            } else {
-                5
-            };
-
-            for i in 0..num_boxes {
-                let offset = i * stride;
-                if offset + 4 >= data.len() {
-                    break;
+        // Simple scan-line connected component extraction
+        for y in 0..map_h {
+            for x in 0..map_w {
+                let idx = y * map_w + x;
+                if idx >= data.len() || visited[idx] || data[idx] < threshold {
+                    continue;
                 }
 
-                let x = data[offset];
-                let y = data[offset + 1];
-                let w = data[offset + 2];
-                let h = data[offset + 3];
-                let conf = if offset + 4 < data.len() {
-                    data[offset + 4]
-                } else {
-                    1.0
-                };
+                // Flood fill to find connected region
+                let mut min_x = x;
+                let mut min_y = y;
+                let mut max_x = x;
+                let mut max_y = y;
+                let mut score_sum = 0.0f32;
+                let mut count = 0usize;
 
-                if conf > self.config.confidence_threshold {
-                    boxes.push(BoundingBox::new(
-                        x * img_width as f32,
-                        y * img_height as f32,
-                        w * img_width as f32,
-                        h * img_height as f32,
-                    ));
+                let mut stack = vec![(x, y)];
+                while let Some((cx, cy)) = stack.pop() {
+                    let cidx = cy * map_w + cx;
+                    if cx >= map_w || cy >= map_h || cidx >= data.len() || visited[cidx] || data[cidx] < threshold {
+                        continue;
+                    }
+                    visited[cidx] = true;
+                    score_sum += data[cidx];
+                    count += 1;
+                    min_x = min_x.min(cx);
+                    min_y = min_y.min(cy);
+                    max_x = max_x.max(cx);
+                    max_y = max_y.max(cy);
+
+                    // 4-connected neighbors
+                    if cx > 0 { stack.push((cx - 1, cy)); }
+                    if cx + 1 < map_w { stack.push((cx + 1, cy)); }
+                    if cy > 0 { stack.push((cx, cy - 1)); }
+                    if cy + 1 < map_h { stack.push((cx, cy + 1)); }
                 }
+
+                // Filter out very small regions (noise)
+                let region_w = max_x - min_x + 1;
+                let region_h = max_y - min_y + 1;
+                if count < 10 || region_w < 3 || region_h < 3 {
+                    continue;
+                }
+
+                let avg_score = score_sum / count as f32;
+                if avg_score < threshold {
+                    continue;
+                }
+
+                // Convert to image coordinates with slight expansion
+                let bx = (min_x as f32 * scale_x).max(0.0);
+                let by = (min_y as f32 * scale_y).max(0.0);
+                let bw = ((region_w as f32) * scale_x).min(img_width as f32 - bx);
+                let bh = ((region_h as f32) * scale_y).min(img_height as f32 - by);
+
+                boxes.push(BoundingBox::new(bx, by, bw, bh));
             }
         }
 
-        // Apply NMS (Non-Maximum Suppression)
-        let boxes = self.non_max_suppression(boxes, 0.5);
-
-        Ok(boxes)
+        // Apply NMS to remove overlapping boxes
+        self.non_max_suppression(boxes, 0.5)
     }
 
     /// Non-Maximum Suppression to remove overlapping boxes
@@ -268,10 +337,29 @@ impl OcrEngine {
             .unwrap_or_else(|| (String::new(), 0.0)))
     }
 
-    /// Recognize text in multiple regions with batched inference
-    /// This is significantly faster than processing regions one at a time
+    /// Recognize text in multiple regions with batched inference.
+    /// Processes in sub-batches to handle varying widths efficiently.
     #[tracing::instrument(skip(self, inputs), fields(batch_size = %inputs.len()))]
     fn recognize_text_batch(&self, inputs: &[Array4<f32>]) -> Result<Vec<(String, f32)>, MlError> {
+        if inputs.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Process in sub-batches of max 8 to avoid memory issues
+        // from padding many different widths to the same max width
+        const MAX_BATCH: usize = 8;
+        if inputs.len() > MAX_BATCH {
+            let mut all_results = Vec::with_capacity(inputs.len());
+            for chunk in inputs.chunks(MAX_BATCH) {
+                all_results.extend(self.recognize_text_batch_inner(chunk)?);
+            }
+            return Ok(all_results);
+        }
+
+        self.recognize_text_batch_inner(inputs)
+    }
+
+    fn recognize_text_batch_inner(&self, inputs: &[Array4<f32>]) -> Result<Vec<(String, f32)>, MlError> {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
@@ -285,27 +373,25 @@ impl OcrEngine {
 
         let batch_size = inputs.len();
 
-        // Get dimensions from first input (all inputs should have same dimensions)
-        let first = &inputs[0];
-        let (_, channels, height, width) = (
-            first.shape()[0],
-            first.shape()[1],
-            first.shape()[2],
-            first.shape()[3],
-        );
+        // Inputs may have different widths (text regions vary in length).
+        // Pad all to the maximum width for batched inference.
+        let channels = inputs[0].shape()[1];
+        let height = inputs[0].shape()[2];
+        let max_width = inputs.iter().map(|inp| inp.shape()[3]).max().unwrap_or(1);
 
-        // Combine all inputs into a single batch tensor
-        let mut batch_input = Array4::<f32>::zeros((batch_size, channels, height, width));
+        // Combine all inputs into a single batch tensor, zero-padding narrower inputs
+        let mut batch_input = Array4::<f32>::zeros((batch_size, channels, height, max_width));
         for (i, input) in inputs.iter().enumerate() {
+            let w = input.shape()[3];
             batch_input
-                .slice_mut(ndarray::s![i, .., .., ..])
+                .slice_mut(ndarray::s![i, .., .., ..w])
                 .assign(&input.slice(ndarray::s![0, .., .., ..]));
         }
 
         let input_tensor = TensorRef::from_array_view(&batch_input)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let outputs = recognition_session.run(ort::inputs!["input" => input_tensor])?;
+        let outputs = recognition_session.run(ort::inputs!["x" => input_tensor])?;
 
         let output = if let Some(out) = outputs.get("output") {
             out
@@ -323,15 +409,15 @@ impl OcrEngine {
         if shape.len() == 3 {
             // Shape: [batch, seq_len, vocab_size]
             let seq_len = shape[1] as usize;
-            let vocab_size = shape[2] as usize;
-            let sample_size = seq_len * vocab_size;
+            let model_vocab_size = shape[2] as usize;
+            let sample_size = seq_len * model_vocab_size;
 
             for batch_idx in 0..batch_size {
                 let start = batch_idx * sample_size;
                 let end = start + sample_size;
                 if end <= data.len() {
                     let sample_data = &data[start..end];
-                    let (text, confidence) = self.decode_ctc(sample_data);
+                    let (text, confidence) = self.decode_ctc_with_vocab_size(sample_data, model_vocab_size);
                     results.push((text, confidence));
                 } else {
                     results.push((String::new(), 0.0));
@@ -346,27 +432,21 @@ impl OcrEngine {
         Ok(results)
     }
 
-    /// Get the vocabulary/charset for CTC decoding
+    /// Get the vocabulary/charset for CTC decoding.
+    /// Must match the character dictionary used when training the ONNX model.
     fn get_vocabulary(&self) -> Vec<char> {
         self.config
             .decoder_config
             .vocabulary
             .clone()
             .unwrap_or_else(|| {
-                // Default vocabulary: printable ASCII + common extended characters
-                // Index 0 is reserved for blank token
-                let mut chars: Vec<char> = Vec::with_capacity(128);
-                // Space and punctuation
-                chars.extend(" !\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~".chars());
-                // Digits
-                chars.extend('0'..='9');
-                // Uppercase letters
-                chars.extend('A'..='Z');
-                // Lowercase letters
-                chars.extend('a'..='z');
-                // Common currency and symbols
-                chars.extend("£€¥¢©®™°±×÷".chars());
-                chars
+                // PaddleOCR PP-OCRv4 English recognition model character dictionary
+                // (from ppocr/utils/en_dict.txt). 95 characters total.
+                // Model output: Index 0 = blank/CTC, Index 1-95 = these chars, Index 96 = EOS
+                // Order: digits, :;<=>?@, uppercase, [\]^_`, lowercase, {|}~, !"#$%&'()*+,-./, space
+                "0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~!\"#$%&'()*+,-./ "
+                    .chars()
+                    .collect()
             })
     }
 
@@ -375,6 +455,12 @@ impl OcrEngine {
     fn decode_ctc(&self, logits: &[f32]) -> (String, f32) {
         let vocabulary = self.get_vocabulary();
         let vocab_size = vocabulary.len() + 1; // +1 for blank token at index 0
+        self.decode_ctc_with_vocab_size(logits, vocab_size)
+    }
+
+    /// Decode CTC output using the actual model output vocabulary size
+    fn decode_ctc_with_vocab_size(&self, logits: &[f32], vocab_size: usize) -> (String, f32) {
+        let vocabulary = self.get_vocabulary();
         let seq_len = logits.len() / vocab_size;
 
         if seq_len == 0 {
@@ -394,10 +480,12 @@ impl OcrEngine {
         }
     }
 
-    /// Compute log probabilities from logits with numerical stability
+    /// Convert model output to log probabilities.
+    /// PaddleOCR recognition model outputs softmax probabilities (output name: softmax_*.tmp_0),
+    /// so we just take the log. For raw logit outputs, log-softmax would be needed instead.
     fn compute_log_probabilities(
         &self,
-        logits: &[f32],
+        probs: &[f32],
         vocab_size: usize,
         seq_len: usize,
     ) -> Vec<Vec<f32>> {
@@ -405,15 +493,14 @@ impl OcrEngine {
 
         for t in 0..seq_len {
             let start = t * vocab_size;
-            let end = (start + vocab_size).min(logits.len());
-            let frame = &logits[start..end];
+            let end = (start + vocab_size).min(probs.len());
+            let frame = &probs[start..end];
 
-            // Log-softmax for numerical stability
-            let max_val = frame.iter().fold(f32::NEG_INFINITY, |a, &b| a.max(b));
-            let log_sum_exp: f32 =
-                frame.iter().map(|&x| (x - max_val).exp()).sum::<f32>().ln() + max_val;
-
-            let frame_log_probs: Vec<f32> = frame.iter().map(|&x| x - log_sum_exp).collect();
+            // Model output is already softmax probabilities, just take log
+            let frame_log_probs: Vec<f32> = frame
+                .iter()
+                .map(|&p| (p + 1e-10).ln()) // add epsilon to avoid log(0)
+                .collect();
 
             log_probs.push(frame_log_probs);
         }
@@ -612,6 +699,30 @@ impl OcrProvider for OcrEngine {
                 processing_time_ms: start.elapsed().as_millis() as u64,
             });
         }
+
+        // Upscale small images so both detection and recognition get sufficient detail
+        const MIN_SIDE: u32 = 960;
+        let image = {
+            let (w, h) = image.dimensions();
+            if w.max(h) < MIN_SIDE {
+                let scale = MIN_SIDE as f32 / w.max(h) as f32;
+                let new_w = (w as f32 * scale) as u32;
+                let new_h = (h as f32 * scale) as u32;
+                tracing::debug!(
+                    original_w = w, original_h = h,
+                    new_w = new_w, new_h = new_h,
+                    "Upscaling small image for OCR"
+                );
+                std::borrow::Cow::Owned(image.resize_exact(
+                    new_w,
+                    new_h,
+                    image::imageops::FilterType::Lanczos3,
+                ))
+            } else {
+                std::borrow::Cow::Borrowed(image)
+            }
+        };
+        let image = image.as_ref();
 
         // Step 1: Preprocess for detection
         let detection_input = {

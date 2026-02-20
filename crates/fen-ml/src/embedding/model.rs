@@ -203,10 +203,15 @@ impl EmbeddingModel {
             }
         }
 
+        // Create token_type_ids (all zeros for single-sequence input)
+        let token_type_ids = Array2::<i64>::zeros((batch_size, max_len));
+
         // Create tensor references from arrays
         let input_ids_tensor = TensorRef::from_array_view(&input_ids)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
         let attention_mask_tensor = TensorRef::from_array_view(&attention_mask)
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let token_type_ids_tensor = TensorRef::from_array_view(&token_type_ids)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
         // Run batched inference
@@ -214,7 +219,8 @@ impl EmbeddingModel {
             let _span = tracing::info_span!("embedding_inference", batch_size = %batch_size, seq_len = %max_len).entered();
             session.run(ort::inputs![
                 "input_ids" => input_ids_tensor,
-                "attention_mask" => attention_mask_tensor
+                "attention_mask" => attention_mask_tensor,
+                "token_type_ids" => token_type_ids_tensor
             ])?
         };
 
@@ -422,7 +428,7 @@ mod tests {
         assert!(!model.has_model());
 
         let embedding = model.embed("test text").unwrap();
-        assert_eq!(embedding.len(), 768);
+        assert_eq!(embedding.len(), 384);
         assert!(embedding.iter().all(|&x| x == 0.0));
     }
 
@@ -436,7 +442,7 @@ mod tests {
 
         assert_eq!(embeddings.len(), 3);
         for emb in &embeddings {
-            assert_eq!(emb.len(), 768);
+            assert_eq!(emb.len(), 384);
         }
     }
 
@@ -495,7 +501,7 @@ mod tests {
         let result = model
             .embed_document("Full document", &sections, &entities)
             .unwrap();
-        assert_eq!(result.document.len(), 768);
+        assert_eq!(result.document.len(), 384);
         assert_eq!(result.sections.len(), 2);
         assert_eq!(result.entities.len(), 1);
     }

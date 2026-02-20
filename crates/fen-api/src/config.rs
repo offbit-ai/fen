@@ -1,6 +1,41 @@
 use std::env;
 use std::path::PathBuf;
 
+/// Configuration for ML document intelligence pipeline
+#[derive(Debug, Clone)]
+pub struct MlConfig {
+    /// Enable ML-based document intelligence
+    pub enabled: bool,
+    /// Path to directory containing ONNX model files
+    pub models_dir: Option<PathBuf>,
+    /// Enable GPU acceleration for ONNX inference
+    pub gpu_enabled: bool,
+}
+
+impl Default for MlConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            models_dir: None,
+            gpu_enabled: false,
+        }
+    }
+}
+
+impl MlConfig {
+    pub fn from_env() -> Self {
+        Self {
+            enabled: env::var("ML_ENABLED")
+                .map(|s| s.to_lowercase() == "true" || s == "1")
+                .unwrap_or(false),
+            models_dir: env::var("ML_MODELS_DIR").ok().map(PathBuf::from),
+            gpu_enabled: env::var("ML_GPU_ENABLED")
+                .map(|s| s.to_lowercase() == "true" || s == "1")
+                .unwrap_or(false),
+        }
+    }
+}
+
 /// Application configuration
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -25,6 +60,9 @@ pub struct AppConfig {
     /// Statistical anomaly detection configuration
     #[allow(dead_code)]
     pub statistical: StatisticalConfig,
+
+    /// ML document intelligence configuration
+    pub ml: MlConfig,
 }
 
 /// Configuration for statistical anomaly detection
@@ -127,6 +165,7 @@ impl AppConfig {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(200), // 200 burst capacity default
             statistical: StatisticalConfig::from_env(),
+            ml: MlConfig::from_env(),
         }
     }
 }
