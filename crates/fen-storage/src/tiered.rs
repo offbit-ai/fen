@@ -560,6 +560,14 @@ impl DocumentStore for TieredStorage {
         self.store_invoice(invoice, None).await
     }
 
+    async fn store_invoice_with_embedding(
+        &self,
+        invoice: &Invoice,
+        embedding: Option<&[f32]>,
+    ) -> Result<(), StorageError> {
+        self.store_invoice(invoice, embedding).await
+    }
+
     async fn get_invoice(&self, id: &InvoiceId) -> Result<Option<Invoice>, StorageError> {
         TieredStorage::get_invoice(self, id).await
     }
@@ -626,7 +634,7 @@ mod tests {
         let storage = TieredStorage::in_memory().await.unwrap();
 
         let invoice = Invoice::new("INV-002", NaiveDate::from_ymd_opt(2024, 2, 1).unwrap());
-        let embedding: Vec<f32> = (0..768).map(|i| i as f32 / 1000.0).collect();
+        let embedding: Vec<f32> = (0..384).map(|i| i as f32 / 1000.0).collect();
 
         storage
             .store_invoice(&invoice, Some(&embedding))
@@ -634,7 +642,7 @@ mod tests {
             .unwrap();
 
         // Search by embedding
-        let query: Vec<f32> = (0..768).map(|i| i as f32 / 1000.0 + 0.001).collect();
+        let query: Vec<f32> = (0..384).map(|i| i as f32 / 1000.0 + 0.001).collect();
         let results = storage
             .search_invoices_by_embedding(&query, 10)
             .await

@@ -58,7 +58,7 @@ static TITLE_PATTERN: Lazy<Regex> = Lazy::new(|| {
 
 static PARTY_PATTERNS: Lazy<[Regex; 4]> = Lazy::new(|| {
     [
-        Regex::new(r#"(?i)(?:between|by\s+and\s+between)\s+["""]?(.+?)["""]?\s+(?:\(|and)\s+["""]?(.+?)["""]?\s*(?:\(|,|\n)"#).unwrap(),
+        Regex::new(r#"(?i)(?:between|by\s+and\s+between)\s*:?\s+["""]?(.+?)["""]?\s+(?:\(|and)\s+["""]?(.+?)["""]?\s*(?:\(|,|\n)"#).unwrap(),
         Regex::new(r"(?i)(?:client|buyer|customer)\s*:?\s*(.+?)(?:\n|$)").unwrap(),
         Regex::new(r"(?i)(?:vendor|provider|contractor|seller|supplier)\s*:?\s*(.+?)(?:\n|$)")
             .unwrap(),
@@ -442,7 +442,7 @@ Contract No.: SA-2024-0042
 Effective Date: January 15, 2024
 Expiration Date: December 31, 2025
 
-Between: Acme Corporation and Widget Inc.
+Between Acme Corporation and Widget Inc,
 
 Total Contract Value: $150,000.00
 

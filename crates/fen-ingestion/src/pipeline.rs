@@ -163,12 +163,16 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         );
 
         // Parse invoice - use ML if available, otherwise regex
-        let invoice = if let (Some(ml), Some(pages)) = (&self.ml_pipeline, rendered_pages) {
-            self.parse_with_ml(ml, &pages, &extracted, document_id)
-                .await?
-        } else {
-            self.invoice_parser.parse(&extracted.text, document_id)?
-        };
+        let (invoice, embedding) =
+            if let (Some(ml), Some(pages)) = (&self.ml_pipeline, rendered_pages) {
+                self.parse_with_ml(ml, &pages, &extracted, document_id)
+                    .await?
+            } else {
+                (
+                    self.invoice_parser.parse(&extracted.text, document_id)?,
+                    None,
+                )
+            };
 
         tracing::info!(
             document_id = %document_id,
@@ -176,6 +180,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             invoice_number = %invoice.invoice_number,
             total_amount = %invoice.total_amount,
             confidence = %invoice.confidence_score,
+            has_embedding = %embedding.is_some(),
             "Invoice parsed"
         );
 
@@ -191,8 +196,10 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             }
         }
 
-        // Store in storage
-        self.storage.store_invoice(&invoice).await?;
+        // Store in storage (with embedding for warm-tier indexing)
+        self.storage
+            .store_invoice_with_embedding(&invoice, embedding.as_deref())
+            .await?;
 
         tracing::info!(
             invoice_id = %invoice.id,
@@ -202,14 +209,14 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         Ok(invoice)
     }
 
-    /// Parse invoice using ML pipeline
+    /// Parse invoice using ML pipeline, returning the invoice and its document embedding.
     async fn parse_with_ml(
         &self,
         ml: &DocumentIntelligence,
         pages: &[DynamicImage],
         extracted: &ExtractedPdf,
         document_id: DocumentId,
-    ) -> Result<Invoice, IngestionError> {
+    ) -> Result<(Invoice, Option<Vec<f32>>), IngestionError> {
         // Process first page with ML (or all pages for multi-page documents)
         let image = pages.first().ok_or_else(|| {
             IngestionError::MlProcessing("No rendered pages available".to_string())
@@ -231,8 +238,16 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             processed
         };
 
+        // Extract document-level embedding before parsing consumes the data
+        let embedding = if processed.embeddings.document.is_empty() {
+            None
+        } else {
+            Some(processed.embeddings.document.clone())
+        };
+
         // Parse invoice from ML results
-        self.ml_parser.parse(&processed, document_id)
+        let invoice = self.ml_parser.parse(&processed, document_id)?;
+        Ok((invoice, embedding))
     }
 
     /// Ingest from raw text (for testing or non-PDF sources)

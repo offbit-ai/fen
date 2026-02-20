@@ -12,6 +12,17 @@ pub trait DocumentStore: Send + Sync {
     /// Store an invoice
     async fn store_invoice(&self, invoice: &Invoice) -> Result<(), StorageError>;
 
+    /// Store an invoice with its embedding vector for warm-tier indexing.
+    ///
+    /// Default implementation drops the embedding and delegates to `store_invoice`.
+    async fn store_invoice_with_embedding(
+        &self,
+        invoice: &Invoice,
+        _embedding: Option<&[f32]>,
+    ) -> Result<(), StorageError> {
+        self.store_invoice(invoice).await
+    }
+
     /// Retrieve an invoice by ID
     async fn get_invoice(&self, id: &InvoiceId) -> Result<Option<Invoice>, StorageError>;
 
