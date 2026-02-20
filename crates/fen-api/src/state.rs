@@ -105,6 +105,7 @@ impl AppState {
                             gpu_enabled: config.ml.gpu_enabled,
                             ..Default::default()
                         },
+                        ..Default::default()
                     };
 
                     match DocumentIntelligence::with_models(ml_config, models_dir) {

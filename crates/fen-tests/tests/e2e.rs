@@ -205,7 +205,7 @@ mod storage {
 
         let invoice = InvoiceFixture::new().with_number("EMB-001").build();
 
-        let embedding = random_embedding(768);
+        let embedding = random_embedding(384);
 
         env.storage
             .store_invoice(&invoice, Some(&embedding))
@@ -232,7 +232,7 @@ mod storage {
                 .with_vendor(*vendor)
                 .build();
 
-            let embedding = consistent_embedding(&invoice.invoice_number, 768);
+            let embedding = consistent_embedding(&invoice.invoice_number, 384);
             env.storage
                 .store_invoice(&invoice, Some(&embedding))
                 .await
@@ -549,7 +549,7 @@ mod query {
             let invoice = InvoiceFixture::new()
                 .with_number(format!("VEC-{:03}", i))
                 .build();
-            let embedding = consistent_embedding(&invoice.invoice_number, 768);
+            let embedding = consistent_embedding(&invoice.invoice_number, 384);
             env.query_engine
                 .store_invoice(&invoice, Some(&embedding))
                 .await
@@ -557,7 +557,7 @@ mod query {
         }
 
         // Search with similar embedding
-        let query_embedding = consistent_embedding("VEC-002", 768);
+        let query_embedding = consistent_embedding("VEC-002", 384);
         let results = env
             .query_engine
             .search_invoices_by_embedding(&query_embedding, 3)
@@ -835,7 +835,7 @@ mod full_pipeline {
         let invoices = InvoiceFixture::new().with_number("QV").build_batch(5);
 
         for invoice in &invoices {
-            let embedding = consistent_embedding(&invoice.invoice_number, 768);
+            let embedding = consistent_embedding(&invoice.invoice_number, 384);
             env.storage
                 .store_invoice(invoice, Some(&embedding))
                 .await
@@ -850,7 +850,7 @@ mod full_pipeline {
         assert_eq!(listed.len(), 5);
 
         // Vector search should work
-        let query_emb = consistent_embedding("QV-001", 768);
+        let query_emb = consistent_embedding("QV-001", 384);
         let search_results = env
             .storage
             .search_invoices_by_embedding(&query_emb, 3)
@@ -2107,7 +2107,7 @@ mod query_execution {
         let env = QueryExecutorTestEnv::new().await;
 
         // Create invoices with embeddings (simulated) - 384 dims for typical embedding
-        const EMBEDDING_DIM: usize = 768;
+        const EMBEDDING_DIM: usize = 384;
         let embedding1 = consistent_embedding("payment invoice consulting", EMBEDDING_DIM);
         let embedding2 = consistent_embedding("hardware equipment purchase", EMBEDDING_DIM);
         let embedding3 = consistent_embedding("legal contract agreement", EMBEDDING_DIM);
@@ -2160,7 +2160,7 @@ mod query_execution {
     async fn test_execute_hybrid_search() {
         let env = QueryExecutorTestEnv::new().await;
 
-        const EMBEDDING_DIM: usize = 768;
+        const EMBEDDING_DIM: usize = 384;
         let embedding1 = consistent_embedding("payment consulting services", EMBEDDING_DIM);
         let embedding2 = consistent_embedding("hardware maintenance", EMBEDDING_DIM);
 

@@ -8,12 +8,16 @@
 
 pub mod embedding;
 pub mod error;
+pub mod gliner;
 pub mod layout;
 pub mod ocr;
 pub mod table;
 
 pub use embedding::{DocumentEmbeddings, EmbeddingModel, EmbeddingModelConfig};
 pub use error::MlError;
+pub use gliner::{
+    ExtractionConfidence, GlinerConfig, GlinerExtractor, GlinerExtractionResult, GlinerModelConfig,
+};
 pub use layout::{
     LayoutLabel, LayoutModel, LayoutModelConfig, LayoutRegion, LayoutResult, NamedEntity,
 };
@@ -29,6 +33,7 @@ pub struct DocumentIntelligenceConfig {
     pub layout: LayoutModelConfig,
     pub table: TableExtractorConfig,
     pub embedding: EmbeddingModelConfig,
+    pub gliner: GlinerConfig,
 }
 
 /// Complete document intelligence pipeline
@@ -37,6 +42,7 @@ pub struct DocumentIntelligence {
     pub layout: LayoutModel,
     pub table: TableExtractor,
     pub embedding: EmbeddingModel,
+    pub gliner: GlinerExtractor,
 }
 
 impl DocumentIntelligence {
@@ -47,6 +53,7 @@ impl DocumentIntelligence {
             layout: LayoutModel::new(config.layout)?,
             table: TableExtractor::new(config.table)?,
             embedding: EmbeddingModel::new(config.embedding)?,
+            gliner: GlinerExtractor::new(config.gliner)?,
         })
     }
 
@@ -105,12 +112,25 @@ impl DocumentIntelligence {
             EmbeddingModel::new(config.embedding)?
         };
 
+        let gliner = GlinerExtractor::with_models(config.gliner, models_dir)?;
+
         Ok(Self {
             ocr,
             layout,
             table,
             embedding,
+            gliner,
         })
+    }
+
+    /// Extract entities from text using GLiNER (no image rendering needed)
+    pub fn extract_entities_from_text(
+        &self,
+        text: &str,
+        labels: &[&str],
+        expected_labels: &[&str],
+    ) -> Result<(GlinerExtractionResult, ExtractionConfidence), MlError> {
+        self.gliner.extract(text, labels, expected_labels)
     }
 
     /// Process a document image
@@ -194,5 +214,6 @@ mod tests {
         assert!(!di.layout.has_model());
         assert!(!di.table.has_models());
         assert!(!di.embedding.has_model());
+        assert!(!di.gliner.has_model());
     }
 }

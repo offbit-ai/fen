@@ -159,6 +159,7 @@ fn test_pipeline_missing_models_error() {
             model_path: Some("embedding_model.onnx".to_string()),
             ..Default::default()
         },
+        ..Default::default()
     };
 
     let result = DocumentIntelligence::with_models(config, "/nonexistent/path");

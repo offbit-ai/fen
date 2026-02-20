@@ -194,6 +194,7 @@ pub fn build_full_pipeline(models: &Path) -> DocumentIntelligence {
             model_path: Some("embedding_model.onnx".to_string()),
             ..Default::default()
         },
+        ..Default::default()
     };
     DocumentIntelligence::with_models(config, models)
         .expect("Failed to create full pipeline")

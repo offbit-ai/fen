@@ -7,15 +7,19 @@ use fen_ml::DocumentIntelligence;
 use fen_storage::DocumentStore;
 use image::DynamicImage;
 
-use crate::contract::{ContractParser, MlContractParser};
+use crate::contract::{ContractParser, GlinerContractParser, MlContractParser};
 use crate::error::IngestionError;
-use crate::pdf::{ExtractedPdf, InvoiceParser, MlInvoiceParser, PdfExtractor};
+use crate::pdf::{ExtractedPdf, GlinerInvoiceParser, InvoiceParser, MlInvoiceParser, PdfExtractor};
 
 /// Configuration for the ingestion pipeline
 #[derive(Clone)]
 pub struct IngestionConfig {
     /// Whether to use ML-enhanced parsing
     pub use_ml: bool,
+    /// Enable GLiNER text-based extraction
+    pub use_gliner: bool,
+    /// Skip page rendering when GLiNER + text is available
+    pub gliner_skip_rendering: bool,
     /// Minimum text length to skip OCR (if text extraction succeeds)
     pub min_text_for_skip_ocr: usize,
 }
@@ -24,6 +28,8 @@ impl Default for IngestionConfig {
     fn default() -> Self {
         Self {
             use_ml: false,
+            use_gliner: true,
+            gliner_skip_rendering: true,
             min_text_for_skip_ocr: 100,
         }
     }
@@ -34,8 +40,10 @@ pub struct IngestionPipeline<S: DocumentStore> {
     config: IngestionConfig,
     invoice_parser: InvoiceParser,
     ml_parser: MlInvoiceParser,
+    gliner_invoice_parser: GlinerInvoiceParser,
     contract_parser: ContractParser,
     ml_contract_parser: MlContractParser,
+    gliner_contract_parser: GlinerContractParser,
     ml_pipeline: Option<Arc<DocumentIntelligence>>,
     #[cfg(feature = "graph")]
     graph: Option<Arc<dyn GraphStore>>,
@@ -75,8 +83,10 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             config,
             invoice_parser: InvoiceParser::new(),
             ml_parser: MlInvoiceParser::new(),
+            gliner_invoice_parser: GlinerInvoiceParser::new(),
             contract_parser: ContractParser::new(),
             ml_contract_parser: MlContractParser::new(),
+            gliner_contract_parser: GlinerContractParser::new(),
             ml_pipeline: Some(ml_pipeline),
             graph: Some(graph),
             storage,
@@ -93,8 +103,10 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             config,
             invoice_parser: InvoiceParser::new(),
             ml_parser: MlInvoiceParser::new(),
+            gliner_invoice_parser: GlinerInvoiceParser::new(),
             contract_parser: ContractParser::new(),
             ml_contract_parser: MlContractParser::new(),
+            gliner_contract_parser: GlinerContractParser::new(),
             ml_pipeline,
             #[cfg(feature = "graph")]
             graph: None,
@@ -116,12 +128,14 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         filename: &str,
     ) -> Result<Invoice, IngestionError> {
         let document_id = DocumentId::new();
+        let has_gliner = self.has_gliner();
 
         tracing::info!(
             document_id = %document_id,
             filename = %filename,
             size = bytes.len(),
             use_ml = %self.config.use_ml,
+            use_gliner = %has_gliner,
             "Starting PDF ingestion"
         );
 
@@ -129,21 +143,35 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         let bytes_owned = bytes.to_vec();
         let use_ml = self.config.use_ml && self.ml_pipeline.is_some();
         let min_text = self.config.min_text_for_skip_ocr;
+        let skip_rendering = has_gliner && self.config.gliner_skip_rendering;
 
         let (extracted, rendered_pages): (ExtractedPdf, Option<Vec<DynamicImage>>) =
             tokio::task::spawn_blocking(move || {
                 let pdf_extractor = PdfExtractor::new()?;
                 let extracted = pdf_extractor.extract_from_bytes(&bytes_owned)?;
 
-                // Only render pages if ML is enabled and text extraction was poor
-                let rendered = if use_ml && (!extracted.has_text || extracted.text.len() < min_text)
+                // Skip rendering when GLiNER can handle text-based PDFs
+                let needs_rendering = if skip_rendering
+                    && extracted.has_text
+                    && extracted.text.len() >= min_text
                 {
-                    let pages = pdf_extractor.render_pages_from_bytes(&bytes_owned)?;
-                    Some(pages.into_iter().map(|p| p.image).collect())
+                    false // GLiNER works on text — skip expensive rendering
+                } else if use_ml && (!extracted.has_text || extracted.text.len() < min_text) {
+                    true // Scanned PDF: must render for OCR
                 } else if use_ml {
-                    // Still render first page for layout analysis even with good text
+                    true // Still render first page for layout analysis
+                } else {
+                    false
+                };
+
+                let rendered = if needs_rendering {
                     let pages = pdf_extractor.render_pages_from_bytes(&bytes_owned)?;
-                    Some(pages.into_iter().take(1).map(|p| p.image).collect())
+                    if extracted.has_text && extracted.text.len() >= min_text {
+                        // Good text: only render first page for layout
+                        Some(pages.into_iter().take(1).map(|p| p.image).collect())
+                    } else {
+                        Some(pages.into_iter().map(|p| p.image).collect())
+                    }
                 } else {
                     None
                 };
@@ -162,17 +190,24 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             "PDF extracted"
         );
 
-        // Parse invoice - use ML if available, otherwise regex
-        let (invoice, embedding) =
-            if let (Some(ml), Some(pages)) = (&self.ml_pipeline, rendered_pages) {
-                self.parse_with_ml(ml, &pages, &extracted, document_id)
-                    .await?
-            } else {
-                (
-                    self.invoice_parser.parse(&extracted.text, document_id)?,
-                    None,
-                )
-            };
+        // Parse invoice — tiered approach:
+        // 1. GLiNER text extraction (fastest, no rendering needed)
+        // 2. ML LayoutLMv3 path (for scanned docs or GLiNER unavailable)
+        // 3. Regex fallback (last resort)
+        let (invoice, embedding) = if has_gliner
+            && extracted.has_text
+            && extracted.text.len() >= min_text
+        {
+            self.parse_invoice_with_gliner(&extracted.text, document_id)?
+        } else if let (Some(ml), Some(pages)) = (&self.ml_pipeline, &rendered_pages) {
+            self.parse_with_ml(ml, pages, &extracted, document_id)
+                .await?
+        } else {
+            (
+                self.invoice_parser.parse(&extracted.text, document_id)?,
+                None,
+            )
+        };
 
         tracing::info!(
             document_id = %document_id,
@@ -207,6 +242,44 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         );
 
         Ok(invoice)
+    }
+
+    /// Parse invoice using GLiNER tiered text extraction
+    fn parse_invoice_with_gliner(
+        &self,
+        text: &str,
+        document_id: DocumentId,
+    ) -> Result<(Invoice, Option<Vec<f32>>), IngestionError> {
+        let ml = self.ml_pipeline.as_ref().ok_or_else(|| {
+            IngestionError::Internal("GLiNER requires ML pipeline".to_string())
+        })?;
+
+        let (result, confidence) = ml
+            .extract_entities_from_text(
+                text,
+                crate::pdf::gliner_parser::INVOICE_LABELS,
+                crate::pdf::gliner_parser::INVOICE_EXPECTED,
+            )
+            .map_err(|e| IngestionError::MlProcessing(e.to_string()))?;
+
+        tracing::info!(
+            tier = %result.tier,
+            escalated = %result.escalated,
+            entities = result.entities.len(),
+            overall_confidence = %confidence.overall,
+            completeness = %confidence.completeness,
+            elapsed_ms = result.processing_time_ms,
+            "GLiNER invoice extraction"
+        );
+
+        let invoice = self.gliner_invoice_parser.build(
+            &result,
+            document_id,
+            text,
+            confidence.overall,
+        )?;
+
+        Ok((invoice, None)) // GLiNER doesn't produce embeddings
     }
 
     /// Parse invoice using ML pipeline, returning the invoice and its document embedding.
@@ -276,12 +349,14 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         filename: &str,
     ) -> Result<Contract, IngestionError> {
         let document_id = DocumentId::new();
+        let has_gliner = self.has_gliner();
 
         tracing::info!(
             document_id = %document_id,
             filename = %filename,
             size = bytes.len(),
             use_ml = %self.config.use_ml,
+            use_gliner = %has_gliner,
             "Starting contract PDF ingestion"
         );
 
@@ -289,19 +364,33 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         let bytes_owned = bytes.to_vec();
         let use_ml = self.config.use_ml && self.ml_pipeline.is_some();
         let min_text = self.config.min_text_for_skip_ocr;
+        let skip_rendering = has_gliner && self.config.gliner_skip_rendering;
 
         let (extracted, rendered_pages): (ExtractedPdf, Option<Vec<DynamicImage>>) =
             tokio::task::spawn_blocking(move || {
                 let pdf_extractor = PdfExtractor::new()?;
                 let extracted = pdf_extractor.extract_from_bytes(&bytes_owned)?;
 
-                let rendered = if use_ml && (!extracted.has_text || extracted.text.len() < min_text)
+                let needs_rendering = if skip_rendering
+                    && extracted.has_text
+                    && extracted.text.len() >= min_text
                 {
-                    let pages = pdf_extractor.render_pages_from_bytes(&bytes_owned)?;
-                    Some(pages.into_iter().map(|p| p.image).collect())
+                    false
+                } else if use_ml && (!extracted.has_text || extracted.text.len() < min_text) {
+                    true
                 } else if use_ml {
+                    true
+                } else {
+                    false
+                };
+
+                let rendered = if needs_rendering {
                     let pages = pdf_extractor.render_pages_from_bytes(&bytes_owned)?;
-                    Some(pages.into_iter().take(1).map(|p| p.image).collect())
+                    if extracted.has_text && extracted.text.len() >= min_text {
+                        Some(pages.into_iter().take(1).map(|p| p.image).collect())
+                    } else {
+                        Some(pages.into_iter().map(|p| p.image).collect())
+                    }
                 } else {
                     None
                 };
@@ -320,14 +409,18 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             "Contract PDF extracted"
         );
 
-        // Parse contract - use ML if available, otherwise regex
-        let contract =
-            if let (Some(ml), Some(pages)) = (&self.ml_pipeline, rendered_pages) {
-                self.parse_contract_with_ml(ml, &pages, &extracted, document_id)
-                    .await?
-            } else {
-                self.contract_parser.parse(&extracted.text, document_id)?
-            };
+        // Parse contract — tiered approach (same as invoice)
+        let contract = if has_gliner
+            && extracted.has_text
+            && extracted.text.len() >= min_text
+        {
+            self.parse_contract_with_gliner(&extracted.text, document_id)?
+        } else if let (Some(ml), Some(pages)) = (&self.ml_pipeline, &rendered_pages) {
+            self.parse_contract_with_ml(ml, pages, &extracted, document_id)
+                .await?
+        } else {
+            self.contract_parser.parse(&extracted.text, document_id)?
+        };
 
         tracing::info!(
             document_id = %document_id,
@@ -359,6 +452,42 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         );
 
         Ok(contract)
+    }
+
+    /// Parse contract using GLiNER tiered text extraction
+    fn parse_contract_with_gliner(
+        &self,
+        text: &str,
+        document_id: DocumentId,
+    ) -> Result<Contract, IngestionError> {
+        let ml = self.ml_pipeline.as_ref().ok_or_else(|| {
+            IngestionError::Internal("GLiNER requires ML pipeline".to_string())
+        })?;
+
+        let (result, confidence) = ml
+            .extract_entities_from_text(
+                text,
+                crate::contract::gliner_parser::CONTRACT_LABELS,
+                crate::contract::gliner_parser::CONTRACT_EXPECTED,
+            )
+            .map_err(|e| IngestionError::MlProcessing(e.to_string()))?;
+
+        tracing::info!(
+            tier = %result.tier,
+            escalated = %result.escalated,
+            entities = result.entities.len(),
+            overall_confidence = %confidence.overall,
+            completeness = %confidence.completeness,
+            elapsed_ms = result.processing_time_ms,
+            "GLiNER contract extraction"
+        );
+
+        self.gliner_contract_parser.build(
+            &result,
+            document_id,
+            text,
+            confidence.overall,
+        )
     }
 
     /// Parse contract using ML pipeline
@@ -417,6 +546,15 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
     /// Check if ML is enabled
     pub fn has_ml(&self) -> bool {
         self.config.use_ml && self.ml_pipeline.is_some()
+    }
+
+    /// Check if GLiNER text extraction is enabled and available
+    pub fn has_gliner(&self) -> bool {
+        self.config.use_gliner
+            && self
+                .ml_pipeline
+                .as_ref()
+                .is_some_and(|ml| ml.gliner.has_model())
     }
 
     /// Check if knowledge graph is enabled
