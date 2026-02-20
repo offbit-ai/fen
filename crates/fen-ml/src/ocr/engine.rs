@@ -1,4 +1,5 @@
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -8,8 +9,13 @@ use ndarray::Array4;
 use ort::session::Session;
 use ort::value::TensorRef;
 
-use super::{BoundingBox, CtcDecodingStrategy, OcrConfig, OcrResult, TextRegion};
+use super::{BoundingBox, CtcDecodingStrategy, Language, OcrConfig, OcrResult, TextRegion};
 use crate::error::MlError;
+
+/// Default PaddleOCR PP-OCRv4 English vocabulary (95 characters).
+/// Used as fallback when no dictionary file is loaded.
+const DEFAULT_EN_VOCABULARY: &str =
+    "0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~!\"#$%&'()*+,-./ ";
 
 /// Trait for OCR engines
 #[async_trait]
@@ -21,12 +27,22 @@ pub trait OcrProvider: Send + Sync {
     async fn process_bytes(&self, bytes: &[u8]) -> Result<OcrResult, MlError>;
 }
 
+/// Per-language recognition model: ONNX session + character vocabulary
+struct RecognitionModel {
+    session: Mutex<Session>,
+    vocabulary: Vec<char>,
+}
+
 /// ONNX-based OCR Engine
 /// Implements a two-stage pipeline: text detection + text recognition
+/// Supports multiple recognition models for different languages.
 pub struct OcrEngine {
     config: OcrConfig,
     detection_session: Option<Mutex<Session>>,
-    recognition_session: Option<Mutex<Session>>,
+    /// Primary recognition model (first configured language or fallback)
+    recognition: Option<RecognitionModel>,
+    /// Additional language-specific recognition models
+    language_models: HashMap<Language, RecognitionModel>,
 }
 
 impl OcrEngine {
@@ -35,11 +51,12 @@ impl OcrEngine {
         Ok(Self {
             config,
             detection_session: None,
-            recognition_session: None,
+            recognition: None,
+            language_models: HashMap::new(),
         })
     }
 
-    /// Create OCR engine with ONNX models
+    /// Create OCR engine with a single recognition model (backward compatible)
     pub fn with_models(
         config: OcrConfig,
         detection_model_path: impl AsRef<Path>,
@@ -58,25 +75,114 @@ impl OcrEngine {
         }
 
         let detection_session = Session::builder()?.commit_from_file(detection_path)?;
-
         let recognition_session = Session::builder()?.commit_from_file(recognition_path)?;
+
+        let vocabulary = config
+            .decoder_config
+            .vocabulary
+            .clone()
+            .unwrap_or_else(|| DEFAULT_EN_VOCABULARY.chars().collect());
 
         tracing::info!(
             detection_model = %detection_path.display(),
             recognition_model = %recognition_path.display(),
+            vocabulary_size = vocabulary.len(),
             "Loaded OCR models"
         );
 
         Ok(Self {
             config,
             detection_session: Some(Mutex::new(detection_session)),
-            recognition_session: Some(Mutex::new(recognition_session)),
+            recognition: Some(RecognitionModel {
+                session: Mutex::new(recognition_session),
+                vocabulary,
+            }),
+            language_models: HashMap::new(),
+        })
+    }
+
+    /// Create OCR engine with multiple language-specific recognition models
+    pub fn with_multilang_models(
+        config: OcrConfig,
+        detection_model_path: impl AsRef<Path>,
+        lang_models: Vec<(Language, PathBuf, Vec<char>)>,
+    ) -> Result<Self, MlError> {
+        let detection_path = detection_model_path.as_ref();
+        if !detection_path.exists() {
+            return Err(MlError::ModelNotFound(detection_path.display().to_string()));
+        }
+
+        let detection_session = Session::builder()?.commit_from_file(detection_path)?;
+
+        let mut language_map = HashMap::new();
+        let mut primary: Option<RecognitionModel> = None;
+
+        for (lang, model_path, vocabulary) in lang_models {
+            if !model_path.exists() {
+                tracing::warn!(
+                    language = ?lang,
+                    path = %model_path.display(),
+                    "Language model not found, skipping"
+                );
+                continue;
+            }
+
+            let session = Session::builder()?.commit_from_file(&model_path)?;
+
+            tracing::info!(
+                language = ?lang,
+                model = %model_path.display(),
+                vocabulary_size = vocabulary.len(),
+                "Loaded language recognition model"
+            );
+
+            let model = RecognitionModel {
+                session: Mutex::new(session),
+                vocabulary,
+            };
+
+            // First loaded model becomes the primary
+            if primary.is_none() {
+                // Load a duplicate session for primary since we can't share Mutex<Session>
+                let primary_session = Session::builder()?.commit_from_file(&model_path)?;
+                primary = Some(RecognitionModel {
+                    session: Mutex::new(primary_session),
+                    vocabulary: model.vocabulary.clone(),
+                });
+            }
+
+            language_map.insert(lang, model);
+        }
+
+        tracing::info!(
+            detection_model = %detection_path.display(),
+            num_languages = language_map.len(),
+            "Loaded multi-language OCR models"
+        );
+
+        Ok(Self {
+            config,
+            detection_session: Some(Mutex::new(detection_session)),
+            recognition: primary,
+            language_models: language_map,
         })
     }
 
     /// Check if models are loaded
     pub fn has_models(&self) -> bool {
-        self.detection_session.is_some() && self.recognition_session.is_some()
+        self.detection_session.is_some() && self.recognition.is_some()
+    }
+
+    /// Get the active recognition model for the configured language
+    fn active_recognition(&self) -> Option<&RecognitionModel> {
+        // Check if a specific language model is available
+        if let Some(lang) = self.config.languages.first() {
+            if let Some(model) = self.language_models.get(lang) {
+                return Some(model);
+            }
+        }
+        // Fall back to primary
+        self.recognition.as_ref()
     }
 
     /// Round up to the nearest multiple of 32 (required by PaddleOCR detection model).
@@ -327,16 +433,6 @@ impl OcrEngine {
         keep
     }
 
-    /// Recognize text in a region (single)
-    #[allow(dead_code)]
-    fn recognize_text(&self, input: Array4<f32>) -> Result<(String, f32), MlError> {
-        let results = self.recognize_text_batch(&[input])?;
-        Ok(results
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| (String::new(), 0.0)))
-    }
-
     /// Recognize text in multiple regions with batched inference.
     /// Processes in sub-batches to handle varying widths efficiently.
     #[tracing::instrument(skip(self, inputs), fields(batch_size = %inputs.len()))]
@@ -345,29 +441,40 @@ impl OcrEngine {
             return Ok(Vec::new());
         }
 
+        let rec_model = self
+            .active_recognition()
+            .ok_or_else(|| MlError::ModelLoading("Recognition model not loaded".to_string()))?;
+
         // Process in sub-batches of max 8 to avoid memory issues
         // from padding many different widths to the same max width
         const MAX_BATCH: usize = 8;
         if inputs.len() > MAX_BATCH {
             let mut all_results = Vec::with_capacity(inputs.len());
             for chunk in inputs.chunks(MAX_BATCH) {
-                all_results.extend(self.recognize_text_batch_inner(chunk)?);
+                all_results.extend(Self::recognize_batch_with_model(
+                    &self.config,
+                    rec_model,
+                    chunk,
+                )?);
             }
             return Ok(all_results);
         }
 
-        self.recognize_text_batch_inner(inputs)
+        Self::recognize_batch_with_model(&self.config, rec_model, inputs)
     }
 
-    fn recognize_text_batch_inner(&self, inputs: &[Array4<f32>]) -> Result<Vec<(String, f32)>, MlError> {
+    /// Run batched recognition inference on a specific recognition model
+    fn recognize_batch_with_model(
+        config: &OcrConfig,
+        model: &RecognitionModel,
+        inputs: &[Array4<f32>],
+    ) -> Result<Vec<(String, f32)>, MlError> {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
 
-        let mut recognition_session = self
-            .recognition_session
-            .as_ref()
-            .ok_or_else(|| MlError::ModelLoading("Recognition model not loaded".to_string()))?
+        let mut session = model
+            .session
             .lock()
             .map_err(|e| MlError::ModelLoading(format!("Failed to acquire session lock: {}", e)))?;
 
@@ -391,7 +498,7 @@ impl OcrEngine {
         let input_tensor = TensorRef::from_array_view(&batch_input)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let outputs = recognition_session.run(ort::inputs!["x" => input_tensor])?;
+        let outputs = session.run(ort::inputs!["x" => input_tensor])?;
 
         let output = if let Some(out) = outputs.get("output") {
             out
@@ -403,11 +510,10 @@ impl OcrEngine {
             .try_extract_tensor::<f32>()
             .map_err(|e| MlError::Postprocessing(e.to_string()))?;
 
-        // Parse batch output - shape should be [batch, seq_len, vocab_size] or [batch * seq_len, vocab_size]
+        // Parse batch output - shape should be [batch, seq_len, vocab_size]
         let mut results = Vec::with_capacity(batch_size);
 
         if shape.len() == 3 {
-            // Shape: [batch, seq_len, vocab_size]
             let seq_len = shape[1] as usize;
             let model_vocab_size = shape[2] as usize;
             let sample_size = seq_len * model_vocab_size;
@@ -417,7 +523,12 @@ impl OcrEngine {
                 let end = start + sample_size;
                 if end <= data.len() {
                     let sample_data = &data[start..end];
-                    let (text, confidence) = self.decode_ctc_with_vocab_size(sample_data, model_vocab_size);
+                    let (text, confidence) = Self::decode_ctc_with_vocab_size(
+                        config,
+                        &model.vocabulary,
+                        sample_data,
+                        model_vocab_size,
+                    );
                     results.push((text, confidence));
                 } else {
                     results.push((String::new(), 0.0));
@@ -425,42 +536,22 @@ impl OcrEngine {
             }
         } else {
             // Fallback: process as single output
-            let (text, confidence) = self.decode_ctc(data);
+            let vocab_size = model.vocabulary.len() + 1;
+            let (text, confidence) =
+                Self::decode_ctc_with_vocab_size(config, &model.vocabulary, data, vocab_size);
             results.push((text, confidence));
         }
 
         Ok(results)
     }
 
-    /// Get the vocabulary/charset for CTC decoding.
-    /// Must match the character dictionary used when training the ONNX model.
-    fn get_vocabulary(&self) -> Vec<char> {
-        self.config
-            .decoder_config
-            .vocabulary
-            .clone()
-            .unwrap_or_else(|| {
-                // PaddleOCR PP-OCRv4 English recognition model character dictionary
-                // (from ppocr/utils/en_dict.txt). 95 characters total.
-                // Model output: Index 0 = blank/CTC, Index 1-95 = these chars, Index 96 = EOS
-                // Order: digits, :;<=>?@, uppercase, [\]^_`, lowercase, {|}~, !"#$%&'()*+,-./, space
-                "0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~!\"#$%&'()*+,-./ "
-                    .chars()
-                    .collect()
-            })
-    }
-
-    /// Decode CTC output to text using configured strategy
-    #[tracing::instrument(skip(self, logits), fields(logits_len = %logits.len(), strategy = ?self.config.decoder_config.strategy))]
-    fn decode_ctc(&self, logits: &[f32]) -> (String, f32) {
-        let vocabulary = self.get_vocabulary();
-        let vocab_size = vocabulary.len() + 1; // +1 for blank token at index 0
-        self.decode_ctc_with_vocab_size(logits, vocab_size)
-    }
-
     /// Decode CTC output using the actual model output vocabulary size
-    fn decode_ctc_with_vocab_size(&self, logits: &[f32], vocab_size: usize) -> (String, f32) {
-        let vocabulary = self.get_vocabulary();
+    fn decode_ctc_with_vocab_size(
+        config: &OcrConfig,
+        vocabulary: &[char],
+        logits: &[f32],
+        vocab_size: usize,
+    ) -> (String, f32) {
         let seq_len = logits.len() / vocab_size;
 
         if seq_len == 0 {
@@ -468,23 +559,22 @@ impl OcrEngine {
         }
 
         // Convert logits to log probabilities for numerical stability
-        let log_probs = self.compute_log_probabilities(logits, vocab_size, seq_len);
+        let log_probs = Self::compute_log_probabilities(logits, vocab_size, seq_len);
 
-        match self.config.decoder_config.strategy {
+        match config.decoder_config.strategy {
             CtcDecodingStrategy::Greedy => {
-                self.decode_ctc_greedy(&log_probs, &vocabulary, vocab_size, seq_len)
+                Self::decode_ctc_greedy(config, &log_probs, vocabulary, seq_len)
             }
             CtcDecodingStrategy::BeamSearch => {
-                self.decode_ctc_beam_search(&log_probs, &vocabulary, vocab_size, seq_len)
+                Self::decode_ctc_beam_search(config, &log_probs, vocabulary, vocab_size, seq_len)
             }
         }
     }
 
     /// Convert model output to log probabilities.
-    /// PaddleOCR recognition model outputs softmax probabilities (output name: softmax_*.tmp_0),
-    /// so we just take the log. For raw logit outputs, log-softmax would be needed instead.
+    /// PaddleOCR recognition model outputs softmax probabilities,
+    /// so we just take the log.
     fn compute_log_probabilities(
-        &self,
         probs: &[f32],
         vocab_size: usize,
         seq_len: usize,
@@ -496,10 +586,9 @@ impl OcrEngine {
             let end = (start + vocab_size).min(probs.len());
             let frame = &probs[start..end];
 
-            // Model output is already softmax probabilities, just take log
             let frame_log_probs: Vec<f32> = frame
                 .iter()
-                .map(|&p| (p + 1e-10).ln()) // add epsilon to avoid log(0)
+                .map(|&p| (p + 1e-10).ln())
                 .collect();
 
             log_probs.push(frame_log_probs);
@@ -508,22 +597,20 @@ impl OcrEngine {
         log_probs
     }
 
-    /// Greedy CTC decoding - fastest but less accurate
+    /// Greedy CTC decoding
     fn decode_ctc_greedy(
-        &self,
+        config: &OcrConfig,
         log_probs: &[Vec<f32>],
         vocabulary: &[char],
-        _vocab_size: usize,
         seq_len: usize,
     ) -> (String, f32) {
-        let blank_idx = self.config.decoder_config.blank_index;
+        let blank_idx = config.decoder_config.blank_index;
         let mut text = String::new();
         let mut prev_idx: Option<usize> = None;
         let mut total_log_prob = 0.0;
         let mut char_count = 0;
 
         for frame in log_probs.iter().take(seq_len) {
-            // Find argmax
             let (best_idx, best_log_prob) = frame
                 .iter()
                 .enumerate()
@@ -532,7 +619,6 @@ impl OcrEngine {
 
             // CTC collapse: skip blank and repeated characters
             if best_idx != blank_idx && Some(best_idx) != prev_idx {
-                // Convert index to character (accounting for blank at index 0)
                 let char_idx = if best_idx > blank_idx {
                     best_idx - 1
                 } else {
@@ -549,7 +635,6 @@ impl OcrEngine {
             prev_idx = Some(best_idx);
         }
 
-        // Convert log probability to confidence score
         let avg_confidence = if char_count > 0 {
             (total_log_prob / char_count as f32).exp()
         } else {
@@ -559,19 +644,18 @@ impl OcrEngine {
         (text, avg_confidence)
     }
 
-    /// Beam search CTC decoding - more accurate but slower
+    /// Beam search CTC decoding
     fn decode_ctc_beam_search(
-        &self,
+        config: &OcrConfig,
         log_probs: &[Vec<f32>],
         vocabulary: &[char],
         vocab_size: usize,
         seq_len: usize,
     ) -> (String, f32) {
-        let blank_idx = self.config.decoder_config.blank_index;
-        let beam_width = self.config.decoder_config.beam_width;
+        let blank_idx = config.decoder_config.blank_index;
+        let beam_width = config.decoder_config.beam_width;
 
         // Beam: (prefix, log_prob_blank, log_prob_non_blank)
-        // We track two probabilities: ending in blank vs ending in non-blank
         let mut beams: Vec<(String, f32, f32)> = vec![(String::new(), 0.0, f32::NEG_INFINITY)];
 
         for frame in log_probs.iter().take(seq_len) {
@@ -579,14 +663,14 @@ impl OcrEngine {
                 std::collections::HashMap::new();
 
             for (prefix, log_pb, log_pnb) in &beams {
-                let log_p = self.log_add(*log_pb, *log_pnb);
+                let log_p = log_add(*log_pb, *log_pnb);
 
                 // Process blank
                 let blank_log_prob = frame.get(blank_idx).copied().unwrap_or(f32::NEG_INFINITY);
                 let entry = new_beams
                     .entry(prefix.clone())
                     .or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
-                entry.0 = self.log_add(entry.0, log_p + blank_log_prob);
+                entry.0 = log_add(entry.0, log_p + blank_log_prob);
 
                 // Process each character
                 for c_idx in 0..vocab_size {
@@ -607,13 +691,13 @@ impl OcrEngine {
                             let entry = new_beams
                                 .entry(new_prefix)
                                 .or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
-                            entry.1 = self.log_add(entry.1, *log_pb + c_log_prob);
+                            entry.1 = log_add(entry.1, *log_pb + c_log_prob);
 
                             // Or stay with current prefix
                             let entry = new_beams
                                 .entry(prefix.clone())
                                 .or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
-                            entry.1 = self.log_add(entry.1, *log_pnb + c_log_prob);
+                            entry.1 = log_add(entry.1, *log_pnb + c_log_prob);
                         } else {
                             // Different character: can always extend
                             let mut new_prefix = prefix.clone();
@@ -621,7 +705,7 @@ impl OcrEngine {
                             let entry = new_beams
                                 .entry(new_prefix)
                                 .or_insert((f32::NEG_INFINITY, f32::NEG_INFINITY));
-                            entry.1 = self.log_add(entry.1, log_p + c_log_prob);
+                            entry.1 = log_add(entry.1, log_p + c_log_prob);
                         }
                     }
                 }
@@ -633,35 +717,21 @@ impl OcrEngine {
                 .map(|(prefix, (log_pb, log_pnb))| (prefix, log_pb, log_pnb))
                 .collect();
 
-            // Sort by total probability and keep top beams
             beams.sort_by(|a, b| {
-                let prob_a = self.log_add(a.1, a.2);
-                let prob_b = self.log_add(b.1, b.2);
+                let prob_a = log_add(a.1, a.2);
+                let prob_b = log_add(b.1, b.2);
                 prob_b.partial_cmp(&prob_a).unwrap()
             });
             beams.truncate(beam_width);
         }
 
-        // Return best beam
         if let Some((text, log_pb, log_pnb)) = beams.into_iter().next() {
-            let log_prob = self.log_add(log_pb, log_pnb);
+            let log_prob = log_add(log_pb, log_pnb);
             let confidence = log_prob.exp().min(1.0);
             (text, confidence)
         } else {
             (String::new(), 0.0)
         }
-    }
-
-    /// Log-space addition: log(exp(a) + exp(b))
-    fn log_add(&self, a: f32, b: f32) -> f32 {
-        if a == f32::NEG_INFINITY {
-            return b;
-        }
-        if b == f32::NEG_INFINITY {
-            return a;
-        }
-        let max = a.max(b);
-        max + ((a - max).exp() + (b - max).exp()).ln()
     }
 
     /// Sort text regions by reading order (top-to-bottom, left-to-right)
@@ -681,6 +751,18 @@ impl OcrEngine {
             region.order = i;
         }
     }
+}
+
+/// Log-space addition: log(exp(a) + exp(b))
+fn log_add(a: f32, b: f32) -> f32 {
+    if a == f32::NEG_INFINITY {
+        return b;
+    }
+    if b == f32::NEG_INFINITY {
+        return a;
+    }
+    let max = a.max(b);
+    max + ((a - max).exp() + (b - max).exp()).ln()
 }
 
 #[async_trait]
@@ -721,6 +803,18 @@ impl OcrProvider for OcrEngine {
             } else {
                 std::borrow::Cow::Borrowed(image)
             }
+        };
+        let image = image.as_ref();
+
+        // Image preprocessing (deskew, contrast, binarize, denoise)
+        let image = if self.config.preprocessing.enabled {
+            let _span = tracing::info_span!("ocr_preprocessing").entered();
+            std::borrow::Cow::Owned(super::preprocessing::preprocess_image(
+                image,
+                &self.config.preprocessing,
+            ))
+        } else {
+            std::borrow::Cow::Borrowed(image)
         };
         let image = image.as_ref();
 
@@ -840,5 +934,15 @@ mod tests {
         let config = OcrConfig::default();
         let engine = OcrEngine::new(config).unwrap();
         assert!(!engine.has_models());
+    }
+
+    #[test]
+    fn test_log_add() {
+        assert_eq!(log_add(f32::NEG_INFINITY, 0.0), 0.0);
+        assert_eq!(log_add(0.0, f32::NEG_INFINITY), 0.0);
+
+        // log(exp(0) + exp(0)) = log(2)
+        let result = log_add(0.0, 0.0);
+        assert!((result - 2.0f32.ln()).abs() < 1e-6);
     }
 }

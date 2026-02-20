@@ -31,6 +31,7 @@ ort.workspace = true
 ndarray.workspace = true
 tokenizers.workspace = true
 image.workspace = true
+imageproc.workspace = true
 
 regex.workspace = true
 once_cell.workspace = true

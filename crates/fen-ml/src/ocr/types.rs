@@ -1,4 +1,8 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
+
+use super::preprocessing::PreprocessingConfig;
 
 /// Configuration for OCR engine
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -8,6 +12,12 @@ pub struct OcrConfig {
 
     /// Path to recognition model (ONNX)
     pub recognition_model_path: Option<String>,
+
+    /// Path to vocabulary/dictionary file (relative to models_dir)
+    pub vocabulary_path: Option<String>,
+
+    /// Per-language recognition model overrides (language → model + dict paths)
+    pub language_model_paths: HashMap<Language, LanguageModelPaths>,
 
     /// Languages to detect
     pub languages: Vec<Language>,
@@ -26,6 +36,9 @@ pub struct OcrConfig {
 
     /// CTC decoder configuration
     pub decoder_config: CtcDecoderConfig,
+
+    /// Image preprocessing configuration (applied before detection)
+    pub preprocessing: PreprocessingConfig,
 }
 
 impl Default for OcrConfig {
@@ -33,14 +46,26 @@ impl Default for OcrConfig {
         Self {
             detection_model_path: None,
             recognition_model_path: None,
+            vocabulary_path: None,
+            language_model_paths: HashMap::new(),
             languages: vec![Language::English],
             confidence_threshold: 0.5,
             detection_threshold: 0.3,
             max_dimension: 2048,
             gpu_enabled: false,
             decoder_config: CtcDecoderConfig::default(),
+            preprocessing: PreprocessingConfig::default(),
         }
     }
+}
+
+/// Paths for a language-specific recognition model
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LanguageModelPaths {
+    /// Path to recognition ONNX model (relative to models_dir)
+    pub model_path: String,
+    /// Path to character dictionary file (relative to models_dir)
+    pub dict_path: String,
 }
 
 /// CTC decoder configuration
@@ -80,7 +105,7 @@ pub enum CtcDecodingStrategy {
 }
 
 /// Supported languages for OCR
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Language {
     English,
     Spanish,

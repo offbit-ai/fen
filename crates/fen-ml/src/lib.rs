@@ -21,10 +21,20 @@ pub use gliner::{
 pub use layout::{
     LayoutLabel, LayoutModel, LayoutModelConfig, LayoutRegion, LayoutResult, NamedEntity,
 };
-pub use ocr::{BoundingBox, OcrConfig, OcrEngine, OcrProvider, OcrResult, TextRegion};
+pub use ocr::{
+    BoundingBox, OcrConfig, OcrEngine, OcrProvider, OcrResult, PreprocessingConfig, TextRegion,
+};
 pub use table::{ExtractedTable, TableCell, TableExtractor, TableExtractorConfig};
 
 use std::path::Path;
+
+/// Load a PaddleOCR character dictionary from a file.
+/// Format: one character per line. Index 0 = blank/CTC, 1..N = chars, N+1 = EOS.
+fn load_vocabulary_from_file(path: &Path) -> Result<Vec<char>, MlError> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| MlError::Configuration(format!("Failed to read vocabulary {}: {}", path.display(), e)))?;
+    Ok(content.lines().filter_map(|line| line.chars().next()).collect())
+}
 
 /// Configuration for the complete document intelligence pipeline
 #[derive(Debug, Clone, Default)]
@@ -64,12 +74,44 @@ impl DocumentIntelligence {
     ) -> Result<Self, MlError> {
         let models_dir = models_dir.as_ref();
 
-        let ocr = if let (Some(det), Some(rec)) = (
+        let ocr = if !config.ocr.language_model_paths.is_empty() {
+            // Multi-language mode: load per-language recognition models
+            let det_path = models_dir.join(
+                config.ocr.detection_model_path.as_deref().unwrap_or("ocr_detection.onnx"),
+            );
+
+            let mut lang_models = Vec::new();
+            for (lang, paths) in &config.ocr.language_model_paths {
+                let model_path = models_dir.join(&paths.model_path);
+                let dict_path = models_dir.join(&paths.dict_path);
+                let vocabulary = load_vocabulary_from_file(&dict_path)?;
+                lang_models.push((*lang, model_path, vocabulary));
+            }
+
+            OcrEngine::with_multilang_models(config.ocr.clone(), det_path, lang_models)?
+        } else if let (Some(det), Some(rec)) = (
             &config.ocr.detection_model_path,
             &config.ocr.recognition_model_path,
         ) {
+            // Single-model mode (backward compatible)
+            let mut ocr_config = config.ocr.clone();
+
+            // Load vocabulary from file if configured
+            if let Some(vocab_path) = &ocr_config.vocabulary_path {
+                let full_path = models_dir.join(vocab_path);
+                if full_path.exists() {
+                    let vocab = load_vocabulary_from_file(&full_path)?;
+                    tracing::info!(
+                        vocabulary_path = %full_path.display(),
+                        vocabulary_size = vocab.len(),
+                        "Loaded OCR vocabulary from file"
+                    );
+                    ocr_config.decoder_config.vocabulary = Some(vocab);
+                }
+            }
+
             OcrEngine::with_models(
-                config.ocr.clone(),
+                ocr_config,
                 models_dir.join(det),
                 models_dir.join(rec),
             )?

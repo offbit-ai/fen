@@ -25,25 +25,35 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 MODELS = [
-    # OCR Detection (PaddleOCR v3 English, pre-exported ONNX)
+    # OCR Detection (PaddleOCR v4, language-agnostic DBNet++)
     {
         "name": "ocr_detection",
         "output": "ocr_detection.onnx",
         "source": "deepghs/paddleocr",
         "method": "huggingface_file",
         "repo_id": "deepghs/paddleocr",
-        "filename": "det/en_PP-OCRv3_det/model.onnx",
-        "description": "PaddleOCR v3 English text detection model",
+        "filename": "det/ch_PP-OCRv4_det/model.onnx",
+        "description": "PaddleOCR v4 text detection model (DBNet++, all languages)",
     },
-    # OCR Recognition (PaddleOCR v3 English, pre-exported ONNX)
+    # OCR Recognition (PaddleOCR v4 English, SVTR-LCNetV2 + CTC)
     {
         "name": "ocr_recognition",
         "output": "ocr_recognition.onnx",
         "source": "deepghs/paddleocr",
         "method": "huggingface_file",
         "repo_id": "deepghs/paddleocr",
-        "filename": "rec/en_PP-OCRv3_rec/model.onnx",
-        "description": "PaddleOCR v3 English text recognition model (CRNN + CTC)",
+        "filename": "rec/en_PP-OCRv4_rec/model.onnx",
+        "description": "PaddleOCR v4 English text recognition model (SVTR-LCNetV2 + CTC)",
+    },
+    # OCR English dictionary (PP-OCRv4)
+    {
+        "name": "ocr_dict_en",
+        "output": "ocr_dicts/en_dict.txt",
+        "source": "deepghs/paddleocr",
+        "method": "huggingface_file",
+        "repo_id": "deepghs/paddleocr",
+        "filename": "rec/en_PP-OCRv4_rec/dict.txt",
+        "description": "PP-OCRv4 English character dictionary",
     },
     # Layout understanding (LayoutLMv3 -- requires optimum export)
     {
@@ -107,6 +117,57 @@ MODELS = [
         "description": "MiniLM tokenizer",
     },
 ]
+
+
+# ---------------------------------------------------------------------------
+# Language-specific recognition models (downloaded via --languages flag)
+# Detection model (ch_PP-OCRv4_det) is shared across all languages.
+# ---------------------------------------------------------------------------
+
+LANGUAGE_MODELS = {
+    "en": {
+        "rec_model": "rec/en_PP-OCRv4_rec/model.onnx",
+        "rec_dict": "rec/en_PP-OCRv4_rec/dict.txt",
+        "output_model": "ocr_rec_en.onnx",
+        "output_dict": "ocr_dicts/en_dict.txt",
+        "description": "PP-OCRv4 English recognition",
+    },
+    "ch": {
+        "rec_model": "rec/ch_PP-OCRv4_rec/model.onnx",
+        "rec_dict": "rec/ch_PP-OCRv4_rec/dict.txt",
+        "output_model": "ocr_rec_ch.onnx",
+        "output_dict": "ocr_dicts/ch_dict.txt",
+        "description": "PP-OCRv4 Chinese recognition",
+    },
+    "ja": {
+        "rec_model": "rec/japan_PP-OCRv3_rec/model.onnx",
+        "rec_dict": "rec/japan_PP-OCRv3_rec/dict.txt",
+        "output_model": "ocr_rec_ja.onnx",
+        "output_dict": "ocr_dicts/ja_dict.txt",
+        "description": "PP-OCRv3 Japanese recognition",
+    },
+    "ko": {
+        "rec_model": "rec/korean_PP-OCRv3_rec/model.onnx",
+        "rec_dict": "rec/korean_PP-OCRv3_rec/dict.txt",
+        "output_model": "ocr_rec_ko.onnx",
+        "output_dict": "ocr_dicts/ko_dict.txt",
+        "description": "PP-OCRv3 Korean recognition",
+    },
+    "ar": {
+        "rec_model": "rec/arabic_PP-OCRv3_rec/model.onnx",
+        "rec_dict": "rec/arabic_PP-OCRv3_rec/dict.txt",
+        "output_model": "ocr_rec_ar.onnx",
+        "output_dict": "ocr_dicts/ar_dict.txt",
+        "description": "PP-OCRv3 Arabic recognition",
+    },
+    "latin": {
+        "rec_model": "rec/latin_PP-OCRv3_rec/model.onnx",
+        "rec_dict": "rec/latin_PP-OCRv3_rec/dict.txt",
+        "output_model": "ocr_rec_latin.onnx",
+        "output_dict": "ocr_dicts/latin_dict.txt",
+        "description": "PP-OCRv3 Latin recognition (French/German/Spanish)",
+    },
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -256,6 +317,9 @@ def download_model(model: dict, models_dir: Path, force: bool) -> dict | None:
     """Download a single model. Returns manifest entry or None if skipped."""
     output_path = models_dir / model["output"]
 
+    # Ensure parent directory exists (for nested outputs like ocr_dicts/en_dict.txt)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
     if output_path.exists() and not force:
         print(f"  [SKIP] {model['output']} already exists (use --force to re-download)")
         return {
@@ -306,6 +370,12 @@ def main():
         action="store_true",
         help="Verify existing models against manifest checksums",
     )
+    parser.add_argument(
+        "--languages",
+        type=str,
+        default="",
+        help="Comma-separated language codes for additional recognition models (en,ch,ja,ko,ar,latin)",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -355,6 +425,55 @@ def main():
             print(f"  [ERROR] Failed: {e}")
             failed += 1
 
+    # Download language-specific recognition models if requested
+    if args.languages:
+        lang_codes = [l.strip() for l in args.languages.split(",") if l.strip()]
+        for code in lang_codes:
+            if code not in LANGUAGE_MODELS:
+                print(f"\n[WARNING] Unknown language code: {code} (available: {', '.join(LANGUAGE_MODELS.keys())})")
+                continue
+
+            lang = LANGUAGE_MODELS[code]
+            # Download recognition model
+            rec_model = {
+                "name": f"ocr_rec_{code}",
+                "output": lang["output_model"],
+                "source": "deepghs/paddleocr",
+                "method": "huggingface_file",
+                "repo_id": "deepghs/paddleocr",
+                "filename": lang["rec_model"],
+                "description": f"{lang['description']} model",
+            }
+            print(f"\n[ocr_rec_{code}] {lang['description']} model")
+            try:
+                entry = download_model(rec_model, args.models_dir, args.force)
+                if entry:
+                    manifest["models"][lang["output_model"]] = entry
+                    downloaded += 1
+            except Exception as e:
+                print(f"  [ERROR] Failed: {e}")
+                failed += 1
+
+            # Download dictionary
+            rec_dict = {
+                "name": f"ocr_dict_{code}",
+                "output": lang["output_dict"],
+                "source": "deepghs/paddleocr",
+                "method": "huggingface_file",
+                "repo_id": "deepghs/paddleocr",
+                "filename": lang["rec_dict"],
+                "description": f"{lang['description']} dictionary",
+            }
+            print(f"\n[ocr_dict_{code}] {lang['description']} dictionary")
+            try:
+                entry = download_model(rec_dict, args.models_dir, args.force)
+                if entry:
+                    manifest["models"][lang["output_dict"]] = entry
+                    downloaded += 1
+            except Exception as e:
+                print(f"  [ERROR] Failed: {e}")
+                failed += 1
+
     # Write manifest
     manifest["downloaded_at"] = datetime.now(timezone.utc).isoformat()
     manifest_path = args.models_dir / "manifest.json"
@@ -362,10 +481,12 @@ def main():
         json.dump(manifest, f, indent=2)
 
     # Summary
+    all_outputs = [m["output"] for m in MODELS]
+    all_outputs.extend(manifest["models"].keys())
     total_size = sum(
-        (args.models_dir / m["output"]).stat().st_size
-        for m in MODELS
-        if (args.models_dir / m["output"]).exists()
+        (args.models_dir / o).stat().st_size
+        for o in set(all_outputs)
+        if (args.models_dir / o).exists()
     )
 
     print("\n" + "=" * 60)

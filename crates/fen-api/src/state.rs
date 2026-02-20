@@ -86,6 +86,7 @@ impl AppState {
                         ocr: OcrConfig {
                             detection_model_path: Some("ocr_detection.onnx".to_string()),
                             recognition_model_path: Some("ocr_recognition.onnx".to_string()),
+                            vocabulary_path: Some("ocr_dicts/en_dict.txt".to_string()),
                             gpu_enabled: config.ml.gpu_enabled,
                             ..Default::default()
                         },
