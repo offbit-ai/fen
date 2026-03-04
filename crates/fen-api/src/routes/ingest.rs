@@ -216,7 +216,49 @@ pub async fn ingest_document(
     tracing::info!(filename = %filename, size = data.len(), "Processing uploaded file");
 
     // Process through ingestion pipeline
-    let invoice = state.ingestion.ingest_pdf(&data, &filename).await?;
+    let result = state.ingestion.ingest_pdf(&data, &filename).await?;
+    let invoice = result.invoice;
+    let embedding = result.embedding;
+
+    // Post-ingestion enrichment (all non-fatal)
+
+    // 1. Fulltext index
+    if let Some(ref index) = state.fulltext_index {
+        if let Err(e) = index.index_invoice(&invoice).await {
+            tracing::warn!(error = %e, "Failed to index invoice in fulltext");
+        } else if let Err(e) = index.commit().await {
+            tracing::warn!(error = %e, "Failed to commit fulltext index");
+        }
+    }
+
+    // 2. Warm-tier embedding write
+    if let (Some(ref warm), Some(ref emb)) = (&state.warm_storage, &embedding) {
+        let mut warm = warm.write().await;
+        if let Err(e) = warm.store_invoice_with_embedding(&invoice, Some(emb)).await {
+            tracing::warn!(error = %e, "Failed to store invoice in warm tier");
+        }
+    }
+
+    // 3. Auto-validate + persist anomalies
+    match state.rule_engine.validate_invoice(&invoice).await {
+        Ok(validation_result) => {
+            if !validation_result.anomalies.is_empty() {
+                tracing::info!(
+                    invoice_id = %invoice.id,
+                    anomaly_count = validation_result.anomalies.len(),
+                    "Auto-validation detected anomalies"
+                );
+                crate::conversions::persist_anomalies(
+                    &state.anomaly_store,
+                    &validation_result.anomalies,
+                    &invoice,
+                ).await;
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "Auto-validation failed");
+        }
+    }
 
     let response = invoice_to_full_response(&invoice);
 
@@ -262,7 +304,28 @@ pub async fn ingest_contract(
 
     tracing::info!(filename = %filename, size = data.len(), "Processing uploaded contract");
 
-    let contract = state.ingestion.ingest_contract_pdf(&data, &filename).await?;
+    let result = state.ingestion.ingest_contract_pdf(&data, &filename).await?;
+    let contract = result.contract;
+    let embedding = result.embedding;
+
+    // Post-ingestion enrichment (all non-fatal)
+
+    // 1. Fulltext index
+    if let Some(ref index) = state.fulltext_index {
+        if let Err(e) = index.index_contract(&contract).await {
+            tracing::warn!(error = %e, "Failed to index contract in fulltext");
+        } else if let Err(e) = index.commit().await {
+            tracing::warn!(error = %e, "Failed to commit fulltext index");
+        }
+    }
+
+    // 2. Log embedding availability (LanceDB has no contracts table yet)
+    if embedding.is_some() {
+        tracing::debug!(
+            contract_id = %contract.id,
+            "Contract embedding available but warm-tier contracts table not yet implemented"
+        );
+    }
 
     let response = crate::routes::documents::contract_to_response(&contract);
 

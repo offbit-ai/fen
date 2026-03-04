@@ -10,7 +10,8 @@ path = "src/main.rs"
 [dependencies]
 fen-core = { path = "../fen-core" }
 fen-storage = { path = "../fen-storage" }
-fen-ingestion = { path = "../fen-ingestion" }
+fen-ingestion = { path = "../fen-ingestion", features = ["graph"] }
+fen-graph = { path = "../fen-graph" }
 fen-rules = { path = "../fen-rules" }
 fen-events = { path = "../fen-events" }
 fen-notify = { path = "../fen-notify" }

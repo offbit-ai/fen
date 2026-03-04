@@ -87,6 +87,15 @@ pub async fn validate_documents(
             total_failed += 1;
         }
 
+        // Persist anomalies to anomaly store
+        if !validation_result.anomalies.is_empty() {
+            crate::conversions::persist_anomalies(
+                &state.anomaly_store,
+                &validation_result.anomalies,
+                &invoice,
+            ).await;
+        }
+
         results.push(DocumentValidation {
             document_id: id_str.clone(),
             is_valid: validation_result.is_valid,

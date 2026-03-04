@@ -10,7 +10,7 @@ use fen_core::ValidationStatus;
 use fen_storage::{DocumentStore, InvoiceFilter, StorageTier};
 use fen_tests::{
     consistent_embedding, init_test_tracing, random_embedding, sample_invoice_text,
-    ContractFixture, IngestionTestEnv, InvoiceFixture, QueryTestEnv, TestEnv,
+    ContractFixture, IngestionTestEnv, IntegrationTestEnv, InvoiceFixture, QueryTestEnv, TestEnv,
 };
 
 // ============================================================================
@@ -2299,5 +2299,366 @@ mod query_execution {
 
         // Execution time should be tracked
         assert_eq!(result.metadata.rows_returned, result.rows.len());
+    }
+}
+
+// ============================================================================
+// Module: End-to-End Integration Tests (Ingestion → Storage → Search → Detection)
+// ============================================================================
+
+mod integration {
+    use super::*;
+    use std::sync::Arc;
+
+    /// Test: ingest text → fulltext index populated → text search finds the invoice
+    #[tokio::test]
+    async fn test_ingest_populates_fulltext_index() {
+        init_test_tracing();
+        let env = IntegrationTestEnv::new().await;
+
+        let invoice = env.ingest_and_enrich(sample_invoice_text()).await.unwrap();
+
+        // Fulltext search should now find this invoice
+        let results = env
+            .fulltext_index
+            .search_invoices(&invoice.vendor.name, 10)
+            .unwrap();
+
+        assert!(
+            !results.is_empty(),
+            "Fulltext search should return results after ingestion"
+        );
+        assert!(
+            results.iter().any(|r| r.id == invoice.id.to_string()),
+            "Fulltext search should find the ingested invoice"
+        );
+    }
+
+    /// Test: ingest → warm-tier embedding write → vector search returns results
+    #[tokio::test]
+    async fn test_ingest_populates_warm_tier_for_vector_search() {
+        let env = IntegrationTestEnv::new().await;
+
+        let invoice = env.ingest_and_enrich(sample_invoice_text()).await.unwrap();
+
+        // Vector search using the same deterministic embedding should find the invoice
+        let query_embedding = consistent_embedding(&invoice.invoice_number, 384);
+        let warm = env.warm_storage.read().await;
+        let results = warm
+            .search_invoices_by_embedding(&query_embedding, 5)
+            .await
+            .unwrap();
+
+        assert!(
+            !results.is_empty(),
+            "Vector search should return results after warm-tier write"
+        );
+        assert!(
+            results.iter().any(|(inv, _)| inv.id == invoice.id),
+            "Vector search should find the ingested invoice"
+        );
+    }
+
+    /// Test: ingest invoice with errors → validation runs → anomalies persisted
+    #[tokio::test]
+    async fn test_ingest_with_errors_persists_anomalies() {
+        init_test_tracing();
+        let env = IntegrationTestEnv::new().await;
+
+        // Build invoice with math error and store through enrichment pipeline
+        let invoice = InvoiceFixture::new()
+            .with_number("INTEG-ERR-001")
+            .with_math_error()
+            .with_vendor("Error Vendor Corp")
+            .build();
+
+        let embedding = consistent_embedding(&invoice.invoice_number, 384);
+        env.store_and_enrich(&invoice, &embedding).await.unwrap();
+
+        // Anomalies should be persisted
+        let anomalies = env.anomaly_store.list_all(100, 0).await.unwrap();
+        assert!(
+            !anomalies.is_empty(),
+            "Anomalies should be persisted after validation"
+        );
+
+        // At least one anomaly should reference this invoice
+        assert!(
+            anomalies
+                .iter()
+                .any(|a| a.invoice_id == Some(invoice.id)),
+            "Persisted anomaly should reference the invoice"
+        );
+
+        // Anomaly should have correct vendor
+        assert!(
+            anomalies
+                .iter()
+                .any(|a| a.vendor_name == "Error Vendor Corp"),
+            "Persisted anomaly should have correct vendor"
+        );
+    }
+
+    /// Test: valid invoice → no anomalies persisted
+    #[tokio::test]
+    async fn test_valid_invoice_no_anomalies_persisted() {
+        let env = IntegrationTestEnv::new().await;
+
+        let invoice = InvoiceFixture::new()
+            .with_number("INTEG-VALID-001")
+            .build();
+
+        let embedding = consistent_embedding(&invoice.invoice_number, 384);
+        env.store_and_enrich(&invoice, &embedding).await.unwrap();
+
+        // Should have no anomalies for a valid invoice (or only low-severity ones)
+        let anomalies = env.anomaly_store.list_all(100, 0).await.unwrap();
+        let critical_anomalies: Vec<_> = anomalies
+            .iter()
+            .filter(|a| a.severity == Severity::Critical || a.severity == Severity::High)
+            .collect();
+
+        assert!(
+            critical_anomalies.is_empty(),
+            "Valid invoice should not produce critical/high anomalies, got: {:?}",
+            critical_anomalies
+        );
+    }
+
+    /// Test: multiple invoices flow through full pipeline with search and anomaly accumulation
+    #[tokio::test]
+    async fn test_multi_invoice_pipeline_flow() {
+        init_test_tracing();
+        let env = IntegrationTestEnv::new().await;
+
+        // Ingest a mix of valid and invalid invoices
+        let invoices = vec![
+            InvoiceFixture::new()
+                .with_number("FLOW-001")
+                .with_vendor("Acme Corp")
+                .with_extracted_text("Consulting services for Q1 project delivery")
+                .build(),
+            InvoiceFixture::new()
+                .with_number("FLOW-002")
+                .with_vendor("Beta Inc")
+                .with_math_error()
+                .with_extracted_text("Hardware procurement for data center expansion")
+                .build(),
+            InvoiceFixture::new()
+                .with_number("FLOW-003")
+                .with_vendor("Acme Corp")
+                .with_extracted_text("Consulting services for Q2 planning")
+                .build(),
+        ];
+
+        for invoice in &invoices {
+            let embedding = consistent_embedding(&invoice.invoice_number, 384);
+            env.store_and_enrich(invoice, &embedding).await.unwrap();
+        }
+
+        // 1. All invoices should be in hot storage
+        let stored_count = env.hot_storage.count_invoices().await.unwrap();
+        assert_eq!(stored_count, 3, "All invoices should be stored");
+
+        // 2. Fulltext search for "consulting" should return 2 invoices
+        let search_results = env
+            .fulltext_index
+            .search_invoices("consulting", 10)
+            .unwrap();
+        assert_eq!(
+            search_results.len(),
+            2,
+            "Fulltext search for 'consulting' should find 2 invoices"
+        );
+
+        // 3. Vector search should return results
+        let query_emb = consistent_embedding("FLOW-001", 384);
+        let warm = env.warm_storage.read().await;
+        let vec_results = warm
+            .search_invoices_by_embedding(&query_emb, 3)
+            .await
+            .unwrap();
+        assert!(
+            !vec_results.is_empty(),
+            "Vector search should return results"
+        );
+        // The closest match should be FLOW-001 itself (same embedding seed)
+        assert_eq!(
+            vec_results[0].0.invoice_number, "FLOW-001",
+            "Nearest neighbor should be the invoice itself"
+        );
+
+        // 4. Anomalies should have been persisted for the invalid invoice
+        let anomalies = env.anomaly_store.list_all(100, 0).await.unwrap();
+        let flow002_anomalies: Vec<_> = anomalies
+            .iter()
+            .filter(|a| a.invoice_id == Some(invoices[1].id))
+            .collect();
+        assert!(
+            !flow002_anomalies.is_empty(),
+            "FLOW-002 (math error) should have persisted anomalies"
+        );
+    }
+
+    /// Test: fulltext search for contracts
+    #[tokio::test]
+    async fn test_contract_fulltext_indexing() {
+        let env = IntegrationTestEnv::new().await;
+
+        let contract = ContractFixture::new()
+            .with_title("Master Service Agreement for Cloud Infrastructure")
+            .with_party("CloudVendor Inc")
+            .build();
+
+        use fen_storage::DocumentStore;
+        env.hot_storage.store_contract(&contract).await.unwrap();
+        env.fulltext_index
+            .index_contract(&contract)
+            .await
+            .unwrap();
+        env.fulltext_index.commit().await.unwrap();
+
+        // Search should find the contract
+        let results = env
+            .fulltext_index
+            .search_contracts("cloud infrastructure", 10)
+            .unwrap();
+        assert!(
+            !results.is_empty(),
+            "Fulltext search should find the indexed contract"
+        );
+    }
+
+    /// Test: concurrent ingestion through the full pipeline
+    #[tokio::test]
+    async fn test_concurrent_pipeline_ingestion() {
+        let env = IntegrationTestEnv::new().await;
+        let env = Arc::new(env);
+
+        let mut handles = Vec::new();
+        for i in 0..5 {
+            let env = env.clone();
+            let handle = tokio::spawn(async move {
+                let invoice = InvoiceFixture::new()
+                    .with_number(format!("CONC-INTEG-{:03}", i))
+                    .with_vendor(format!("Vendor {}", i))
+                    .with_extracted_text(format!("Service delivery for project {}", i))
+                    .build();
+                let embedding = consistent_embedding(&invoice.invoice_number, 384);
+                env.store_and_enrich(&invoice, &embedding).await.unwrap();
+                invoice.id
+            });
+            handles.push(handle);
+        }
+
+        let invoice_ids: Vec<_> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .map(|r| r.unwrap())
+            .collect();
+
+        // All should be stored
+        assert_eq!(invoice_ids.len(), 5);
+        let count = env.hot_storage.count_invoices().await.unwrap();
+        assert_eq!(count, 5, "All concurrently ingested invoices should be stored");
+
+        // All should be searchable via fulltext
+        let results = env.fulltext_index.search_invoices("service delivery", 10).unwrap();
+        assert_eq!(
+            results.len(),
+            5,
+            "All invoices should be findable via fulltext search"
+        );
+    }
+
+    /// Test: anomaly accumulation across multiple invalid invoices from same vendor
+    #[tokio::test]
+    async fn test_anomaly_accumulation_by_vendor() {
+        let env = IntegrationTestEnv::new().await;
+
+        // Multiple invoices from same vendor, all with errors
+        for i in 0..3 {
+            let invoice = InvoiceFixture::new()
+                .with_number(format!("ACCUM-{:03}", i))
+                .with_vendor("Problematic Vendor")
+                .with_math_error()
+                .build();
+            let embedding = consistent_embedding(&invoice.invoice_number, 384);
+            env.store_and_enrich(&invoice, &embedding).await.unwrap();
+        }
+
+        // Query anomalies for this vendor
+        let vendor_anomalies = env
+            .anomaly_store
+            .get_anomalies_for_vendor("Problematic Vendor", 365)
+            .await
+            .unwrap();
+
+        assert!(
+            vendor_anomalies.len() >= 3,
+            "Should have at least one anomaly per invoice, got {}",
+            vendor_anomalies.len()
+        );
+
+        // All anomalies should reference this vendor
+        for anomaly in &vendor_anomalies {
+            assert_eq!(anomaly.vendor_name, "Problematic Vendor");
+        }
+    }
+
+    /// Test: invoice stored in hot → searchable in warm → validation anomalies queryable
+    #[tokio::test]
+    async fn test_all_tiers_populated_after_enrichment() {
+        let env = IntegrationTestEnv::new().await;
+
+        let invoice = InvoiceFixture::new()
+            .with_number("TIER-CHECK-001")
+            .with_vendor("Tier Check Corp")
+            .with_date_error() // Will produce anomaly
+            .with_extracted_text("Annual maintenance contract renewal")
+            .build();
+
+        let embedding = consistent_embedding(&invoice.invoice_number, 384);
+        env.store_and_enrich(&invoice, &embedding).await.unwrap();
+
+        // Hot tier: direct retrieval
+        use fen_storage::DocumentStore;
+        let from_hot = env
+            .hot_storage
+            .get_invoice(&invoice.id)
+            .await
+            .unwrap();
+        assert!(from_hot.is_some(), "Invoice should be in hot storage");
+
+        // Warm tier: vector search
+        let warm = env.warm_storage.read().await;
+        let from_warm = warm
+            .search_invoices_by_embedding(&embedding, 1)
+            .await
+            .unwrap();
+        assert!(
+            !from_warm.is_empty(),
+            "Invoice should be retrievable via warm-tier vector search"
+        );
+        assert_eq!(from_warm[0].0.id, invoice.id);
+
+        // Fulltext: text search
+        let from_fti = env
+            .fulltext_index
+            .search_invoices("maintenance", 10)
+            .unwrap();
+        assert!(
+            !from_fti.is_empty(),
+            "Invoice should be findable via fulltext search"
+        );
+
+        // Anomaly store: validation results
+        let anomalies = env.anomaly_store.list_all(100, 0).await.unwrap();
+        assert!(
+            anomalies
+                .iter()
+                .any(|a| a.invoice_id == Some(invoice.id)),
+            "Anomaly store should contain validation results for this invoice"
+        );
     }
 }

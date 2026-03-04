@@ -4,4 +4,4 @@ pub mod pdf;
 pub mod pipeline;
 
 pub use error::IngestionError;
-pub use pipeline::IngestionPipeline;
+pub use pipeline::{ContractIngestResult, IngestionPipeline, InvoiceIngestResult};

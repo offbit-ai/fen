@@ -332,6 +332,158 @@ impl ZipExecutorTestEnv {
     }
 }
 
+/// Full integration test environment mirroring AppState wiring.
+///
+/// Contains all components needed to test the end-to-end flow:
+/// ingestion → storage (hot+warm) → fulltext index → validation → anomaly persistence → search.
+pub struct IntegrationTestEnv {
+    /// Ingestion pipeline (no ML in tests — uses regex/GLiNER only)
+    pub pipeline: Arc<IngestionPipeline<RedbStorage>>,
+    /// Hot storage (redb)
+    pub hot_storage: Arc<RedbStorage>,
+    /// Warm storage (LanceDB) for vector search
+    pub warm_storage: Arc<tokio::sync::RwLock<fen_storage::LanceStorage>>,
+    /// Full-text index
+    pub fulltext_index: Arc<fen_storage::FullTextIndex>,
+    /// Anomaly store for persisting validation anomalies
+    pub anomaly_store: Arc<fen_storage::AnomalyStore>,
+    /// Rule engine for validation
+    pub rule_engine: Arc<RuleEngine>,
+    /// Temporary directory
+    _temp_dir: TempDir,
+}
+
+impl IntegrationTestEnv {
+    /// Create a new full integration test environment
+    pub async fn new() -> Self {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let warm_path = temp_dir.path().join("warm");
+        let fulltext_path = temp_dir.path().join("fulltext");
+
+        let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
+        let anomaly_store = Arc::new(
+            fen_storage::AnomalyStore::new(hot_storage.db().clone())
+                .expect("Failed to create anomaly store"),
+        );
+
+        let warm_storage = Arc::new(tokio::sync::RwLock::new(
+            fen_storage::LanceStorage::new(&warm_path)
+                .await
+                .expect("Failed to create warm storage"),
+        ));
+
+        let fulltext_index = Arc::new(
+            fen_storage::FullTextIndex::new(&fulltext_path, fen_storage::FullTextConfig::default())
+                .expect("Failed to create fulltext index"),
+        );
+
+        let pipeline = Arc::new(
+            IngestionPipeline::new(hot_storage.clone()).expect("Failed to create pipeline"),
+        );
+
+        let rule_engine = Arc::new(RuleEngine::builtin_only());
+
+        Self {
+            pipeline,
+            hot_storage,
+            warm_storage,
+            fulltext_index,
+            anomaly_store,
+            rule_engine,
+            _temp_dir: temp_dir,
+        }
+    }
+
+    /// Ingest text and perform all post-ingestion enrichment
+    /// (fulltext index, warm-tier embedding, validation, anomaly persistence).
+    /// Uses a deterministic embedding derived from invoice_number when embedding
+    /// is not produced by the pipeline (no ML models in tests).
+    pub async fn ingest_and_enrich(
+        &self,
+        text: &str,
+    ) -> Result<fen_core::domain::Invoice, fen_ingestion::IngestionError> {
+        let result = self.pipeline.ingest_text(text).await?;
+        let invoice = result;
+
+        // 1. Fulltext index
+        self.fulltext_index
+            .index_invoice(&invoice)
+            .await
+            .expect("Fulltext index failed");
+        self.fulltext_index.commit().await.expect("Fulltext commit failed");
+
+        // 2. Warm-tier with deterministic embedding
+        let embedding = crate::consistent_embedding(&invoice.invoice_number, 384);
+        {
+            let mut warm = self.warm_storage.write().await;
+            warm.store_invoice_with_embedding(&invoice, Some(&embedding))
+                .await
+                .expect("Warm-tier write failed");
+        }
+
+        // 3. Validate + persist anomalies
+        if let Ok(validation_result) = self.rule_engine.validate_invoice(&invoice).await {
+            for anomaly in &validation_result.anomalies {
+                let record = fen_storage::AnomalyRecord::new(
+                    anomaly.document_id.clone(),
+                    &invoice.vendor.name,
+                    anomaly.anomaly_type.clone(),
+                    anomaly.severity,
+                    &anomaly.description,
+                )
+                .with_invoice_id(invoice.id)
+                .with_confidence(anomaly.confidence)
+                .with_invoice_date(invoice.invoice_date);
+                let _ = self.anomaly_store.store_anomaly(&record).await;
+            }
+        }
+
+        Ok(invoice)
+    }
+
+    /// Store a pre-built invoice with full enrichment (fulltext + warm + validate + anomalies)
+    pub async fn store_and_enrich(
+        &self,
+        invoice: &fen_core::domain::Invoice,
+        embedding: &[f32],
+    ) -> Result<(), fen_storage::StorageError> {
+        use fen_storage::DocumentStore;
+
+        // Hot storage
+        self.hot_storage.store_invoice(invoice).await?;
+
+        // Fulltext
+        self.fulltext_index.index_invoice(invoice).await?;
+        self.fulltext_index.commit().await?;
+
+        // Warm tier
+        {
+            let mut warm = self.warm_storage.write().await;
+            warm.store_invoice_with_embedding(invoice, Some(embedding))
+                .await?;
+        }
+
+        // Validate + persist anomalies
+        if let Ok(validation_result) = self.rule_engine.validate_invoice(invoice).await {
+            for anomaly in &validation_result.anomalies {
+                let record = fen_storage::AnomalyRecord::new(
+                    anomaly.document_id.clone(),
+                    &invoice.vendor.name,
+                    anomaly.anomaly_type.clone(),
+                    anomaly.severity,
+                    &anomaly.description,
+                )
+                .with_invoice_id(invoice.id)
+                .with_confidence(anomaly.confidence)
+                .with_invoice_date(invoice.invoice_date);
+                let _ = self.anomaly_store.store_anomaly(&record).await;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// Initialize tracing for tests (call once at the start of test suite)
 pub fn init_test_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

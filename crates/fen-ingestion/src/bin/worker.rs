@@ -222,10 +222,11 @@ async fn process_document(
     };
 
     // Process through the ingestion pipeline
-    let invoice = pipeline
+    let result = pipeline
         .ingest_pdf(&document_bytes, &ingested.filename)
         .await
         .map_err(|e| ProcessingError::Pipeline(e.to_string()))?;
+    let invoice = result.invoice;
 
     let processing_time_ms = start.elapsed().as_millis() as u64;
 

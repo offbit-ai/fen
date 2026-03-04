@@ -2673,6 +2673,7 @@ dependencies = [
  "dashmap",
  "fen-core",
  "fen-events",
+ "fen-graph",
  "fen-ingestion",
  "fen-ml",
  "fen-notify",

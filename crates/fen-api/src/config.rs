@@ -63,6 +63,12 @@ pub struct AppConfig {
 
     /// ML document intelligence configuration
     pub ml: MlConfig,
+
+    /// Path to warm-tier (LanceDB) storage directory
+    pub warm_storage_path: String,
+
+    /// Path to knowledge graph storage directory (optional, enables graph enrichment)
+    pub graph_storage_path: Option<PathBuf>,
 }
 
 /// Configuration for statistical anomaly detection
@@ -166,6 +172,9 @@ impl AppConfig {
                 .unwrap_or(200), // 200 burst capacity default
             statistical: StatisticalConfig::from_env(),
             ml: MlConfig::from_env(),
+            warm_storage_path: env::var("WARM_STORAGE_PATH")
+                .unwrap_or_else(|_| "data/warm".to_string()),
+            graph_storage_path: env::var("GRAPH_STORAGE_PATH").ok().map(PathBuf::from),
         }
     }
 }

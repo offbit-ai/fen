@@ -11,6 +11,18 @@ use crate::contract::{ContractParser, GlinerContractParser, MlContractParser};
 use crate::error::IngestionError;
 use crate::pdf::{ExtractedPdf, GlinerInvoiceParser, InvoiceParser, MlInvoiceParser, PdfExtractor};
 
+/// Result of ingesting an invoice, including optional embedding for warm-tier indexing.
+pub struct InvoiceIngestResult {
+    pub invoice: Invoice,
+    pub embedding: Option<Vec<f32>>,
+}
+
+/// Result of ingesting a contract, including optional embedding for warm-tier indexing.
+pub struct ContractIngestResult {
+    pub contract: Contract,
+    pub embedding: Option<Vec<f32>>,
+}
+
 /// Configuration for the ingestion pipeline
 #[derive(Clone)]
 pub struct IngestionConfig {
@@ -126,7 +138,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         &self,
         bytes: &[u8],
         filename: &str,
-    ) -> Result<Invoice, IngestionError> {
+    ) -> Result<InvoiceIngestResult, IngestionError> {
         let document_id = DocumentId::new();
         let has_gliner = self.has_gliner();
 
@@ -231,7 +243,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             }
         }
 
-        // Store in storage (with embedding for warm-tier indexing)
+        // Store in storage (hot tier)
         self.storage
             .store_invoice_with_embedding(&invoice, embedding.as_deref())
             .await?;
@@ -241,7 +253,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             "Invoice stored successfully"
         );
 
-        Ok(invoice)
+        Ok(InvoiceIngestResult { invoice, embedding })
     }
 
     /// Parse invoice using GLiNER tiered text extraction
@@ -347,7 +359,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         &self,
         bytes: &[u8],
         filename: &str,
-    ) -> Result<Contract, IngestionError> {
+    ) -> Result<ContractIngestResult, IngestionError> {
         let document_id = DocumentId::new();
         let has_gliner = self.has_gliner();
 
@@ -410,16 +422,16 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         );
 
         // Parse contract — tiered approach (same as invoice)
-        let contract = if has_gliner
+        let (contract, embedding) = if has_gliner
             && extracted.has_text
             && extracted.text.len() >= min_text
         {
-            self.parse_contract_with_gliner(&extracted.text, document_id)?
+            (self.parse_contract_with_gliner(&extracted.text, document_id)?, None)
         } else if let (Some(ml), Some(pages)) = (&self.ml_pipeline, &rendered_pages) {
             self.parse_contract_with_ml(ml, pages, &extracted, document_id)
                 .await?
         } else {
-            self.contract_parser.parse(&extracted.text, document_id)?
+            (self.contract_parser.parse(&extracted.text, document_id)?, None)
         };
 
         tracing::info!(
@@ -428,6 +440,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             contract_number = ?contract.contract_number,
             contract_type = ?contract.contract_type,
             confidence = %contract.confidence_score,
+            has_embedding = %embedding.is_some(),
             "Contract parsed"
         );
 
@@ -451,7 +464,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             "Contract stored successfully"
         );
 
-        Ok(contract)
+        Ok(ContractIngestResult { contract, embedding })
     }
 
     /// Parse contract using GLiNER tiered text extraction
@@ -490,14 +503,14 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         )
     }
 
-    /// Parse contract using ML pipeline
+    /// Parse contract using ML pipeline, returning the contract and its document embedding.
     async fn parse_contract_with_ml(
         &self,
         ml: &DocumentIntelligence,
         pages: &[DynamicImage],
         extracted: &ExtractedPdf,
         document_id: DocumentId,
-    ) -> Result<Contract, IngestionError> {
+    ) -> Result<(Contract, Option<Vec<f32>>), IngestionError> {
         let image = pages.first().ok_or_else(|| {
             IngestionError::MlProcessing("No rendered pages available".to_string())
         })?;
@@ -518,8 +531,16 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             processed
         };
 
+        // Extract document-level embedding before parsing consumes the data
+        let embedding = if processed.embeddings.document.is_empty() {
+            None
+        } else {
+            Some(processed.embeddings.document.clone())
+        };
+
         // Parse contract from ML results
-        self.ml_contract_parser.parse(&processed, document_id)
+        let contract = self.ml_contract_parser.parse(&processed, document_id)?;
+        Ok((contract, embedding))
     }
 
     /// Ingest contract from raw text (for testing or non-PDF sources)

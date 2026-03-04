@@ -153,16 +153,55 @@ pub async fn text_search(
 
 /// GET /search/semantic - Semantic/vector similarity search
 pub async fn semantic_search(
-    State(_state): State<Arc<AppState>>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<SemanticSearchParams>,
 ) -> Result<Json<SearchResponse>, ApiError> {
-    let _limit = params.limit.unwrap_or(10).min(100);
+    let limit = params.limit.unwrap_or(10).min(100);
+    let start = std::time::Instant::now();
+
+    // Need both ML pipeline (for query embedding) and warm storage (for vector search)
+    let di = state.document_intelligence.as_ref().ok_or_else(|| {
+        ApiError::Internal("Semantic search requires ML pipeline (ML_ENABLED=true)".to_string())
+    })?;
+    let warm = state.warm_storage.as_ref().ok_or_else(|| {
+        ApiError::Internal("Semantic search requires warm storage".to_string())
+    })?;
+
+    // Generate query embedding
+    let query_embedding = di.embedding.embed(&params.q).map_err(|e| {
+        ApiError::Internal(format!("Failed to generate query embedding: {}", e))
+    })?;
+
+    // Search warm storage by vector similarity
+    let warm_guard = warm.read().await;
+    let results = warm_guard
+        .search_invoices_by_embedding(&query_embedding, limit)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Vector search failed: {}", e)))?;
+
+    // Convert to SearchResultItem
+    let items: Vec<SearchResultItem> = results
+        .into_iter()
+        .map(|(invoice, distance)| {
+            let data = invoice_to_full_response(&invoice);
+            SearchResultItem {
+                id: invoice.id.to_string(),
+                document_type: "invoice".to_string(),
+                score: 1.0 - distance, // Convert distance to similarity
+                highlight: None,
+                data: serde_json::to_value(data).unwrap_or_default(),
+            }
+        })
+        .collect();
+
+    let total = items.len();
+    let took_ms = start.elapsed().as_millis() as u64;
 
     Ok(Json(SearchResponse {
-        results: Vec::new(),
-        total: 0,
+        results: items,
+        total,
         query: params.q,
-        took_ms: 0,
+        took_ms,
     }))
 }
 
