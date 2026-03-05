@@ -34,6 +34,7 @@ pub use query::{
     JsonZipClause,
     ParseError,
     ParseErrorKind,
+    PipelineOp,
     PipelineResults,
     QueryCache,
     QueryEngine,

@@ -6,7 +6,9 @@ edition.workspace = true
 [dependencies]
 fen-core = { path = "../fen-core" }
 kyu-graph = { path = "../../../kyugraph/crates/kyu-graph" }
+kyu-delta = { path = "../../../kyugraph/crates/kyu-delta" }
 ext-rdf = { path = "../../../kyugraph/extensions/ext-rdf" }
+smol_str = "0.3"
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true

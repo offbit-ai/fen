@@ -10,7 +10,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::config::AppConfig;
 use crate::middleware::RateLimitLayer;
-use crate::routes::{admin, anomalies, auth, documents, events, health, ingest, notifications, rules, search, storage, validate};
+use crate::routes::{admin, anomalies, auth, documents, events, graph, health, ingest, notifications, rules, search, storage, validate};
 use crate::state::AppState;
 
 /// Build the application router
@@ -79,6 +79,12 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
             "/notifications/preferences/:tenant_id",
             get(notifications::get_preferences).put(notifications::set_preferences),
         )
+        // Knowledge graph endpoints
+        .route("/graph/query", post(graph::query_cypher))
+        .route("/graph/vendors/:name/network", get(graph::vendor_network))
+        .route("/graph/invoices/:id/contracts", get(graph::invoice_contracts))
+        .route("/graph/rdf/load", post(graph::rdf_load))
+        .route("/graph/rdf/inspect", post(graph::rdf_inspect))
         // Event streaming endpoints
         .route("/events/topics", get(events::list_topics))
         .route("/events/stream", get(events::event_stream))

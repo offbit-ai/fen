@@ -221,7 +221,7 @@ pub async fn execute_query(
             .await
             .map_err(|e| ApiError::Internal(format!("Query execution failed: {}", e)))?;
 
-        let rows: Vec<serde_json::Value> = result
+        let mut rows: Vec<serde_json::Value> = result
             .rows
             .into_iter()
             .map(|row| {
@@ -234,6 +234,15 @@ pub async fn execute_query(
             })
             .collect();
 
+        // Apply graph pipeline ops if present
+        if query.uses_graph() {
+            if let Some(ref graph) = state.graph_store {
+                if let Some(ref pipeline) = query.pipeline {
+                    apply_graph_pipeline(&mut rows, pipeline, graph.as_ref()).await?;
+                }
+            }
+        }
+
         Ok(Json(QueryResponse {
             rows,
             metadata: QueryMetadata {
@@ -245,6 +254,105 @@ pub async fn execute_query(
     } else {
         Err(ApiError::Internal("Query executor not available".to_string()))
     }
+}
+
+/// Apply graph pipeline operations to query result rows
+async fn apply_graph_pipeline(
+    rows: &mut [serde_json::Value],
+    pipeline: &[fen_storage::PipelineOp],
+    graph: &dyn fen_graph::GraphStore,
+) -> Result<(), ApiError> {
+    use fen_storage::PipelineOp;
+
+    for op in pipeline {
+        match op {
+            PipelineOp::GraphTraverse { field, depth } => {
+                for row in rows.iter_mut() {
+                    if let Some(obj) = row.as_object_mut() {
+                        let entry_value = obj
+                            .get(field)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                            .to_string();
+
+                        if entry_value.is_empty() {
+                            continue;
+                        }
+
+                        // Use vendor_name as graph entry point
+                        if let Ok(vendor_id) = graph.resolve_vendor(&entry_value).await {
+                            if let Ok(invoice_ids) = graph.invoices_for_vendor(&vendor_id).await {
+                                let ids: Vec<String> =
+                                    invoice_ids.iter().map(|id| id.to_string()).collect();
+                                obj.insert(
+                                    "graph_related_invoices".to_string(),
+                                    serde_json::json!(ids),
+                                );
+                                obj.insert(
+                                    "graph_vendor_id".to_string(),
+                                    serde_json::Value::String(vendor_id.clone()),
+                                );
+
+                                // If depth > 1, also find contracts
+                                if *depth > 1 {
+                                    let mut contract_ids = Vec::new();
+                                    for inv_id in &invoice_ids {
+                                        if let Ok(cids) = graph.related_contracts(inv_id).await {
+                                            for cid in cids {
+                                                let s = cid.to_string();
+                                                if !contract_ids.contains(&s) {
+                                                    contract_ids.push(s);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    obj.insert(
+                                        "graph_related_contracts".to_string(),
+                                        serde_json::json!(contract_ids),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            PipelineOp::GraphEnrich => {
+                for row in rows.iter_mut() {
+                    if let Some(obj) = row.as_object_mut() {
+                        // Try to enrich via invoice ID
+                        if let Some(id_str) = obj.get("id").and_then(|v| v.as_str()) {
+                            if let Ok(uuid) = id_str.parse::<uuid::Uuid>() {
+                                let invoice_id = fen_core::domain::InvoiceId(uuid);
+                                if let Ok(contracts) = graph.related_contracts(&invoice_id).await {
+                                    let cids: Vec<String> =
+                                        contracts.iter().map(|c| c.to_string()).collect();
+                                    obj.insert(
+                                        "graph_contracts".to_string(),
+                                        serde_json::json!(cids),
+                                    );
+                                }
+                            }
+                        }
+
+                        // Try to enrich via vendor name
+                        if let Some(vendor) = obj.get("vendor_name").and_then(|v| v.as_str()) {
+                            if let Ok(vid) = graph.resolve_vendor(vendor).await {
+                                if let Ok(invoices) = graph.invoices_for_vendor(&vid).await {
+                                    obj.insert(
+                                        "graph_vendor_invoice_count".to_string(),
+                                        serde_json::json!(invoices.len()),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {} // Non-graph ops handled elsewhere
+        }
+    }
+
+    Ok(())
 }
 
 fn column_value_to_json(v: fen_storage::ColumnValue) -> serde_json::Value {

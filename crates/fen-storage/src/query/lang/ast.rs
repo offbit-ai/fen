@@ -129,6 +129,25 @@ pub enum PipelineOp {
         /// Aggregations to compute
         aggregations: Vec<AggregateExpr>,
     },
+
+    /// Traverse the knowledge graph from query results
+    ///
+    /// Example: `|> GRAPH TRAVERSE vendor_name DEPTH 2`
+    /// Follows relationships from the specified field (used as vendor lookup)
+    /// and appends graph-derived columns to each row.
+    GraphTraverse {
+        /// Field to use as graph entry point (e.g., "vendor_name")
+        field: String,
+        /// Max traversal depth (default: 1)
+        #[serde(default = "default_graph_depth")]
+        depth: u32,
+    },
+
+    /// Enrich rows with graph relationship data
+    ///
+    /// Example: `|> GRAPH ENRICH`
+    /// Adds related_contracts and vendor_network columns based on invoice/vendor IDs.
+    GraphEnrich,
 }
 
 /// Aggregate expression for pipeline aggregation
@@ -176,6 +195,13 @@ impl FenQuery {
     /// Check if this query has pipeline operations
     pub fn has_pipeline(&self) -> bool {
         self.pipeline.as_ref().is_some_and(|p| !p.is_empty())
+    }
+
+    /// Check if this query uses graph operations
+    pub fn uses_graph(&self) -> bool {
+        self.pipeline.as_ref().is_some_and(|ops| {
+            ops.iter().any(|op| matches!(op, PipelineOp::GraphTraverse { .. } | PipelineOp::GraphEnrich))
+        })
     }
 
     /// Extract all parameter names used in this query
@@ -706,4 +732,8 @@ fn default_threshold() -> f64 {
 
 fn default_metrics() -> Vec<String> {
     vec!["total_amount".to_string()]
+}
+
+fn default_graph_depth() -> u32 {
+    1
 }

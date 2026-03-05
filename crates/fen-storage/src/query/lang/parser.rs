@@ -288,6 +288,10 @@ impl<'a> QueryParser<'a> {
                 self.advance();
                 self.parse_aggregate_op()
             }
+            TokenKind::Graph => {
+                self.advance();
+                self.parse_graph_op()
+            }
             _ => {
                 let span = token.span;
                 Err(self.error(
@@ -297,6 +301,7 @@ impl<'a> QueryParser<'a> {
                             "ANALYZE".to_string(),
                             "CROSS_VALIDATE".to_string(),
                             "AGGREGATE".to_string(),
+                            "GRAPH".to_string(),
                         ],
                         found: token.kind.as_str().to_string(),
                     },
@@ -487,6 +492,52 @@ impl<'a> QueryParser<'a> {
             group_by,
             aggregations,
         })
+    }
+
+    /// Parse GRAPH TRAVERSE field [DEPTH n] or GRAPH ENRICH
+    fn parse_graph_op(&mut self) -> Result<PipelineOp, ParseError> {
+        let token = self.current();
+
+        match &token.kind {
+            TokenKind::Traverse => {
+                self.advance();
+
+                // Parse field name (e.g., vendor_name)
+                let field = self.parse_identifier()?;
+
+                // Parse optional DEPTH n (defaults to 1)
+                let depth = if self.check_ident() {
+                    if let TokenKind::Ident(s) = &self.current().kind {
+                        if s.eq_ignore_ascii_case("DEPTH") {
+                            self.advance();
+                            self.parse_integer()? as u32
+                        } else {
+                            1
+                        }
+                    } else {
+                        1
+                    }
+                } else {
+                    1
+                };
+
+                Ok(PipelineOp::GraphTraverse { field, depth })
+            }
+            TokenKind::Enrich => {
+                self.advance();
+                Ok(PipelineOp::GraphEnrich)
+            }
+            _ => {
+                let span = token.span;
+                Err(self.error(
+                    ParseErrorKind::UnexpectedToken {
+                        expected: vec!["TRAVERSE".to_string(), "ENRICH".to_string()],
+                        found: token.kind.as_str().to_string(),
+                    },
+                    span,
+                ))
+            }
+        }
     }
 
     /// Parse a bracketed list of strings: ['a', 'b', 'c']

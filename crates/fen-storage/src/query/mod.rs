@@ -9,8 +9,8 @@ pub use engine::{QueryEngine, QueryEngineConfig, QueryResult};
 pub use executor::{ColumnValue, ExecutionResult, ExecutorConfig, QueryExecutor, ResultRow};
 pub use lang::{
     parse_query, FenQuery, JsonCondition, JsonPipelineOp, JsonQuery, JsonQueryBuilder,
-    JsonZipClause, ParseError, ParseErrorKind, QueryError, QueryParams, QueryParser, ZipClause,
-    ZipMode,
+    JsonZipClause, ParseError, ParseErrorKind, PipelineOp, QueryError, QueryParams, QueryParser,
+    ZipClause, ZipMode,
 };
 pub use zip_executor::{
     AggregateValue, CrossValidationIssue, CrossValidationIssueType, PipelineResults, ZipExecutor,

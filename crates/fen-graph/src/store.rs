@@ -7,10 +7,11 @@ use fen_core::domain::{
     Contract, ContractId, Invoice, InvoiceId,
 };
 
+use crate::delta_writer;
 use crate::error::GraphError;
 use crate::query;
 use crate::schema;
-use crate::writer;
+use crate::writer; // still needed for escape_cypher in RDF paths
 use crate::GraphStore;
 
 /// KyuGraph-backed knowledge graph store.
@@ -51,20 +52,24 @@ impl KyuGraphStore {
 impl GraphStore for KyuGraphStore {
     async fn write_invoice(&self, invoice: &Invoice) -> Result<(), GraphError> {
         let db = self.db.clone();
-        let invoice = invoice.clone();
+        let batch = delta_writer::build_invoice_delta(invoice);
         tokio::task::spawn_blocking(move || {
             let conn = db.connect();
-            writer::write_invoice(&conn, &invoice)
+            conn.apply_delta(batch)
+                .map_err(|e| GraphError::Write(format!("Delta apply failed: {e}")))?;
+            Ok(())
         })
         .await?
     }
 
     async fn write_contract(&self, contract: &Contract) -> Result<(), GraphError> {
         let db = self.db.clone();
-        let contract = contract.clone();
+        let batch = delta_writer::build_contract_delta(contract);
         tokio::task::spawn_blocking(move || {
             let conn = db.connect();
-            writer::write_contract(&conn, &contract)
+            conn.apply_delta(batch)
+                .map_err(|e| GraphError::Write(format!("Delta apply failed: {e}")))?;
+            Ok(())
         })
         .await?
     }
@@ -78,8 +83,21 @@ impl GraphStore for KyuGraphStore {
         let iid = invoice_id.to_string();
         let cid = contract_id.to_string();
         tokio::task::spawn_blocking(move || {
+            let batch = kyu_delta::DeltaBatchBuilder::new(
+                format!("link:{iid}:{cid}"),
+                chrono::Utc::now().timestamp_millis() as u64,
+            )
+            .upsert_edge(
+                "Invoice", &iid,
+                "GOVERNED_BY",
+                "Contract", &cid,
+                Vec::<(&str, kyu_delta::DeltaValue)>::new(),
+            )
+            .build();
             let conn = db.connect();
-            writer::link_invoice_to_contract(&conn, &iid, &cid, None)
+            conn.apply_delta(batch)
+                .map_err(|e| GraphError::Write(format!("Link delta failed: {e}")))?;
+            Ok(())
         })
         .await?
     }
@@ -88,8 +106,26 @@ impl GraphStore for KyuGraphStore {
         let db = self.db.clone();
         let name = name.to_string();
         tokio::task::spawn_blocking(move || {
+            let vendor_key = delta_writer::vendor_primary_key(&name);
+            // Upsert vendor node via delta — idempotent, no read-before-write
+            let batch = kyu_delta::DeltaBatchBuilder::new(
+                format!("resolve_vendor:{vendor_key}"),
+                chrono::Utc::now().timestamp_millis() as u64,
+            )
+            .upsert_node(
+                "Vendor",
+                &vendor_key,
+                vec![],
+                [
+                    ("id", kyu_delta::DeltaValue::String(smol_str::SmolStr::new(&vendor_key))),
+                    ("name", kyu_delta::DeltaValue::String(smol_str::SmolStr::new(&name))),
+                ],
+            )
+            .build();
             let conn = db.connect();
-            writer::resolve_vendor(&conn, &name, None)
+            conn.apply_delta(batch)
+                .map_err(|e| GraphError::Write(format!("Vendor upsert failed: {e}")))?;
+            Ok(vendor_key)
         })
         .await?
     }
@@ -176,6 +212,48 @@ impl GraphStore for KyuGraphStore {
             let conn = db.connect();
             let cypher = format!("MATCH (n:{table_name}) RETURN n");
             query::execute_cypher(&conn, &cypher)
+        })
+        .await?
+    }
+
+    async fn write_invoice_batch(&self, invoices: &[Invoice]) -> Result<u64, GraphError> {
+        let db = self.db.clone();
+        let batch = delta_writer::build_invoice_batch(invoices);
+        let count = batch.len() as u64;
+        tokio::task::spawn_blocking(move || {
+            let conn = db.connect();
+            let stats = conn.apply_delta(batch)
+                .map_err(|e| GraphError::Write(format!("Batch delta apply failed: {e}")))?;
+            tracing::info!(
+                nodes_created = stats.nodes_created,
+                nodes_updated = stats.nodes_updated,
+                edges_created = stats.edges_created,
+                total_deltas = stats.total_deltas,
+                elapsed_us = stats.elapsed_micros,
+                "Invoice batch applied via delta path"
+            );
+            Ok(count)
+        })
+        .await?
+    }
+
+    async fn write_contract_batch(&self, contracts: &[Contract]) -> Result<u64, GraphError> {
+        let db = self.db.clone();
+        let batch = delta_writer::build_contract_batch(contracts);
+        let count = batch.len() as u64;
+        tokio::task::spawn_blocking(move || {
+            let conn = db.connect();
+            let stats = conn.apply_delta(batch)
+                .map_err(|e| GraphError::Write(format!("Batch delta apply failed: {e}")))?;
+            tracing::info!(
+                nodes_created = stats.nodes_created,
+                nodes_updated = stats.nodes_updated,
+                edges_created = stats.edges_created,
+                total_deltas = stats.total_deltas,
+                elapsed_us = stats.elapsed_micros,
+                "Contract batch applied via delta path"
+            );
+            Ok(count)
         })
         .await?
     }

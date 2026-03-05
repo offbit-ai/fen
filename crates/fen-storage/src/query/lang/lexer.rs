@@ -85,6 +85,10 @@ pub enum TokenKind<'a> {
     CrossValidate,
     Aggregate,
     With,
+    // Graph pipeline keywords
+    Graph,
+    Traverse,
+    Enrich,
     // Statistical baseline keywords
     Baseline,
     Window,
@@ -159,6 +163,9 @@ impl<'a> TokenKind<'a> {
                 | TokenKind::CrossValidate
                 | TokenKind::Aggregate
                 | TokenKind::With
+                | TokenKind::Graph
+                | TokenKind::Traverse
+                | TokenKind::Enrich
                 | TokenKind::Baseline
                 | TokenKind::Window
                 | TokenKind::Days
@@ -203,6 +210,9 @@ impl<'a> TokenKind<'a> {
             TokenKind::CrossValidate => "CROSS_VALIDATE",
             TokenKind::Aggregate => "AGGREGATE",
             TokenKind::With => "WITH",
+            TokenKind::Graph => "GRAPH",
+            TokenKind::Traverse => "TRAVERSE",
+            TokenKind::Enrich => "ENRICH",
             TokenKind::Baseline => "BASELINE",
             TokenKind::Window => "WINDOW",
             TokenKind::Days => "DAYS",
@@ -366,6 +376,9 @@ fn keyword_or_ident(input: Input) -> IResult<Input, Token> {
             "ANALYZE" => TokenKind::Analyze,
             "CROSS_VALIDATE" => TokenKind::CrossValidate,
             "AGGREGATE" => TokenKind::Aggregate,
+            "GRAPH" => TokenKind::Graph,
+            "TRAVERSE" => TokenKind::Traverse,
+            "ENRICH" => TokenKind::Enrich,
             "WITH" => TokenKind::With,
             // Statistical baseline keywords
             "BASELINE" => TokenKind::Baseline,

@@ -1,3 +1,4 @@
+pub mod delta_writer;
 pub mod error;
 pub mod query;
 pub mod rdf;
@@ -56,6 +57,15 @@ pub trait GraphStore: Send + Sync {
 
     /// Query nodes imported from RDF by their inferred table name.
     async fn rdf_nodes(&self, table_name: &str) -> Result<Vec<Vec<String>>, GraphError>;
+
+    /// Batch-write multiple invoices via delta fast path.
+    ///
+    /// Uses `DeltaBatch` + `apply_delta` for single-WAL-append atomic writes.
+    /// At 1000+ docs/hr, this is 5-10x faster than individual Cypher queries.
+    async fn write_invoice_batch(&self, invoices: &[Invoice]) -> Result<u64, GraphError>;
+
+    /// Batch-write multiple contracts via delta fast path.
+    async fn write_contract_batch(&self, contracts: &[Contract]) -> Result<u64, GraphError>;
 }
 
 #[cfg(test)]

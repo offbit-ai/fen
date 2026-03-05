@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fen_events::LocalEventBus;
-use fen_graph::KyuGraphStore;
+use fen_graph::{GraphStore, KyuGraphStore};
 use fen_ingestion::IngestionPipeline;
 use fen_ml::{
     DocumentIntelligence, DocumentIntelligenceConfig, EmbeddingModelConfig, LayoutModelConfig,
@@ -42,6 +42,9 @@ pub struct AppState {
     // ML document intelligence pipeline
     /// Optional ML pipeline (requires ONNX model files)
     pub document_intelligence: Option<Arc<DocumentIntelligence>>,
+    // Knowledge graph
+    /// Optional knowledge graph for entity relationships and Cypher queries
+    pub graph_store: Option<Arc<dyn GraphStore>>,
     // Authentication configuration
     /// JWT authentication config
     pub auth_config: AuthConfig,
@@ -307,6 +310,7 @@ impl AppState {
             rule_engine,
             anomaly_store,
             document_intelligence,
+            graph_store: graph_store.map(|g| g as Arc<dyn GraphStore>),
             fulltext_index,
             warm_storage,
             query_engine,
