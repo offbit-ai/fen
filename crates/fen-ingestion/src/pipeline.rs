@@ -9,6 +9,9 @@ use image::DynamicImage;
 
 use crate::contract::{ContractParser, GlinerContractParser, MlContractParser};
 use crate::error::IngestionError;
+use crate::extraction_log::{
+    ExtractionEvent, ExtractionLogConfig, ExtractionLogger, ExtractionSource,
+};
 use crate::pdf::{ExtractedPdf, GlinerInvoiceParser, InvoiceParser, MlInvoiceParser, PdfExtractor};
 
 /// Result of ingesting an invoice, including optional embedding for warm-tier indexing.
@@ -34,6 +37,8 @@ pub struct IngestionConfig {
     pub gliner_skip_rendering: bool,
     /// Minimum text length to skip OCR (if text extraction succeeds)
     pub min_text_for_skip_ocr: usize,
+    /// Configuration for extraction event logging (GLiNER fine-tuning data)
+    pub extraction_log: ExtractionLogConfig,
 }
 
 impl Default for IngestionConfig {
@@ -43,6 +48,7 @@ impl Default for IngestionConfig {
             use_gliner: true,
             gliner_skip_rendering: true,
             min_text_for_skip_ocr: 100,
+            extraction_log: ExtractionLogConfig::default(),
         }
     }
 }
@@ -57,6 +63,7 @@ pub struct IngestionPipeline<S: DocumentStore> {
     ml_contract_parser: MlContractParser,
     gliner_contract_parser: GlinerContractParser,
     ml_pipeline: Option<Arc<DocumentIntelligence>>,
+    extraction_logger: Arc<ExtractionLogger>,
     #[cfg(feature = "graph")]
     graph: Option<Arc<dyn GraphStore>>,
     storage: Arc<S>,
@@ -91,6 +98,11 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             use_ml: true,
             ..Default::default()
         };
+        let extraction_logger = Arc::new(
+            ExtractionLogger::new(config.extraction_log.clone())
+                .map_err(|e| IngestionError::Internal(format!("Extraction logger init: {}", e)))?,
+        );
+
         Ok(Self {
             config,
             invoice_parser: InvoiceParser::new(),
@@ -100,6 +112,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             ml_contract_parser: MlContractParser::new(),
             gliner_contract_parser: GlinerContractParser::new(),
             ml_pipeline: Some(ml_pipeline),
+            extraction_logger,
             graph: Some(graph),
             storage,
         })
@@ -111,6 +124,11 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
         config: IngestionConfig,
         ml_pipeline: Option<Arc<DocumentIntelligence>>,
     ) -> Result<Self, IngestionError> {
+        let extraction_logger = Arc::new(
+            ExtractionLogger::new(config.extraction_log.clone())
+                .map_err(|e| IngestionError::Internal(format!("Extraction logger init: {}", e)))?,
+        );
+
         Ok(Self {
             config,
             invoice_parser: InvoiceParser::new(),
@@ -120,6 +138,7 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             ml_contract_parser: MlContractParser::new(),
             gliner_contract_parser: GlinerContractParser::new(),
             ml_pipeline,
+            extraction_logger,
             #[cfg(feature = "graph")]
             graph: None,
             storage,
@@ -220,6 +239,9 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
                 None,
             )
         };
+
+        // Log extraction event for fine-tuning data collection
+        self.log_invoice_extraction(&extracted.text, &invoice, document_id);
 
         tracing::info!(
             document_id = %document_id,
@@ -330,8 +352,34 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
             Some(processed.embeddings.document.clone())
         };
 
-        // Parse invoice from ML results
-        let invoice = self.ml_parser.parse(&processed, document_id)?;
+        // Parse invoice from ML results (with GLiNER + rule engine fallback)
+        let mut invoice = self.ml_parser.parse(&processed, document_id, self.ml_pipeline.as_deref())?;
+
+        // Donut fallback: when primary confidence < 0.5, try vision pipeline
+        if invoice.confidence_score < 0.5 {
+            if let Some(ml) = &self.ml_pipeline {
+                if ml.donut.has_model() {
+                    match ml.process_with_donut(image) {
+                        Ok(donut_output) => {
+                            if let Some(json) = &donut_output.json {
+                                tracing::info!(
+                                    primary_confidence = %invoice.confidence_score,
+                                    "Donut fallback: merging vision pipeline results"
+                                );
+                                crate::pdf::donut_parser::merge_donut_into_invoice(
+                                    &mut invoice,
+                                    json,
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "Donut fallback failed");
+                        }
+                    }
+                }
+            }
+        }
+
         Ok((invoice, embedding))
     }
 
@@ -582,5 +630,37 @@ impl<S: DocumentStore + Send + Sync + 'static> IngestionPipeline<S> {
     #[cfg(feature = "graph")]
     pub fn has_graph(&self) -> bool {
         self.graph.is_some()
+    }
+
+    /// Log an invoice extraction event for GLiNER fine-tuning data collection.
+    fn log_invoice_extraction(
+        &self,
+        text: &str,
+        invoice: &Invoice,
+        document_id: DocumentId,
+    ) {
+        let source = if invoice.confidence_score >= 0.8 {
+            ExtractionSource::LayoutLmv3
+        } else if invoice.confidence_score >= 0.6 {
+            ExtractionSource::GlinerMedium
+        } else {
+            ExtractionSource::RuleEngine
+        };
+
+        let entities = ExtractionLogger::entities_from_invoice(text, invoice);
+        if entities.is_empty() {
+            return;
+        }
+
+        let event = ExtractionEvent {
+            document_id: document_id.to_string(),
+            text: text.to_string(),
+            entities,
+            source,
+            confidence: invoice.confidence_score,
+            timestamp: chrono::Utc::now(),
+        };
+
+        self.extraction_logger.log(&event);
     }
 }

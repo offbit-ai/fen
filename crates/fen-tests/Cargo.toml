@@ -16,6 +16,8 @@ fen-storage = { path = "../fen-storage" }
 fen-ingestion = { path = "../fen-ingestion", features = ["graph"] }
 fen-graph = { path = "../fen-graph" }
 fen-rules = { path = "../fen-rules" }
+fen-ml = { path = "../fen-ml" }
+image.workspace = true
 
 # Async runtime
 tokio.workspace = true

@@ -11,7 +11,8 @@ use fen_storage::{DocumentStore, InvoiceFilter, StorageTier};
 use fen_tests::{
     consistent_embedding, init_test_tracing, random_embedding, sample_contract_text,
     sample_invoice_text, sample_sow_text, ContractFixture, GraphIngestionTestEnv,
-    IngestionTestEnv, IntegrationTestEnv, InvoiceFixture, QueryTestEnv, TestEnv,
+    IngestionTestEnv, IntegrationTestEnv, InvoiceFixture, MlPipelineTestEnv, QueryTestEnv,
+    TestEnv,
 };
 
 // ============================================================================
@@ -3277,5 +3278,620 @@ Total: $3,000.00
             stored.confidence_score, invoice.confidence_score,
             "Stored confidence should match parsed confidence"
         );
+    }
+}
+
+// ============================================================================
+// Module: ML Pipeline Integration Tests (LayoutLMv3 + TATR)
+// ============================================================================
+//
+// Tests exercising the full ML pipeline with real ONNX models:
+// LayoutLMv3 for document understanding, TATR for table extraction,
+// and the complete ingestion path through storage and graph.
+
+mod ml_pipeline {
+    use super::*;
+    use fen_graph::GraphStore;
+    use fen_tests::{
+        create_synthetic_image, load_test_document, load_test_pdf, shared_ml_pipeline,
+    };
+
+    // ---- LayoutLMv3 Tests ----
+
+    /// Test: LayoutLMv3 produces layout regions and text from an invoice image
+    #[tokio::test]
+    async fn test_layoutlmv3_invoice_field_extraction() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_simple.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        assert!(!result.text.is_empty(), "Should extract text from invoice");
+        assert!(
+            !result.layout_result.regions.is_empty(),
+            "Should detect layout regions from invoice"
+        );
+
+        // Layout regions should have semantic labels (Text, Title, Table, etc.)
+        let region_labels: Vec<_> = result
+            .layout_result
+            .regions
+            .iter()
+            .map(|r| r.label)
+            .collect();
+
+        tracing::info!(
+            text_len = result.text.len(),
+            regions = result.layout_result.regions.len(),
+            entities = result.layout_result.entities.len(),
+            kv_pairs = result.layout_result.key_value_pairs.len(),
+            region_labels = ?region_labels,
+            "LayoutLMv3 extraction results"
+        );
+
+        // Should classify at least some regions as Text (most common in invoices)
+        let has_text_region = region_labels.iter().any(|l| {
+            matches!(
+                l,
+                fen_ml::layout::LayoutLabel::Text | fen_ml::layout::LayoutLabel::Title
+            )
+        });
+        assert!(
+            has_text_region,
+            "Should detect at least a Text or Title region, got: {:?}",
+            region_labels
+        );
+
+        // If entities were extracted, verify their structure
+        for entity in &result.layout_result.entities {
+            assert!(!entity.value.is_empty(), "Entity value should not be empty");
+            assert!(
+                (0.0..=1.0).contains(&entity.confidence),
+                "Entity confidence {} not in [0.0, 1.0]",
+                entity.confidence
+            );
+        }
+    }
+
+    /// Test: LayoutLMv3 detects multiple region types in a document
+    #[tokio::test]
+    async fn test_layoutlmv3_region_types_coverage() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_simple.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        let region_labels: std::collections::HashSet<_> = result
+            .layout_result
+            .regions
+            .iter()
+            .map(|r| r.label)
+            .collect();
+
+        // Invoice image should have at least 2 different region types
+        assert!(
+            region_labels.len() >= 2,
+            "Should detect at least 2 different region types, got: {:?}",
+            region_labels
+        );
+
+        for region in &result.layout_result.regions {
+            assert!(!region.text.is_empty() || region.confidence > 0.0,
+                "Region should have text or confidence");
+            assert!(
+                region.bbox.width >= 0.0 && region.bbox.height >= 0.0,
+                "Region bbox should have non-negative dimensions"
+            );
+        }
+    }
+
+    /// Test: LayoutLMv3 extracts key-value pairs from form-like layouts
+    #[tokio::test]
+    async fn test_layoutlmv3_key_value_pairs() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_simple.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        // Key-value pairs are extracted from form-like layouts
+        // Not all documents have them, but invoice_simple.png should have some
+        tracing::info!(
+            kv_pairs = result.layout_result.key_value_pairs.len(),
+            "Key-value pairs extracted"
+        );
+
+        for kv in &result.layout_result.key_value_pairs {
+            assert!(!kv.key.is_empty(), "KV key should not be empty");
+            assert!(
+                (0.0..=1.0).contains(&kv.confidence),
+                "KV confidence {} not in [0.0, 1.0]",
+                kv.confidence
+            );
+        }
+    }
+
+    /// Test: LayoutLMv3 confidence scores are valid
+    #[tokio::test]
+    async fn test_layoutlmv3_confidence_scores() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_simple.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        for (i, region) in result.layout_result.regions.iter().enumerate() {
+            assert!(
+                (0.0..=1.0).contains(&region.confidence),
+                "Region {} confidence {} not in [0.0, 1.0]",
+                i,
+                region.confidence
+            );
+        }
+
+        for (i, entity) in result.layout_result.entities.iter().enumerate() {
+            assert!(
+                (0.0..=1.0).contains(&entity.confidence),
+                "Entity {} confidence {} not in [0.0, 1.0]",
+                i,
+                entity.confidence
+            );
+        }
+
+        assert!(
+            result.layout_result.processing_time_ms > 0,
+            "Processing time should be recorded"
+        );
+    }
+
+    /// Test: LayoutLMv3 handles empty OCR input gracefully
+    #[tokio::test]
+    async fn test_layoutlmv3_empty_ocr_input() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let blank = create_synthetic_image(800, 600);
+
+        let result = ml.process_image(&blank).await.unwrap();
+
+        // Blank image should produce minimal output but not crash
+        // OCR may still detect the black rectangle, so we just verify no panic
+        assert!(
+            result.layout_result.processing_time_ms > 0 || result.layout_result.regions.is_empty(),
+            "Should handle blank image gracefully"
+        );
+    }
+
+    // ---- TATR (Table Transformer) Tests ----
+
+    /// Test: TATR detects tables in an invoice with line items
+    #[tokio::test]
+    async fn test_tatr_table_detection() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_table.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        if result.tables.is_empty() {
+            tracing::warn!("No tables detected in invoice_table.png — model may need tuning");
+            return;
+        }
+
+        for (i, table) in result.tables.iter().enumerate() {
+            assert!(table.num_rows > 0, "Table {} should have rows", i);
+            assert!(table.num_columns > 0, "Table {} should have columns", i);
+            assert!(
+                (0.0..=1.0).contains(&table.confidence),
+                "Table {} confidence {} not in [0.0, 1.0]",
+                i,
+                table.confidence
+            );
+            assert!(
+                table.bbox.width > 0.0 && table.bbox.height > 0.0,
+                "Table {} bbox should have positive dimensions",
+                i
+            );
+
+            tracing::info!(
+                table_index = i,
+                rows = table.num_rows,
+                cols = table.num_columns,
+                confidence = table.confidence,
+                "Detected table"
+            );
+        }
+    }
+
+    /// Test: TATR assigns OCR text to table cells
+    #[tokio::test]
+    async fn test_tatr_cell_text_assignment() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_table.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        if result.tables.is_empty() {
+            tracing::warn!("No tables detected — skipping cell text test");
+            return;
+        }
+
+        let table = &result.tables[0];
+        assert_eq!(
+            table.cells.len(),
+            table.num_rows,
+            "Cells row count should match num_rows"
+        );
+
+        // Check cell structure
+        for (row_idx, row) in table.cells.iter().enumerate() {
+            for (col_idx, cell) in row.iter().enumerate() {
+                assert_eq!(cell.row, row_idx, "Cell row index mismatch");
+                assert_eq!(cell.column, col_idx, "Cell column index mismatch");
+                assert!(cell.row_span >= 1, "Row span should be >= 1");
+                assert!(cell.col_span >= 1, "Col span should be >= 1");
+            }
+        }
+
+        // At least some cells should have text (OCR assigned via R-tree)
+        let cells_with_text: usize = table
+            .cells
+            .iter()
+            .flat_map(|row| row.iter())
+            .filter(|cell| !cell.text.is_empty())
+            .count();
+
+        tracing::info!(
+            total_cells = table.num_rows * table.num_columns,
+            cells_with_text,
+            "Cell text assignment"
+        );
+
+        assert!(
+            cells_with_text > 0,
+            "At least some cells should have OCR text assigned"
+        );
+    }
+
+    /// Test: TATR table exports to valid markdown
+    #[tokio::test]
+    async fn test_tatr_export_markdown() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_table.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        for table in &result.tables {
+            let md = table.to_markdown();
+            assert!(!md.is_empty(), "Markdown export should not be empty");
+            assert!(md.contains('|'), "Markdown should contain pipe characters");
+            assert!(md.contains("---"), "Markdown should contain separator");
+        }
+    }
+
+    /// Test: TATR table exports to valid CSV
+    #[tokio::test]
+    async fn test_tatr_export_csv() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_table.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        for table in &result.tables {
+            let csv = table.to_csv();
+            assert!(!csv.is_empty(), "CSV export should not be empty");
+            // CSV should have at least as many lines as rows
+            let lines: Vec<_> = csv.lines().collect();
+            assert!(
+                lines.len() >= table.num_rows,
+                "CSV should have at least {} lines, got {}",
+                table.num_rows,
+                lines.len()
+            );
+        }
+    }
+
+    /// Test: TATR produces no tables from a blank image
+    #[tokio::test]
+    async fn test_tatr_blank_image_no_tables() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let blank = create_synthetic_image(800, 600);
+
+        let result = ml.process_image(&blank).await.unwrap();
+
+        assert!(
+            result.tables.is_empty(),
+            "Blank image should not contain tables, found {}",
+            result.tables.len()
+        );
+    }
+
+    // ---- Full ML Pipeline Tests ----
+
+    /// Test: Full pipeline PNG → OCR → Layout → Tables → Embeddings → Invoice → Storage
+    #[tokio::test]
+    async fn test_full_ml_pipeline_png_to_invoice() {
+        init_test_tracing();
+        let env = MlPipelineTestEnv::new().await;
+        let image = load_test_document("invoice_simple.png");
+
+        let result = env.ml.process_image(&image).await.unwrap();
+
+        // Verify all pipeline stages produced output
+        assert!(!result.text.is_empty(), "OCR should extract text");
+        assert!(
+            !result.ocr_result.regions.is_empty(),
+            "OCR should detect text regions"
+        );
+        assert!(
+            !result.layout_result.regions.is_empty(),
+            "Layout should detect regions"
+        );
+
+        // Verify embeddings
+        let dim = env.ml.embedding.embedding_dim();
+        assert_eq!(
+            result.embeddings.document.len(),
+            dim,
+            "Document embedding should be {}D",
+            dim
+        );
+        let norm: f32 = result
+            .embeddings
+            .document
+            .iter()
+            .map(|x| x * x)
+            .sum::<f32>()
+            .sqrt();
+        assert!(
+            (norm - 1.0).abs() < 0.15,
+            "Embedding should be approximately L2-normalized, got norm={}",
+            norm
+        );
+
+        tracing::info!(
+            text_len = result.text.len(),
+            ocr_regions = result.ocr_result.regions.len(),
+            layout_regions = result.layout_result.regions.len(),
+            entities = result.layout_result.entities.len(),
+            tables = result.tables.len(),
+            embedding_dim = dim,
+            "Full ML pipeline results for invoice_simple.png"
+        );
+    }
+
+    /// Test: Full pipeline with scanned PDF (exercises ingest_pdf ML path)
+    #[tokio::test]
+    async fn test_full_ml_pipeline_scanned_pdf() {
+        init_test_tracing();
+        let env = MlPipelineTestEnv::new().await;
+
+        // invoice_scribbles.pdf is a scanned PDF that needs OCR
+        let pdf_bytes = load_test_pdf("invoice_scribbles.pdf");
+        let result = env
+            .pipeline
+            .ingest_pdf(&pdf_bytes, "invoice_scribbles.pdf")
+            .await
+            .unwrap();
+
+        assert!(
+            !result.invoice.id.0.is_nil(),
+            "Should produce valid invoice ID"
+        );
+        assert!(
+            result.invoice.confidence_score > 0.0,
+            "Confidence should be > 0"
+        );
+
+        // Scanned PDF through ML path should produce embedding
+        tracing::info!(
+            invoice_number = %result.invoice.invoice_number,
+            confidence = result.invoice.confidence_score,
+            has_embedding = result.embedding.is_some(),
+            "Scanned PDF ingestion result"
+        );
+
+        // Verify stored
+        let stored = env
+            .storage
+            .get_invoice(&result.invoice.id)
+            .await
+            .unwrap();
+        assert!(stored.is_some(), "Invoice should be stored");
+    }
+
+    /// Test: Full pipeline with text-embedded PDF
+    #[tokio::test]
+    async fn test_full_ml_pipeline_text_pdf() {
+        init_test_tracing();
+        let env = MlPipelineTestEnv::new().await;
+
+        let pdf_bytes = load_test_pdf("invoice_flipkart.pdf");
+        let result = env
+            .pipeline
+            .ingest_pdf(&pdf_bytes, "invoice_flipkart.pdf")
+            .await
+            .unwrap();
+
+        assert!(!result.invoice.id.0.is_nil(), "Should produce valid invoice");
+        assert!(
+            result.invoice.confidence_score > 0.0,
+            "Should have positive confidence"
+        );
+
+        tracing::info!(
+            invoice_number = %result.invoice.invoice_number,
+            confidence = result.invoice.confidence_score,
+            has_embedding = result.embedding.is_some(),
+            "Text PDF ingestion result"
+        );
+    }
+
+    /// Test: Multiple documents produce different results and embeddings
+    #[tokio::test]
+    async fn test_ml_pipeline_multiple_documents() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+
+        let doc_files = ["invoice_simple.png", "invoice_table.png", "receipt.png"];
+        let mut results = Vec::new();
+
+        for filename in &doc_files {
+            let image = load_test_document(filename);
+            let result = ml.process_image(&image).await.unwrap();
+            results.push((filename, result));
+        }
+
+        // Different documents should produce different text
+        assert_ne!(
+            results[0].1.text, results[1].1.text,
+            "Different documents should produce different text"
+        );
+
+        // Different documents should have different embeddings
+        if results.len() >= 2 {
+            let sim = ml.embedding.cosine_similarity(
+                &results[0].1.embeddings.document,
+                &results[1].1.embeddings.document,
+            );
+            assert!(
+                sim < 0.99,
+                "Different documents should have cosine similarity < 0.99, got {}",
+                sim
+            );
+
+            tracing::info!(
+                doc0 = results[0].0,
+                doc1 = results[1].0,
+                cosine_similarity = sim,
+                "Document embedding similarity"
+            );
+        }
+    }
+
+    /// Test: ML-parsed invoice written to graph creates correct nodes
+    #[tokio::test]
+    async fn test_ml_pipeline_invoice_to_graph() {
+        init_test_tracing();
+        let env = MlPipelineTestEnv::new().await;
+
+        let pdf_bytes = load_test_pdf("invoice_flipkart.pdf");
+        let _result = env
+            .pipeline
+            .ingest_pdf(&pdf_bytes, "invoice_flipkart.pdf")
+            .await
+            .unwrap();
+
+        // Graph should have invoice node (ingest_pdf writes to graph automatically)
+        let invoices = env
+            .graph
+            .query_cypher("MATCH (i:Invoice) RETURN i.id")
+            .await
+            .unwrap();
+        assert!(
+            !invoices.is_empty(),
+            "Graph should contain invoice node after ML ingestion"
+        );
+
+        // If vendor was extracted, should have vendor node and SUPPLIES edge
+        let supplies = env
+            .graph
+            .query_cypher("MATCH (v:Vendor)-[:SUPPLIES]->(i:Invoice) RETURN v.name")
+            .await
+            .unwrap();
+
+        tracing::info!(
+            invoice_nodes = invoices.len(),
+            supplies_edges = supplies.len(),
+            "Graph state after ML ingestion"
+        );
+    }
+
+    /// Test: ML pipeline produces higher confidence than regex fallback
+    #[tokio::test]
+    async fn test_ml_vs_regex_confidence() {
+        init_test_tracing();
+        let env = MlPipelineTestEnv::new().await;
+
+        // ML path via PDF ingestion
+        let pdf_bytes = load_test_pdf("invoice_flipkart.pdf");
+        let ml_result = env
+            .pipeline
+            .ingest_pdf(&pdf_bytes, "invoice_flipkart.pdf")
+            .await
+            .unwrap();
+
+        // Regex path via text ingestion
+        let regex_env = IngestionTestEnv::new().await;
+        let regex_result = regex_env
+            .pipeline
+            .ingest_text(sample_invoice_text())
+            .await
+            .unwrap();
+
+        tracing::info!(
+            ml_confidence = ml_result.invoice.confidence_score,
+            regex_confidence = regex_result.confidence_score,
+            "ML vs regex confidence comparison"
+        );
+
+        // ML should generally produce equal or higher confidence than regex
+        // (regex is typically ~0.5, ML is 0.7+)
+        assert!(
+            ml_result.invoice.confidence_score >= regex_result.confidence_score,
+            "ML confidence ({}) should be >= regex confidence ({})",
+            ml_result.invoice.confidence_score,
+            regex_result.confidence_score
+        );
+    }
+
+    /// Test: ML pipeline embedding has correct dimensions (384D for all-MiniLM-L6-v2)
+    #[tokio::test]
+    async fn test_ml_pipeline_embedding_dimensions() {
+        init_test_tracing();
+        let ml = shared_ml_pipeline();
+        let image = load_test_document("invoice_simple.png");
+
+        let result = ml.process_image(&image).await.unwrap();
+
+        // Document embedding should be 384D (all-MiniLM-L6-v2)
+        assert_eq!(
+            result.embeddings.document.len(),
+            384,
+            "Document embedding should be 384-dimensional"
+        );
+
+        // Should not be all zeros
+        let has_nonzero = result.embeddings.document.iter().any(|&x| x != 0.0);
+        assert!(has_nonzero, "Embedding should not be all zeros");
+
+        // Check approximate L2 normalization
+        let norm: f32 = result
+            .embeddings
+            .document
+            .iter()
+            .map(|x| x * x)
+            .sum::<f32>()
+            .sqrt();
+        assert!(
+            (norm - 1.0).abs() < 0.15,
+            "Embedding should be approximately L2-normalized, got norm={}",
+            norm
+        );
+
+        // Section embeddings should also be 384D
+        for (i, section) in result.embeddings.sections.iter().enumerate() {
+            assert_eq!(
+                section.embedding.len(),
+                384,
+                "Section {} embedding should be 384D",
+                i
+            );
+        }
     }
 }

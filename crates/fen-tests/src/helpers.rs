@@ -530,6 +530,184 @@ impl GraphIngestionTestEnv {
     }
 }
 
+/// Resolve the ONNX models directory.
+/// Checks `FEN_TEST_MODELS_DIR` env var, falls back to `{repo_root}/models`.
+pub fn models_dir() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("FEN_TEST_MODELS_DIR") {
+        std::path::PathBuf::from(dir)
+    } else {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest.join("../../models")
+    }
+}
+
+/// Resolve the test documents directory.
+/// Checks `FEN_TEST_DOCUMENTS_DIR` env var, falls back to fen-ml fixtures.
+pub fn documents_dir() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("FEN_TEST_DOCUMENTS_DIR") {
+        std::path::PathBuf::from(dir)
+    } else {
+        let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        manifest.join("../fen-ml/tests/fixtures/documents")
+    }
+}
+
+/// Panics if required models are missing. Returns the models directory.
+pub fn require_models() -> std::path::PathBuf {
+    let dir = models_dir();
+    assert!(
+        dir.exists(),
+        "Models directory not found at {}. Set FEN_TEST_MODELS_DIR.",
+        dir.display()
+    );
+    for file in &[
+        "ocr_detection.onnx",
+        "ocr_recognition.onnx",
+        "layout_model.onnx",
+        "layout_tokenizer.json",
+        "table_detection.onnx",
+        "table_structure.onnx",
+        "embedding_model.onnx",
+        "tokenizer.json",
+    ] {
+        assert!(
+            dir.join(file).exists(),
+            "Required model file {} not found in {}.",
+            file,
+            dir.display()
+        );
+    }
+    dir
+}
+
+/// Load a test document image by filename.
+pub fn load_test_document(filename: &str) -> image::DynamicImage {
+    let path = documents_dir().join(filename);
+    assert!(path.exists(), "Test document not found: {}", path.display());
+    image::ImageReader::open(&path)
+        .unwrap_or_else(|e| panic!("Failed to open image {}: {}", path.display(), e))
+        .with_guessed_format()
+        .unwrap_or_else(|e| panic!("Failed to guess format for {}: {}", path.display(), e))
+        .decode()
+        .unwrap_or_else(|e| panic!("Failed to decode image {}: {}", path.display(), e))
+}
+
+/// Load a test PDF as raw bytes.
+pub fn load_test_pdf(filename: &str) -> Vec<u8> {
+    let path = documents_dir().join(filename);
+    assert!(path.exists(), "Test PDF not found: {}", path.display());
+    std::fs::read(&path)
+        .unwrap_or_else(|e| panic!("Failed to read PDF {}: {}", path.display(), e))
+}
+
+/// Create a small synthetic test image (white background with a black rectangle).
+pub fn create_synthetic_image(width: u32, height: u32) -> image::DynamicImage {
+    use image::{Rgb, RgbImage};
+    let mut img = RgbImage::new(width, height);
+    for pixel in img.pixels_mut() {
+        *pixel = Rgb([255, 255, 255]);
+    }
+    for x in 50..200.min(width) {
+        for y in 50..80.min(height) {
+            img.put_pixel(x, y, Rgb([0, 0, 0]));
+        }
+    }
+    image::DynamicImage::ImageRgb8(img)
+}
+
+/// Load ONNX models exactly once and share across all tests.
+///
+/// Models total ~795 MB (layout 478M, table 220M, embedding 86M, OCR 11M).
+/// Loading per-test would OOM with parallel execution. This singleton ensures
+/// a single copy in memory regardless of test parallelism.
+static SHARED_ML_PIPELINE: std::sync::OnceLock<Arc<fen_ml::DocumentIntelligence>> =
+    std::sync::OnceLock::new();
+
+/// Get or initialize the shared ML pipeline (thread-safe, loaded once).
+pub fn shared_ml_pipeline() -> Arc<fen_ml::DocumentIntelligence> {
+    SHARED_ML_PIPELINE
+        .get_or_init(|| {
+            let models = require_models();
+            let config = fen_ml::DocumentIntelligenceConfig {
+                ocr: fen_ml::OcrConfig {
+                    detection_model_path: Some("ocr_detection.onnx".to_string()),
+                    recognition_model_path: Some("ocr_recognition.onnx".to_string()),
+                    ..Default::default()
+                },
+                layout: fen_ml::LayoutModelConfig {
+                    model_path: Some("layout_model.onnx".to_string()),
+                    ..Default::default()
+                },
+                table: fen_ml::TableExtractorConfig {
+                    detection_model_path: Some("table_detection.onnx".to_string()),
+                    structure_model_path: Some("table_structure.onnx".to_string()),
+                    ..Default::default()
+                },
+                embedding: fen_ml::EmbeddingModelConfig {
+                    model_path: Some("embedding_model.onnx".to_string()),
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            Arc::new(
+                fen_ml::DocumentIntelligence::with_models(config, &models)
+                    .expect("Failed to create ML pipeline with models"),
+            )
+        })
+        .clone()
+}
+
+/// Test environment with full ML pipeline (LayoutLMv3, TATR, OCR, Embeddings).
+///
+/// Exercises the ML-enhanced ingestion path: image/PDF → OCR → Layout → Tables → Embeddings → Invoice → Storage → Graph.
+/// Uses a shared singleton for ONNX models to avoid OOM from parallel test loading.
+pub struct MlPipelineTestEnv {
+    /// Document intelligence pipeline (shared singleton)
+    pub ml: Arc<fen_ml::DocumentIntelligence>,
+    /// Ingestion pipeline wired with ML
+    pub pipeline: Arc<IngestionPipeline<RedbStorage>>,
+    /// Direct access to storage
+    pub storage: Arc<RedbStorage>,
+    /// Knowledge graph store
+    pub graph: Arc<fen_graph::KyuGraphStore>,
+    /// Temporary directory
+    _temp_dir: TempDir,
+}
+
+impl MlPipelineTestEnv {
+    /// Create a new ML pipeline test environment.
+    /// Models are loaded once and shared across all test instances.
+    pub async fn new() -> Self {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        let ml = shared_ml_pipeline();
+
+        let storage =
+            Arc::new(RedbStorage::in_memory().expect("Failed to create in-memory storage"));
+
+        let graph = Arc::new(
+            fen_graph::KyuGraphStore::in_memory().expect("Failed to create in-memory graph"),
+        );
+
+        let pipeline = Arc::new(
+            IngestionPipeline::with_ml_and_graph(
+                storage.clone(),
+                ml.clone(),
+                graph.clone() as Arc<dyn fen_graph::GraphStore>,
+            )
+            .expect("Failed to create ML ingestion pipeline"),
+        );
+
+        Self {
+            ml,
+            pipeline,
+            storage,
+            graph,
+            _temp_dir: temp_dir,
+        }
+    }
+}
+
 /// Initialize tracing for tests (call once at the start of test suite)
 pub fn init_test_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

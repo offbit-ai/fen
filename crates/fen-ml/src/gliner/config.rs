@@ -6,6 +6,9 @@ pub struct GlinerModelConfig {
     /// Path to ONNX model file
     pub model_path: Option<String>,
 
+    /// Path to fine-tuned ONNX model (overrides model_path when present)
+    pub finetuned_model_path: Option<String>,
+
     /// Path to tokenizer.json
     pub tokenizer_path: Option<String>,
 
@@ -26,6 +29,7 @@ impl GlinerModelConfig {
     pub fn medium() -> Self {
         Self {
             model_path: None,
+            finetuned_model_path: None,
             tokenizer_path: None,
             max_seq_length: 384,
             max_span_width: 12,
@@ -37,12 +41,20 @@ impl GlinerModelConfig {
     pub fn large() -> Self {
         Self {
             model_path: None,
+            finetuned_model_path: None,
             tokenizer_path: None,
             max_seq_length: 512,
             max_span_width: 12,
             threshold: 0.4,
             model_name: "gliner-large-v2.1".to_string(),
         }
+    }
+
+    /// Returns the effective model path, preferring fine-tuned over base.
+    pub fn effective_model_path(&self) -> Option<&str> {
+        self.finetuned_model_path
+            .as_deref()
+            .or(self.model_path.as_deref())
     }
 }
 

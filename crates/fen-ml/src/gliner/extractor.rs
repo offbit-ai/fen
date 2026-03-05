@@ -34,7 +34,7 @@ impl GlinerExtractor {
         let models_dir = models_dir.as_ref();
 
         let medium = if let (Some(model), Some(tok)) =
-            (&config.medium.model_path, &config.medium.tokenizer_path)
+            (config.medium.effective_model_path(), config.medium.tokenizer_path.as_deref())
         {
             GlinerModel::with_model(
                 config.medium.clone(),
@@ -47,7 +47,7 @@ impl GlinerExtractor {
         };
 
         let large = if let (Some(model), Some(tok)) =
-            (&config.large.model_path, &config.large.tokenizer_path)
+            (config.large.effective_model_path(), config.large.tokenizer_path.as_deref())
         {
             GlinerModel::with_model(
                 config.large.clone(),

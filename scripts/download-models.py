@@ -116,6 +116,77 @@ MODELS = [
         "repo_id": "sentence-transformers/all-MiniLM-L6-v2",
         "description": "MiniLM tokenizer",
     },
+    # GLiNER Medium (zero-shot NER, first tier)
+    {
+        "name": "gliner_medium",
+        "output": "gliner_medium.onnx",
+        "source": "urchade/gliner_medium-v2.1",
+        "method": "optimum_export",
+        "repo_id": "urchade/gliner_medium-v2.1",
+        "task": "token-classification",
+        "opset": 17,
+        "description": "GLiNER medium zero-shot NER model (~200 MB)",
+    },
+    # GLiNER Medium tokenizer
+    {
+        "name": "gliner_medium_tokenizer",
+        "output": "gliner_tokenizer.json",
+        "source": "urchade/gliner_medium-v2.1",
+        "method": "tokenizer",
+        "repo_id": "urchade/gliner_medium-v2.1",
+        "description": "GLiNER medium tokenizer",
+    },
+    # GLiNER Large (zero-shot NER, escalation tier)
+    {
+        "name": "gliner_large",
+        "output": "gliner_large.onnx",
+        "source": "urchade/gliner_large-v2.1",
+        "method": "optimum_export",
+        "repo_id": "urchade/gliner_large-v2.1",
+        "task": "token-classification",
+        "opset": 17,
+        "description": "GLiNER large zero-shot NER model (~400 MB)",
+    },
+    # GLiNER Large tokenizer
+    {
+        "name": "gliner_large_tokenizer",
+        "output": "gliner_large_tokenizer.json",
+        "source": "urchade/gliner_large-v2.1",
+        "method": "tokenizer",
+        "repo_id": "urchade/gliner_large-v2.1",
+        "description": "GLiNER large tokenizer",
+    },
+    # Donut encoder (vision encoder-decoder, parallel pipeline)
+    {
+        "name": "donut_encoder",
+        "output": "donut_encoder.onnx",
+        "source": "naver-clova-ix/donut-base-finetuned-cord-v2",
+        "method": "optimum_export",
+        "repo_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
+        "task": "vision2seq-lm",
+        "opset": 17,
+        "description": "Donut vision encoder (Swin Transformer, ~200 MB)",
+    },
+    # Donut decoder
+    {
+        "name": "donut_decoder",
+        "output": "donut_decoder.onnx",
+        "source": "naver-clova-ix/donut-base-finetuned-cord-v2",
+        "method": "optimum_export",
+        "repo_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
+        "task": "vision2seq-lm",
+        "opset": 17,
+        "description": "Donut BART decoder (~200 MB)",
+    },
+    # Donut tokenizer (XLMRoberta-based)
+    {
+        "name": "donut_tokenizer",
+        "output": "donut_tokenizer.json",
+        "source": "naver-clova-ix/donut-base-finetuned-cord-v2",
+        "method": "tokenizer",
+        "repo_id": "naver-clova-ix/donut-base-finetuned-cord-v2",
+        "description": "Donut XLMRoberta tokenizer",
+    },
 ]
 
 

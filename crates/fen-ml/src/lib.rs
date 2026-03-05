@@ -6,6 +6,7 @@
 //! - Table extraction using TATR-style detection
 //! - Document embeddings for semantic search
 
+pub mod donut;
 pub mod embedding;
 pub mod error;
 pub mod gliner;
@@ -13,6 +14,7 @@ pub mod layout;
 pub mod ocr;
 pub mod table;
 
+pub use donut::{DonutModel, DonutModelConfig, DonutOutput};
 pub use embedding::{DocumentEmbeddings, EmbeddingModel, EmbeddingModelConfig};
 pub use error::MlError;
 pub use gliner::{
@@ -44,6 +46,7 @@ pub struct DocumentIntelligenceConfig {
     pub table: TableExtractorConfig,
     pub embedding: EmbeddingModelConfig,
     pub gliner: GlinerConfig,
+    pub donut: DonutModelConfig,
 }
 
 /// Complete document intelligence pipeline
@@ -53,6 +56,7 @@ pub struct DocumentIntelligence {
     pub table: TableExtractor,
     pub embedding: EmbeddingModel,
     pub gliner: GlinerExtractor,
+    pub donut: DonutModel,
 }
 
 impl DocumentIntelligence {
@@ -64,6 +68,7 @@ impl DocumentIntelligence {
             table: TableExtractor::new(config.table)?,
             embedding: EmbeddingModel::new(config.embedding)?,
             gliner: GlinerExtractor::new(config.gliner)?,
+            donut: DonutModel::new(config.donut)?,
         })
     }
 
@@ -156,13 +161,24 @@ impl DocumentIntelligence {
 
         let gliner = GlinerExtractor::with_models(config.gliner, models_dir)?;
 
+        let donut = DonutModel::with_models(config.donut, models_dir)?;
+
         Ok(Self {
             ocr,
             layout,
             table,
             embedding,
             gliner,
+            donut,
         })
+    }
+
+    /// Process a document image using the Donut vision pipeline (no OCR needed).
+    pub fn process_with_donut(
+        &self,
+        image: &image::DynamicImage,
+    ) -> Result<DonutOutput, MlError> {
+        self.donut.process(image, None)
     }
 
     /// Extract entities from text using GLiNER (no image rendering needed)
@@ -257,5 +273,6 @@ mod tests {
         assert!(!di.table.has_models());
         assert!(!di.embedding.has_model());
         assert!(!di.gliner.has_model());
+        assert!(!di.donut.has_model());
     }
 }

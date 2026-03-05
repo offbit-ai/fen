@@ -19,41 +19,59 @@ Fen automatically ingests, parses, and analyzes invoices and contracts at scale 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              INGESTION TIER                                      │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐│
-│  │ PDF Parser  │  │ OCR Engine  │  │ Layout Model│  │ Table Transformer       ││
-│  │ (pdfium)    │→ │ (PaddleOCR) │→ │ (LayoutLMv3)│→ │ (TATR + Structure)      ││
-│  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────────────────┘│
+│                         INGESTION TIER (fen-ingestion)                            │
+│                                                                                  │
+│  ┌─────────────┐                                                                 │
+│  │ PDF Parser  │──→ text + rendered pages                                        │
+│  │ (pdfium)    │                                                                 │
+│  └─────────────┘       │                                                         │
+│                        ├──────────────────────────────────────┐                   │
+│                        ▼                                      ▼                   │
+│  ┌──── Text Path (fastest) ──────┐   ┌──── Image Path (scanned docs) ──────────┐│
+│  │                                │   │                                          ││
+│  │  ┌───────────────────────┐    │   │  ┌───────────┐  ┌────────────────────┐  ││
+│  │  │ GLiNER Zero-Shot NER  │    │   │  │ PaddleOCR │→ │ LayoutLMv3         │  ││
+│  │  │ Medium → Large tier   │    │   │  │ (PP-OCRv4)│  │ (layout + entities)│  ││
+│  │  └───────────────────────┘    │   │  └───────────┘  └────────────────────┘  ││
+│  │                                │   │       │                │                ││
+│  └────────────┬───────────────────┘   │       ▼                ▼                ││
+│               │                       │  ┌─────────┐  ┌────────────────────┐   ││
+│               │                       │  │  TATR   │  │ Donut (fallback)   │   ││
+│               │                       │  │ (tables)│  │ image→JSON <0.5    │   ││
+│               │                       │  └─────────┘  └────────────────────┘   ││
+│               │                       └──────────┬──────────────────────────────┘│
+│               └──────────────┬───────────────────┘                               │
+│                              ▼                                                   │
+│  ┌──── Entity Extraction (5-tier per field) ────────────────────────────────────┐│
+│  │  LayoutLMv3 entities → KV pairs → GLiNER → Rule Engine → Regex              ││
+│  └──────────────────────────────────────────────────────────────────────────────┘│
+│                              │                                                   │
+│  ┌──── Post-Extraction ─────┼───────────────────────────────────────────────────┐│
+│  │  ┌─────────────────┐  ┌──┴──────────────┐  ┌─────────────────────────────┐  ││
+│  │  │ Embedding Gen   │  │ Invoice/Contract│  │ Extraction Logger (JSONL)   │  ││
+│  │  │ (MiniLM-L6-v2)  │  │ Struct Builder  │  │ → GLiNER fine-tuning data   │  ││
+│  │  └─────────────────┘  └─────────────────┘  └─────────────────────────────┘  ││
+│  └──────────────────────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────────────────────┘
                                         │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                          PROCESSING TIER (Stateless)                             │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │                    Document Processing Workers                            │  │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │  │
-│  │  │ Normalizer  │  │ Embedding   │  │ Entity      │  │ Validation  │     │  │
-│  │  │ Service     │  │ Generator   │  │ Extractor   │  │ Engine      │     │  │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘     │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                            STORAGE TIER (Distributed)                            │
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────────────┐ │
-│  │   Hot Storage   │  │  Warm Storage   │  │       Cold Storage              │ │
-│  │   (redb)        │  │   (LanceDB)     │  │   (DataFusion + Parquet/S3)    │ │
-│  │   < 30 days     │  │   30-365 days   │  │   > 365 days                   │ │
-│  │   Sub-ms reads  │  │   < 10ms reads  │  │   < 100ms reads                │ │
-│  └─────────────────┘  └─────────────────┘  └─────────────────────────────────┘ │
-│  ┌─────────────────────────────────────┐  ┌─────────────────────────────────┐ │
-│  │        Anomaly Store (redb)         │  │      Baseline Store (redb)      │ │
-│  │  Historical anomaly records with    │  │  Vendor baselines with stats,   │ │
-│  │  z-scores, percentiles, trends      │  │  rolling windows, caching       │ │
-│  └─────────────────────────────────────┘  └─────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────────────────────┘
-                                        │
+                          ┌─────────────┴─────────────┐
+                          ▼                           ▼
+┌──────────────────────────────────┐ ┌────────────────────────────────────────────┐
+│    KNOWLEDGE GRAPH (fen-graph)   │ │         STORAGE TIER (Distributed)          │
+│  ┌────────────────────────────┐  │ │                                            │
+│  │ KyuGraph (pure Rust)      │  │ │ ┌──────────────┐ ┌──────────────┐ ┌──────┐│
+│  │ Vendor ──→ Invoice        │  │ │ │ Hot Storage  │ │ Warm Storage │ │ Cold ││
+│  │ Vendor ──→ Contract       │  │ │ │ (redb)      │ │ (LanceDB)   │ │Parquet││
+│  │ Invoice ──→ LineItem      │  │ │ │ < 30 days   │ │ 30-365 days │ │ >365d ││
+│  │ Invoice ──→ Contract      │  │ │ │ Sub-ms      │ │ < 10ms      │ │<100ms ││
+│  │ + RDF export (ext-rdf)    │  │ │ └──────────────┘ └──────────────┘ └──────┘│
+│  └────────────────────────────┘  │ │ ┌───────────────────┐ ┌─────────────────┐│
+└──────────────────────────────────┘ │ │ Anomaly Store     │ │ Baseline Store  ││
+                          │          │ │ (redb, z-scores)  │ │ (redb, rolling) ││
+                          │          │ └───────────────────┘ └─────────────────┘│
+                          │          └────────────────────────────────────────────┘
+                          │                           │
+                          └─────────────┬─────────────┘
                                         ▼
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                         QUERY & DETECTION TIER                                   │
@@ -112,8 +130,9 @@ Fen automatically ingests, parses, and analyzes invoices and contracts at scale 
 |-------|--------|-------------|
 | `fen-core` | [![fen-core](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-core)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Domain models (Invoice, Contract, Party, Anomaly) with serde serialization |
 | `fen-storage` | [![fen-storage](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-storage)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Hot tier (redb), warm tier (LanceDB), query engine, cache |
-| `fen-ingestion` | [![fen-ingestion](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-ingestion)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | PDF text extraction (pdfium), regex + ML-based invoice parsing |
-| `fen-ml` | [![fen-ml](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-ml)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Document intelligence: LayoutLMv3, embeddings, OCR, table extraction |
+| `fen-ingestion` | [![fen-ingestion](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-ingestion)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Tiered document parsing (GLiNER → ML → Regex), Donut fallback, extraction logging |
+| `fen-ml` | [![fen-ml](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-ml)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Document intelligence: OCR, LayoutLMv3, TATR, GLiNER NER, Donut vision, embeddings |
+| `fen-graph` | [![fen-graph](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-graph)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Knowledge graph (KyuGraph) with RDF support for entity relationships |
 | `fen-rules` | [![fen-rules](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-rules)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | GoRules Zen engine + structural validations |
 | `fen-api` | [![fen-api](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-api)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | REST endpoints (axum) for document upload, query, and validation |
 | `fen-events` | [![fen-events](https://github.com/offbit-ai/fen/actions/workflows/crates.yml/badge.svg?branch=main&job=fen-events)](https://github.com/offbit-ai/fen/actions/workflows/crates.yml) | Event streaming with Kafka support and protobuf schemas |
