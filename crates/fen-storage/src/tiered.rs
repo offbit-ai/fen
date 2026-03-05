@@ -241,6 +241,33 @@ impl TieredStorage {
         })
     }
 
+    /// Create in-memory tiered storage with a pre-existing warm storage backend.
+    ///
+    /// Useful for tests that want to share a single LanceDB instance to avoid
+    /// repeated filesystem initialization overhead.
+    pub async fn in_memory_with_warm(
+        warm: Arc<RwLock<LanceStorage>>,
+    ) -> Result<Self, StorageError> {
+        let config = TieredStorageConfig {
+            hot_backend: HotStorageBackend::in_memory(),
+            warm_backend: WarmStorageBackend::embedded("shared".to_string()),
+            cache_max_entries: 1000,
+            ..Default::default()
+        };
+
+        let hot = Arc::new(RedbStorage::in_memory()?);
+        let cache = Arc::new(QueryCache::new(config.cache_max_entries));
+        let location_index = Arc::new(DocumentLocationIndex::new());
+
+        Ok(Self {
+            config,
+            hot,
+            warm,
+            cache,
+            location_index,
+        })
+    }
+
     /// Determine the appropriate tier for a date
     fn determine_tier(&self, date: NaiveDate) -> StorageTier {
         let today = Utc::now().date_naive();

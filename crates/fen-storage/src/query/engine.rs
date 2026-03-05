@@ -187,10 +187,23 @@ impl QueryEngine {
         warm_storage: LanceStorage,
         config: QueryEngineConfig,
     ) -> Self {
+        Self::with_shared_warm(
+            hot_storage,
+            Arc::new(tokio::sync::RwLock::new(warm_storage)),
+            config,
+        )
+    }
+
+    /// Create a new query engine with a shared warm storage backend
+    pub fn with_shared_warm(
+        hot_storage: Arc<RedbStorage>,
+        warm_storage: Arc<tokio::sync::RwLock<LanceStorage>>,
+        config: QueryEngineConfig,
+    ) -> Self {
         Self {
             config,
             hot_storage,
-            warm_storage: Arc::new(tokio::sync::RwLock::new(warm_storage)),
+            warm_storage,
             cache: Arc::new(QueryCache::new(10000)),
             location_index: Arc::new(DocumentLocationIndex::new()),
         }

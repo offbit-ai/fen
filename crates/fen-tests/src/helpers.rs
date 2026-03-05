@@ -10,6 +10,37 @@ use fen_storage::{
     TieredStorageConfig, WarmStorageBackend,
 };
 
+/// Shared LanceDB warm storage instance, initialized once across all tests.
+///
+/// LanceDB filesystem initialization (~1.9s per instance) was the bottleneck
+/// causing 128 tests × 1.9s = ~244s total. Sharing one instance eliminates this.
+struct SharedWarm {
+    storage: Arc<tokio::sync::RwLock<fen_storage::LanceStorage>>,
+    _temp_dir: TempDir,
+}
+
+static SHARED_WARM_STORAGE: tokio::sync::OnceCell<SharedWarm> =
+    tokio::sync::OnceCell::const_new();
+
+/// Get or initialize the shared LanceDB warm storage (async, initialized once).
+async fn shared_warm_storage() -> Arc<tokio::sync::RwLock<fen_storage::LanceStorage>> {
+    SHARED_WARM_STORAGE
+        .get_or_init(|| async {
+            let temp_dir = TempDir::new().expect("Failed to create temp dir for shared warm storage");
+            let warm_path = temp_dir.path().join("shared_warm");
+            let storage = fen_storage::LanceStorage::new(&warm_path)
+                .await
+                .expect("Failed to create shared warm storage");
+            SharedWarm {
+                storage: Arc::new(tokio::sync::RwLock::new(storage)),
+                _temp_dir: temp_dir,
+            }
+        })
+        .await
+        .storage
+        .clone()
+}
+
 /// Test environment containing all initialized components
 pub struct TestEnv {
     /// Tiered storage for hot/warm data
@@ -25,8 +56,9 @@ impl TestEnv {
     pub async fn new() -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
+        let warm = shared_warm_storage().await;
         let storage = Arc::new(
-            TieredStorage::in_memory()
+            TieredStorage::in_memory_with_warm(warm)
                 .await
                 .expect("Failed to create in-memory storage"),
         );
@@ -138,17 +170,12 @@ impl QueryTestEnv {
     pub async fn new() -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        let warm_path = temp_dir.path().join("warm");
-
         let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
 
-        let warm_storage = fen_storage::LanceStorage::new(&warm_path)
-            .await
-            .expect("Failed to create warm storage");
-
-        let query_engine = QueryEngine::new(
+        let warm = shared_warm_storage().await;
+        let query_engine = QueryEngine::with_shared_warm(
             hot_storage.clone(),
-            warm_storage,
+            warm,
             QueryEngineConfig::default(),
         );
 
@@ -179,19 +206,12 @@ impl QueryExecutorTestEnv {
     pub async fn new() -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        let warm_path = temp_dir.path().join("warm");
-        let fulltext_path = temp_dir.path().join("fulltext");
-
         let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
 
-        let warm_storage = Arc::new(tokio::sync::RwLock::new(
-            fen_storage::LanceStorage::new(&warm_path)
-                .await
-                .expect("Failed to create warm storage"),
-        ));
+        let warm_storage = shared_warm_storage().await;
 
         let fulltext_index = Arc::new(
-            fen_storage::FullTextIndex::new(&fulltext_path, fen_storage::FullTextConfig::default())
+            fen_storage::FullTextIndex::in_memory(fen_storage::FullTextConfig::default())
                 .expect("Failed to create fulltext index"),
         );
 
@@ -277,19 +297,12 @@ impl ZipExecutorTestEnv {
     pub async fn new() -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
 
-        let warm_path = temp_dir.path().join("warm");
-        let fulltext_path = temp_dir.path().join("fulltext");
-
         let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
 
-        let warm_storage = Arc::new(tokio::sync::RwLock::new(
-            fen_storage::LanceStorage::new(&warm_path)
-                .await
-                .expect("Failed to create warm storage"),
-        ));
+        let warm_storage = shared_warm_storage().await;
 
         let fulltext_index = Arc::new(
-            fen_storage::FullTextIndex::new(&fulltext_path, fen_storage::FullTextConfig::default())
+            fen_storage::FullTextIndex::in_memory(fen_storage::FullTextConfig::default())
                 .expect("Failed to create fulltext index"),
         );
 
@@ -357,8 +370,6 @@ impl IntegrationTestEnv {
     /// Create a new full integration test environment
     pub async fn new() -> Self {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
-        let warm_path = temp_dir.path().join("warm");
-        let fulltext_path = temp_dir.path().join("fulltext");
 
         let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
         let anomaly_store = Arc::new(
@@ -366,14 +377,10 @@ impl IntegrationTestEnv {
                 .expect("Failed to create anomaly store"),
         );
 
-        let warm_storage = Arc::new(tokio::sync::RwLock::new(
-            fen_storage::LanceStorage::new(&warm_path)
-                .await
-                .expect("Failed to create warm storage"),
-        ));
+        let warm_storage = shared_warm_storage().await;
 
         let fulltext_index = Arc::new(
-            fen_storage::FullTextIndex::new(&fulltext_path, fen_storage::FullTextConfig::default())
+            fen_storage::FullTextIndex::in_memory(fen_storage::FullTextConfig::default())
                 .expect("Failed to create fulltext index"),
         );
 
