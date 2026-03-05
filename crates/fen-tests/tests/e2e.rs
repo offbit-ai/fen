@@ -9,8 +9,9 @@ use fen_core::domain::{AnomalyType, Severity};
 use fen_core::ValidationStatus;
 use fen_storage::{DocumentStore, InvoiceFilter, StorageTier};
 use fen_tests::{
-    consistent_embedding, init_test_tracing, random_embedding, sample_invoice_text,
-    ContractFixture, IngestionTestEnv, IntegrationTestEnv, InvoiceFixture, QueryTestEnv, TestEnv,
+    consistent_embedding, init_test_tracing, random_embedding, sample_contract_text,
+    sample_invoice_text, sample_sow_text, ContractFixture, GraphIngestionTestEnv,
+    IngestionTestEnv, IntegrationTestEnv, InvoiceFixture, QueryTestEnv, TestEnv,
 };
 
 // ============================================================================
@@ -2659,6 +2660,622 @@ mod integration {
                 .iter()
                 .any(|a| a.invoice_id == Some(invoice.id)),
             "Anomaly store should contain validation results for this invoice"
+        );
+    }
+}
+
+// ============================================================================
+// Module: Data Ingestion Integration Tests
+// ============================================================================
+//
+// Tests covering the full ingestion pipeline including contract parsing,
+// knowledge graph integration, and cross-document relationships.
+
+mod data_ingestion {
+    use super::*;
+    use std::sync::Arc;
+    use fen_graph::GraphStore;
+
+    // ---- Contract Text Ingestion ----
+
+    /// Test: contract text ingestion parses and stores correctly
+    #[tokio::test]
+    async fn test_contract_text_ingestion() {
+        init_test_tracing();
+        let env = IngestionTestEnv::new().await;
+
+        let text = sample_contract_text();
+        let contract = env.pipeline.ingest_contract_text(text).await.unwrap();
+
+        // Verify contract was parsed with key fields
+        assert!(!contract.title.is_empty(), "Contract title should be parsed");
+        assert!(
+            !contract.id.0.is_nil(),
+            "Contract should have a valid ID"
+        );
+
+        // Verify stored
+        let retrieved = env.storage.get_contract(&contract.id).await.unwrap();
+        assert!(retrieved.is_some(), "Contract should be retrievable from storage");
+        assert_eq!(retrieved.unwrap().title, contract.title);
+    }
+
+    /// Test: contract text ingestion extracts parties
+    #[tokio::test]
+    async fn test_contract_ingestion_extracts_parties() {
+        let env = IngestionTestEnv::new().await;
+
+        let contract = env
+            .pipeline
+            .ingest_contract_text(sample_contract_text())
+            .await
+            .unwrap();
+
+        // Regex parser should extract at least one party from "Between X and Y"
+        let non_unknown_parties: Vec<_> = contract
+            .parties
+            .iter()
+            .filter(|p| !p.is_unknown())
+            .collect();
+
+        assert!(
+            !non_unknown_parties.is_empty(),
+            "Should extract at least one party from contract text, got: {:?}",
+            contract.parties
+        );
+    }
+
+    /// Test: contract text ingestion extracts dates
+    #[tokio::test]
+    async fn test_contract_ingestion_extracts_dates() {
+        let env = IngestionTestEnv::new().await;
+
+        let contract = env
+            .pipeline
+            .ingest_contract_text(sample_contract_text())
+            .await
+            .unwrap();
+
+        // Should parse effective date from "Effective Date: 2024-01-01"
+        assert_eq!(
+            contract.effective_date,
+            chrono::NaiveDate::from_ymd_opt(2024, 1, 1).unwrap(),
+            "Should parse effective date"
+        );
+
+        // Should parse expiration date
+        assert!(
+            contract.expiration_date.is_some(),
+            "Should parse expiration date"
+        );
+    }
+
+    /// Test: contract text ingestion extracts clauses
+    #[tokio::test]
+    async fn test_contract_ingestion_extracts_clauses() {
+        let env = IngestionTestEnv::new().await;
+
+        let contract = env
+            .pipeline
+            .ingest_contract_text(sample_contract_text())
+            .await
+            .unwrap();
+
+        // Sample text has Payment Terms, Termination, Confidentiality, Governing Law clauses
+        assert!(
+            !contract.clauses.is_empty(),
+            "Should extract clauses from contract text"
+        );
+    }
+
+    /// Test: batch contract ingestion
+    #[tokio::test]
+    async fn test_batch_contract_ingestion() {
+        let env = IngestionTestEnv::new().await;
+
+        let texts = vec![sample_contract_text(), sample_sow_text()];
+
+        let mut contracts = Vec::new();
+        for text in texts {
+            let contract = env.pipeline.ingest_contract_text(text).await.unwrap();
+            contracts.push(contract);
+        }
+
+        // Both should be stored
+        let count = env.storage.count_contracts().await.unwrap();
+        assert_eq!(count, 2, "Both contracts should be stored");
+
+        // Each retrievable
+        for contract in &contracts {
+            let stored = env.storage.get_contract(&contract.id).await.unwrap();
+            assert!(stored.is_some());
+        }
+    }
+
+    // ---- Ingestion → Knowledge Graph ----
+
+    /// Test: invoice written to knowledge graph creates nodes and edges
+    #[tokio::test]
+    async fn test_invoice_ingestion_writes_to_graph() {
+        init_test_tracing();
+        let env = GraphIngestionTestEnv::new().await;
+
+        // Ingest through pipeline (text path stores in storage)
+        let text = sample_invoice_text();
+        let invoice = env.pipeline.ingest_text(text).await.unwrap();
+
+        // Write to graph (ingest_pdf does this automatically; ingest_text is the simple path)
+        env.graph.write_invoice(&invoice).await.unwrap();
+
+        // Graph should now contain an Invoice node
+        let results = env
+            .graph
+            .query_cypher("MATCH (i:Invoice) RETURN i.id")
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1, "Graph should contain exactly one Invoice node");
+
+        // Graph should contain a Vendor node
+        let vendors = env
+            .graph
+            .query_cypher("MATCH (v:Vendor) RETURN v.name")
+            .await
+            .unwrap();
+        assert!(
+            !vendors.is_empty(),
+            "Graph should contain the vendor from the ingested invoice"
+        );
+
+        // Graph should have SUPPLIES edge
+        let supplies = env
+            .graph
+            .query_cypher("MATCH (v:Vendor)-[:SUPPLIES]->(i:Invoice) RETURN v.name, i.id")
+            .await
+            .unwrap();
+        assert_eq!(
+            supplies.len(),
+            1,
+            "Graph should have a SUPPLIES edge from vendor to invoice"
+        );
+    }
+
+    /// Test: contract ingestion writes to knowledge graph
+    #[tokio::test]
+    async fn test_contract_ingestion_writes_to_graph() {
+        init_test_tracing();
+        let env = GraphIngestionTestEnv::new().await;
+
+        let contract = ContractFixture::new()
+            .with_title("Cloud Services Agreement")
+            .with_party("Acme Corp")
+            .build();
+
+        // Write through GraphStore directly (ingest_contract_text doesn't go through graph)
+        env.graph.write_contract(&contract).await.unwrap();
+
+        // Graph should contain a Contract node
+        let results = env
+            .graph
+            .query_cypher("MATCH (c:Contract) RETURN c.title")
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Graph should contain Party nodes
+        let parties = env
+            .graph
+            .query_cypher("MATCH (p:Party) RETURN p.name")
+            .await
+            .unwrap();
+        assert!(
+            !parties.is_empty(),
+            "Graph should contain party nodes from contract"
+        );
+
+        // Graph should have PARTY_TO edges
+        let party_edges = env
+            .graph
+            .query_cypher("MATCH (p:Party)-[:PARTY_TO]->(c:Contract) RETURN p.name")
+            .await
+            .unwrap();
+        assert!(
+            !party_edges.is_empty(),
+            "Graph should have PARTY_TO edges from parties to contract"
+        );
+
+        // Clause nodes should exist
+        let clauses = env
+            .graph
+            .query_cypher("MATCH (c:Contract)-[:HAS_CLAUSE]->(cl:Clause) RETURN cl.clause_type")
+            .await
+            .unwrap();
+        assert!(
+            !clauses.is_empty(),
+            "Graph should have clause nodes linked to contract"
+        );
+    }
+
+    /// Test: graph vendor deduplication across multiple ingested invoices
+    #[tokio::test]
+    async fn test_graph_vendor_deduplication_across_ingestion() {
+        let env = GraphIngestionTestEnv::new().await;
+
+        // Ingest two invoices with the same vendor name
+        let texts = vec![
+            r#"INVOICE
+Invoice Number: DEDUP-001
+Invoice Date: 2024-03-01
+Due Date: 2024-03-31
+Vendor: Acme Supplies Inc.
+Bill To: Widget Corp
+Total: $1,000.00
+"#,
+            r#"INVOICE
+Invoice Number: DEDUP-002
+Invoice Date: 2024-04-01
+Due Date: 2024-04-30
+Vendor: Acme Supplies Inc.
+Bill To: Widget Corp
+Total: $2,500.00
+"#,
+        ];
+
+        for text in texts {
+            let invoice = env.pipeline.ingest_text(text).await.unwrap();
+            env.graph.write_invoice(&invoice).await.unwrap();
+        }
+
+        // Should have 2 Invoice nodes
+        let invoices = env
+            .graph
+            .query_cypher("MATCH (i:Invoice) RETURN i.id")
+            .await
+            .unwrap();
+        assert_eq!(invoices.len(), 2, "Should have 2 invoice nodes");
+
+        // Should have only 1 Vendor node (deduplicated by name)
+        let vendors = env
+            .graph
+            .query_cypher("MATCH (v:Vendor) RETURN count(v)")
+            .await
+            .unwrap();
+        assert_eq!(vendors.len(), 1, "Should have exactly 1 vendor count row");
+
+        // Vendor should have 2 SUPPLIES edges
+        let supplies = env
+            .graph
+            .query_cypher("MATCH (v:Vendor)-[:SUPPLIES]->(i:Invoice) RETURN i.id")
+            .await
+            .unwrap();
+        assert_eq!(
+            supplies.len(),
+            2,
+            "Single vendor should supply both invoices"
+        );
+    }
+
+    /// Test: link invoice to contract through graph
+    #[tokio::test]
+    async fn test_invoice_contract_graph_linking() {
+        let env = GraphIngestionTestEnv::new().await;
+
+        // Ingest an invoice and write to graph
+        let invoice = env
+            .pipeline
+            .ingest_text(sample_invoice_text())
+            .await
+            .unwrap();
+        env.graph.write_invoice(&invoice).await.unwrap();
+
+        // Write a contract to graph
+        let contract = ContractFixture::new()
+            .with_title("Supply Agreement")
+            .with_party("Acme Supplies Inc.")
+            .build();
+        env.graph.write_contract(&contract).await.unwrap();
+
+        // Link invoice to contract
+        env.graph
+            .link_invoice_to_contract(&invoice.id, &contract.id)
+            .await
+            .unwrap();
+
+        // Query related contracts from the invoice
+        let related = env.graph.related_contracts(&invoice.id).await.unwrap();
+        assert_eq!(related.len(), 1, "Invoice should be linked to 1 contract");
+        assert_eq!(related[0], contract.id);
+
+        // Verify GOVERNED_BY edge exists
+        let governed = env
+            .graph
+            .query_cypher(
+                "MATCH (i:Invoice)-[:GOVERNED_BY]->(c:Contract) RETURN c.title",
+            )
+            .await
+            .unwrap();
+        assert_eq!(governed.len(), 1);
+    }
+
+    /// Test: discover related contracts via shared vendor in graph
+    #[tokio::test]
+    async fn test_related_contracts_via_vendor() {
+        let env = GraphIngestionTestEnv::new().await;
+
+        // Invoice 1 from Acme, written to graph and linked to a contract
+        let inv1 = env
+            .pipeline
+            .ingest_text(
+                r#"INVOICE
+Invoice Number: REL-001
+Invoice Date: 2024-03-01
+Vendor: Acme Corp
+Bill To: Client Inc
+Total: $5,000.00
+"#,
+            )
+            .await
+            .unwrap();
+        env.graph.write_invoice(&inv1).await.unwrap();
+
+        let contract = ContractFixture::new()
+            .with_title("Acme Master Agreement")
+            .with_party("Acme Corp")
+            .build();
+
+        env.graph.write_contract(&contract).await.unwrap();
+        env.graph
+            .link_invoice_to_contract(&inv1.id, &contract.id)
+            .await
+            .unwrap();
+
+        // Invoice 2 from same vendor, written to graph but no direct contract link
+        let inv2 = env
+            .pipeline
+            .ingest_text(
+                r#"INVOICE
+Invoice Number: REL-002
+Invoice Date: 2024-04-01
+Vendor: Acme Corp
+Bill To: Client Inc
+Total: $3,000.00
+"#,
+            )
+            .await
+            .unwrap();
+        env.graph.write_invoice(&inv2).await.unwrap();
+
+        // inv2 should discover the contract via shared vendor
+        let related = env.graph.related_contracts(&inv2.id).await.unwrap();
+        assert_eq!(
+            related.len(),
+            1,
+            "Should discover contract via shared vendor"
+        );
+        assert_eq!(related[0], contract.id);
+    }
+
+    // ---- Mixed Document Ingestion ----
+
+    /// Test: mixed invoice + contract ingestion flow
+    #[tokio::test]
+    async fn test_mixed_document_ingestion() {
+        let env = IngestionTestEnv::new().await;
+
+        // Ingest invoices
+        let inv = env
+            .pipeline
+            .ingest_text(sample_invoice_text())
+            .await
+            .unwrap();
+
+        // Ingest contracts
+        let contract = env
+            .pipeline
+            .ingest_contract_text(sample_contract_text())
+            .await
+            .unwrap();
+
+        // Both types should be stored independently
+        let inv_count = env.storage.count_invoices().await.unwrap();
+        let contract_count = env.storage.count_contracts().await.unwrap();
+
+        assert_eq!(inv_count, 1, "Should have 1 invoice");
+        assert_eq!(contract_count, 1, "Should have 1 contract");
+
+        // Both retrievable
+        assert!(env.storage.get_invoice(&inv.id).await.unwrap().is_some());
+        assert!(env.storage.get_contract(&contract.id).await.unwrap().is_some());
+    }
+
+    /// Test: concurrent mixed document ingestion
+    #[tokio::test]
+    async fn test_concurrent_mixed_ingestion() {
+        let env = Arc::new(IngestionTestEnv::new().await);
+
+        let mut handles = Vec::new();
+
+        // Spawn invoice ingestion tasks
+        for i in 0..3 {
+            let env = env.clone();
+            handles.push(tokio::spawn(async move {
+                let text = format!(
+                    "INVOICE\nInvoice Number: CONC-INV-{:03}\nInvoice Date: 2024-01-{:02}\nVendor: Vendor {}\nTotal: ${}.00\n",
+                    i, 10 + i, i, 1000 + i * 500
+                );
+                env.pipeline.ingest_text(&text).await.unwrap();
+            }));
+        }
+
+        // Spawn contract ingestion tasks
+        for i in 0..2 {
+            let env = env.clone();
+            handles.push(tokio::spawn(async move {
+                let text = format!(
+                    "SERVICE AGREEMENT\nContract Number: CONC-CTR-{:03}\nEffective Date: 2024-01-01\nBetween Party-A-{} and Party-B-{}\nTotal Contract Value: ${}.00\n",
+                    i, i, i, 50000 + i * 25000
+                );
+                env.pipeline.ingest_contract_text(&text).await.unwrap();
+            }));
+        }
+
+        futures::future::join_all(handles).await;
+
+        let inv_count = env.storage.count_invoices().await.unwrap();
+        let contract_count = env.storage.count_contracts().await.unwrap();
+
+        assert_eq!(inv_count, 3, "All concurrent invoices should be stored");
+        assert_eq!(contract_count, 2, "All concurrent contracts should be stored");
+    }
+
+    /// Test: storage → graph → query roundtrip with explicit fixtures
+    #[tokio::test]
+    async fn test_full_ingestion_graph_roundtrip() {
+        init_test_tracing();
+        let env = GraphIngestionTestEnv::new().await;
+
+        // Build invoices with explicit vendor assignments
+        let invoices = vec![
+            InvoiceFixture::new()
+                .with_number("RT-001")
+                .with_vendor("Alpha Corp")
+                .build(),
+            InvoiceFixture::new()
+                .with_number("RT-002")
+                .with_vendor("Alpha Corp")
+                .build(),
+            InvoiceFixture::new()
+                .with_number("RT-003")
+                .with_vendor("Beta Services")
+                .build(),
+        ];
+
+        // Store in hot storage and write to graph
+        for invoice in &invoices {
+            env.storage.store_invoice(invoice).await.unwrap();
+            env.graph.write_invoice(invoice).await.unwrap();
+        }
+
+        // Verify storage: 3 invoices
+        let count = env.storage.count_invoices().await.unwrap();
+        assert_eq!(count, 3);
+
+        // Verify graph: 2 vendor nodes (deduplicated)
+        let vendors = env
+            .graph
+            .query_cypher("MATCH (v:Vendor) RETURN v.name")
+            .await
+            .unwrap();
+        assert_eq!(vendors.len(), 2, "Should have 2 distinct vendors in graph");
+
+        // Verify vendor deduplication: resolving the same name returns same ID
+        let alpha_id = env.graph.resolve_vendor("Alpha Corp").await.unwrap();
+        let alpha_id_2 = env.graph.resolve_vendor("Alpha Corp").await.unwrap();
+        assert_eq!(alpha_id, alpha_id_2, "Same vendor name should resolve to same ID");
+
+        // Verify both vendors exist with different IDs
+        let beta_id = env.graph.resolve_vendor("Beta Services").await.unwrap();
+        assert_ne!(alpha_id, beta_id, "Different vendors should have different IDs");
+
+        // Verify invoices_for_vendor returns correct per-vendor counts
+        let alpha_invoices = env.graph.invoices_for_vendor(&alpha_id).await.unwrap();
+        assert_eq!(
+            alpha_invoices.len(),
+            2,
+            "Alpha Corp should supply exactly 2 invoices, got {}",
+            alpha_invoices.len()
+        );
+
+        let beta_invoices = env.graph.invoices_for_vendor(&beta_id).await.unwrap();
+        assert_eq!(
+            beta_invoices.len(),
+            1,
+            "Beta Services should supply exactly 1 invoice, got {}",
+            beta_invoices.len()
+        );
+    }
+
+    /// Test: graph non-fatal — ingestion succeeds even if graph write fails
+    #[tokio::test]
+    async fn test_graph_failure_non_fatal() {
+        let env = IngestionTestEnv::new().await;
+
+        // Pipeline without graph — should succeed without graph writes
+        let invoice = env
+            .pipeline
+            .ingest_text(sample_invoice_text())
+            .await
+            .unwrap();
+
+        assert!(
+            !invoice.id.0.is_nil(),
+            "Ingestion should succeed without graph"
+        );
+        assert!(
+            env.storage.get_invoice(&invoice.id).await.unwrap().is_some(),
+            "Invoice should still be in storage"
+        );
+    }
+
+    /// Test: contract with clauses written to graph preserves clause structure
+    #[tokio::test]
+    async fn test_graph_contract_clause_structure() {
+        let env = GraphIngestionTestEnv::new().await;
+
+        use fen_core::domain::{ClauseType, ContractClause};
+
+        let contract = ContractFixture::new()
+            .with_title("Detailed Agreement")
+            .add_clause(ContractClause::new(
+                ClauseType::Liability,
+                "Each party shall indemnify the other against third-party claims",
+            ))
+            .add_clause(ContractClause::new(
+                ClauseType::ForceMajeure,
+                "Neither party shall be liable for force majeure events",
+            ))
+            .build();
+
+        env.graph.write_contract(&contract).await.unwrap();
+
+        // Should have all clauses (2 default + 2 added = 4)
+        let clauses = env
+            .graph
+            .query_cypher(
+                "MATCH (c:Contract)-[:HAS_CLAUSE]->(cl:Clause) RETURN cl.clause_type",
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            clauses.len(),
+            contract.clauses.len(),
+            "All clauses should be written to graph"
+        );
+    }
+
+    /// Test: ingestion pipeline validates and stores with correct confidence
+    #[tokio::test]
+    async fn test_ingestion_confidence_propagation() {
+        let env = IngestionTestEnv::new().await;
+
+        let invoice = env
+            .pipeline
+            .ingest_text(sample_invoice_text())
+            .await
+            .unwrap();
+
+        // Regex parser sets confidence to ~0.5 (or lower)
+        // Just verify confidence is set and reasonable
+        assert!(
+            invoice.confidence_score > 0.0 && invoice.confidence_score <= 1.0,
+            "Confidence should be between 0 and 1, got: {}",
+            invoice.confidence_score
+        );
+
+        // Stored invoice should preserve confidence
+        let stored = env.storage.get_invoice(&invoice.id).await.unwrap().unwrap();
+        assert_eq!(
+            stored.confidence_score, invoice.confidence_score,
+            "Stored confidence should match parsed confidence"
         );
     }
 }

@@ -3149,6 +3149,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "fen-core",
+ "fen-graph",
  "fen-ingestion",
  "fen-rules",
  "fen-storage",

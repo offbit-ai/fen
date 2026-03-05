@@ -13,7 +13,8 @@ path = "tests/e2e.rs"
 # All fen crates
 fen-core = { path = "../fen-core" }
 fen-storage = { path = "../fen-storage" }
-fen-ingestion = { path = "../fen-ingestion" }
+fen-ingestion = { path = "../fen-ingestion", features = ["graph"] }
+fen-graph = { path = "../fen-graph" }
 fen-rules = { path = "../fen-rules" }
 
 # Async runtime

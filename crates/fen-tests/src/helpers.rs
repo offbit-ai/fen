@@ -484,6 +484,52 @@ impl IntegrationTestEnv {
     }
 }
 
+/// Test environment with ingestion pipeline wired to knowledge graph.
+///
+/// Exercises the full data ingestion path: text → parse → storage → graph.
+pub struct GraphIngestionTestEnv {
+    /// Ingestion pipeline (with graph feature enabled)
+    pub pipeline: Arc<IngestionPipeline<RedbStorage>>,
+    /// Direct access to storage
+    pub storage: Arc<RedbStorage>,
+    /// Knowledge graph store
+    pub graph: Arc<fen_graph::KyuGraphStore>,
+    /// Rule engine for validation
+    pub rule_engine: Arc<RuleEngine>,
+    /// Temporary directory
+    _temp_dir: TempDir,
+}
+
+impl GraphIngestionTestEnv {
+    /// Create a new graph-enabled ingestion test environment
+    pub async fn new() -> Self {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+
+        let storage =
+            Arc::new(RedbStorage::in_memory().expect("Failed to create in-memory storage"));
+
+        let graph = Arc::new(
+            fen_graph::KyuGraphStore::in_memory().expect("Failed to create in-memory graph"),
+        );
+
+        let pipeline = Arc::new(
+            IngestionPipeline::new(storage.clone())
+                .expect("Failed to create pipeline")
+                .with_graph(graph.clone() as Arc<dyn fen_graph::GraphStore>),
+        );
+
+        let rule_engine = Arc::new(RuleEngine::builtin_only());
+
+        Self {
+            pipeline,
+            storage,
+            graph,
+            rule_engine,
+            _temp_dir: temp_dir,
+        }
+    }
+}
+
 /// Initialize tracing for tests (call once at the start of test suite)
 pub fn init_test_tracing() {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};

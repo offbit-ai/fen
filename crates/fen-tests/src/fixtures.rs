@@ -412,6 +412,60 @@ Thank you for your business!
 "#
 }
 
+/// Sample contract text for parsing tests (simulates extracted PDF text)
+pub fn sample_contract_text() -> &'static str {
+    r#"
+MASTER SERVICE AGREEMENT
+
+Contract Number: MSA-2024-001
+Effective Date: 2024-01-01
+Expiration Date: 2025-12-31
+
+Between Acme Supplies Inc. and Widget Corp
+
+This Master Service Agreement ("Agreement") is entered into between
+Acme Supplies Inc. ("Provider") and Widget Corp ("Client").
+
+Total Contract Value: $150,000.00
+
+Payment Terms:
+Net 30 payment terms apply to all invoices issued under this agreement.
+All payments shall be made in US Dollars.
+
+Termination:
+Either party may terminate this agreement with 60 days written notice.
+In the event of material breach, the non-breaching party may terminate immediately.
+
+Confidentiality:
+Both parties agree to maintain strict confidentiality of all proprietary
+information exchanged during the term of this agreement.
+
+Governing Law:
+This agreement shall be governed by the laws of the State of California.
+"#
+}
+
+/// Sample contract text for a different contract type
+pub fn sample_sow_text() -> &'static str {
+    r#"
+STATEMENT OF WORK
+
+Contract Number: SOW-2024-042
+Effective Date: 2024-06-01
+Expiration Date: 2024-12-31
+
+Between Beta Services LLC and Widget Corp
+
+This Statement of Work defines the scope of consulting services
+to be provided by Beta Services LLC ("Contractor") to Widget Corp ("Client").
+
+Total Contract Value: $75,000.00
+
+Payment Terms:
+Monthly invoicing based on time and materials. Net 15 terms.
+"#
+}
+
 /// Sample invoice text with errors for validation testing
 pub fn sample_invoice_text_with_errors() -> &'static str {
     r#"
