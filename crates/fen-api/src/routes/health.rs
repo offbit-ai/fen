@@ -7,10 +7,18 @@ pub struct HealthResponse {
     pub version: String,
 }
 
-/// GET /health - Health check endpoint
+/// GET /health - Liveness probe
 pub async fn health_check() -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "healthy".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+/// GET /ready - Readiness probe (Kubernetes)
+pub async fn readiness_check() -> Json<HealthResponse> {
+    Json(HealthResponse {
+        status: "ready".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }

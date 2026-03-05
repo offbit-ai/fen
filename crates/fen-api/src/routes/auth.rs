@@ -196,7 +196,10 @@ pub async fn callback(
         form_params.push(("client_secret", &client_secret_string));
     }
 
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| ApiError::Internal(format!("HTTP client error: {}", e)))?;
     let response = client
         .post(&token_url)
         .form(&form_params)
@@ -265,7 +268,10 @@ pub async fn token(
                 form_params.push(("client_secret", &client_secret_string));
             }
 
-            let client = reqwest::Client::new();
+            let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| ApiError::Internal(format!("HTTP client error: {}", e)))?;
             let response = client
                 .post(&token_url)
                 .form(&form_params)

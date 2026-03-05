@@ -2,7 +2,6 @@ mod auth;
 mod authz;
 mod rate_limit;
 
-#[allow(unused_imports)]
 pub use auth::{auth_middleware, AuthConfig, AuthContext, Claims};
 #[allow(unused_imports)]
 pub use authz::{

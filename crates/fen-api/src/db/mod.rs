@@ -31,9 +31,8 @@ pub struct DbConfig {
 impl Default for DbConfig {
     fn default() -> Self {
         Self {
-            postgres_url: "postgres://fen:fen_dev_password@localhost:5432/fen".to_string(),
-            timescale_url: "postgres://fen_metrics:fen_metrics_password@localhost:5433/fen_metrics"
-                .to_string(),
+            postgres_url: String::new(),
+            timescale_url: String::new(),
             max_connections: 10,
             connect_timeout: Duration::from_secs(5),
         }

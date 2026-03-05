@@ -282,9 +282,19 @@ impl AppState {
         tracing::info!("Local event bus initialized");
 
         // Load auth configuration from environment
+        let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
+            let secret = format!(
+                "{}-{}-{}-{}",
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4(),
+                uuid::Uuid::new_v4()
+            );
+            tracing::warn!("JWT_SECRET not set — generated ephemeral secret (tokens will not survive restarts)");
+            secret
+        });
         let auth_config = AuthConfig {
-            jwt_secret: std::env::var("JWT_SECRET")
-                .unwrap_or_else(|_| "development-secret-change-in-production".to_string()),
+            jwt_secret,
             require_auth: std::env::var("REQUIRE_AUTH")
                 .map(|v| v.to_lowercase() != "false")
                 .unwrap_or(true),

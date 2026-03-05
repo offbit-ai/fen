@@ -68,6 +68,9 @@ pub struct AppConfig {
 
     /// Path to knowledge graph storage directory (optional, enables graph enrichment)
     pub graph_storage_path: Option<PathBuf>,
+
+    /// Allowed CORS origins (empty or ["*"] = allow any)
+    pub cors_origins: Vec<String>,
 }
 
 /// Configuration for statistical anomaly detection
@@ -177,6 +180,9 @@ impl AppConfig {
             warm_storage_path: env::var("WARM_STORAGE_PATH")
                 .unwrap_or_else(|_| "data/warm".to_string()),
             graph_storage_path: env::var("GRAPH_STORAGE_PATH").ok().map(PathBuf::from),
+            cors_origins: env::var("CORS_ALLOWED_ORIGINS")
+                .map(|s| s.split(',').map(|o| o.trim().to_string()).collect())
+                .unwrap_or_default(),
         }
     }
 }

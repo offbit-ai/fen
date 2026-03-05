@@ -2,8 +2,6 @@
 //!
 //! This module provides JWT-based authentication with tenant context extraction.
 
-#![allow(dead_code)]
-
 use axum::{
     extract::{Request, State},
     http::{header, StatusCode},
@@ -57,7 +55,7 @@ pub struct AuthConfig {
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
-            jwt_secret: "development-secret-change-in-production".to_string(),
+            jwt_secret: String::new(),
             require_auth: true,
         }
     }
