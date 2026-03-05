@@ -24,11 +24,15 @@ struct CachedBaseline {
     cached_at: Instant,
 }
 
+/// Maximum number of entries in the baseline cache
+const DEFAULT_MAX_CACHE_ENTRIES: usize = 10_000;
+
 /// Store for vendor baselines with in-memory caching
 pub struct BaselineStore {
     db: Arc<Database>,
     cache: DashMap<String, CachedBaseline>,
     cache_ttl: Duration,
+    max_cache_entries: usize,
 }
 
 impl BaselineStore {
@@ -55,6 +59,7 @@ impl BaselineStore {
             db,
             cache: DashMap::new(),
             cache_ttl,
+            max_cache_entries: DEFAULT_MAX_CACHE_ENTRIES,
         })
     }
 
@@ -86,6 +91,7 @@ impl BaselineStore {
 
                 // Update cache if not expired
                 if !baseline.is_expired() {
+                    self.evict_if_needed();
                     self.cache.insert(
                         cache_key,
                         CachedBaseline {
@@ -115,6 +121,7 @@ impl BaselineStore {
         write_txn.commit()?;
 
         // Update cache
+        self.evict_if_needed();
         self.cache.insert(
             cache_key.clone(),
             CachedBaseline {
@@ -298,6 +305,31 @@ impl BaselineStore {
         tracing::info!(deleted_count, "Cleaned up expired baselines");
 
         Ok(deleted_count)
+    }
+
+    /// Evict expired or oldest entries when cache exceeds max size.
+    fn evict_if_needed(&self) {
+        if self.cache.len() <= self.max_cache_entries {
+            return;
+        }
+
+        // First pass: evict expired entries
+        self.cache
+            .retain(|_, v| v.cached_at.elapsed() < self.cache_ttl);
+
+        // If still over limit, evict oldest entries
+        if self.cache.len() > self.max_cache_entries {
+            let excess = self.cache.len() - self.max_cache_entries;
+            let mut oldest: Vec<(String, Instant)> = self
+                .cache
+                .iter()
+                .map(|entry| (entry.key().clone(), entry.value().cached_at))
+                .collect();
+            oldest.sort_by_key(|(_, t)| *t);
+            for (key, _) in oldest.into_iter().take(excess) {
+                self.cache.remove(&key);
+            }
+        }
     }
 
     /// Get cache statistics

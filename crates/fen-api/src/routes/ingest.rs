@@ -208,9 +208,14 @@ pub async fn ingest_document(
         ));
     }
 
-    // Check file size (basic validation)
+    // Check file size and magic bytes
     if data.is_empty() {
         return Err(ApiError::BadRequest("Empty file".to_string()));
+    }
+    if !data.starts_with(b"%PDF-") {
+        return Err(ApiError::BadRequest(
+            "Invalid PDF: file does not start with %PDF- header".to_string(),
+        ));
     }
 
     tracing::info!(filename = %filename, size = data.len(), "Processing uploaded file");
@@ -305,6 +310,11 @@ pub async fn ingest_contract(
 
     if data.is_empty() {
         return Err(ApiError::BadRequest("Empty file".to_string()));
+    }
+    if !data.starts_with(b"%PDF-") {
+        return Err(ApiError::BadRequest(
+            "Invalid PDF: file does not start with %PDF- header".to_string(),
+        ));
     }
 
     tracing::info!(filename = %filename, size = data.len(), "Processing uploaded contract");

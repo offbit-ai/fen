@@ -16,12 +16,15 @@ use crate::traits::{EventConsumer, EventError, EventProducer, RawEvent, TopicPar
 pub struct LocalEventBusConfig {
     /// Channel capacity per topic.
     pub channel_capacity: usize,
+    /// Maximum number of topics (prevents unbounded growth).
+    pub max_topics: usize,
 }
 
 impl Default for LocalEventBusConfig {
     fn default() -> Self {
         Self {
             channel_capacity: 1000,
+            max_topics: 100,
         }
     }
 }
@@ -34,6 +37,8 @@ pub struct LocalEventBus {
     topics: Arc<RwLock<HashMap<String, broadcast::Sender<RawEvent>>>>,
     /// Channel capacity
     capacity: usize,
+    /// Maximum number of topics
+    max_topics: usize,
     /// Offset counter per topic
     offsets: Arc<RwLock<HashMap<String, AtomicI64>>>,
 }
@@ -49,6 +54,7 @@ impl LocalEventBus {
         Self {
             topics: Arc::new(RwLock::new(HashMap::new())),
             capacity: config.channel_capacity,
+            max_topics: config.max_topics,
             offsets: Arc::new(RwLock::new(HashMap::new())),
         }
     }
@@ -65,6 +71,18 @@ impl LocalEventBus {
         // Double-check after acquiring write lock
         if let Some(sender) = topics.get(topic) {
             return sender.clone();
+        }
+
+        if topics.len() >= self.max_topics {
+            tracing::warn!(
+                max = self.max_topics,
+                topic,
+                "Max topics reached, reusing existing channel"
+            );
+            // Return first available sender as fallback
+            if let Some(sender) = topics.values().next() {
+                return sender.clone();
+            }
         }
 
         let (sender, _) = broadcast::channel(self.capacity);
