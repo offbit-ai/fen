@@ -38,6 +38,7 @@ miette.workspace = true
 ariadne.workspace = true
 lru.workspace = true
 regex.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

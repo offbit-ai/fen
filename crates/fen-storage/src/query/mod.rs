@@ -2,6 +2,7 @@ mod cache;
 mod engine;
 mod executor;
 pub mod lang;
+pub mod morsel;
 mod zip_executor;
 
 pub use cache::QueryCache;
@@ -12,6 +13,7 @@ pub use lang::{
     JsonZipClause, ParseError, ParseErrorKind, PipelineOp, QueryError, QueryParams, QueryParser,
     ZipClause, ZipMode,
 };
+pub use morsel::{MorselConfig, MorselContext, QueryFeatures};
 pub use zip_executor::{
     AggregateValue, CrossValidationIssue, CrossValidationIssueType, PipelineResults, ZipExecutor,
     ZipMetadata, ZipPair, ZipResult,
