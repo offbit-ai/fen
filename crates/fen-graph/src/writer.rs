@@ -1,4 +1,4 @@
-use ryugraph::{Connection, Value};
+use kyu_graph::{Connection, TypedValue};
 
 use fen_core::domain::{Contract, Invoice};
 
@@ -20,9 +20,9 @@ pub fn resolve_vendor(
     );
     let result = conn.query(&cypher).map_err(|e| GraphError::Query(e.to_string()))?;
 
-    for row in result {
-        if let Some(Value::String(id)) = row.first() {
-            return Ok(id.clone());
+    for row in result.iter_rows() {
+        if let Some(TypedValue::String(id)) = row.first() {
+            return Ok(id.to_string());
         }
     }
 
@@ -55,9 +55,9 @@ fn resolve_party(
     );
     let result = conn.query(&cypher).map_err(|e| GraphError::Query(e.to_string()))?;
 
-    for row in result {
-        if let Some(Value::String(id)) = row.first() {
-            return Ok(id.clone());
+    for row in result.iter_rows() {
+        if let Some(TypedValue::String(id)) = row.first() {
+            return Ok(id.to_string());
         }
     }
 
@@ -108,8 +108,8 @@ pub fn write_invoice(conn: &Connection, invoice: &Invoice) -> Result<(), GraphEr
             document_id: '{doc_id}',
             tenant_id: '{tenant}',
             invoice_number: '{inv_num}',
-            invoice_date: date('{inv_date}'),
-            due_date: date('{due}'),
+            invoice_date: '{inv_date}',
+            due_date: '{due}',
             total_amount: {total},
             currency: '{currency}',
             confidence: {confidence}
@@ -135,8 +135,9 @@ pub fn write_invoice(conn: &Connection, invoice: &Invoice) -> Result<(), GraphEr
         )?;
 
         let cypher = format!(
-            "MATCH (v:Vendor {{id: '{vid}'}}), (i:Invoice {{id: '{iid}'}})
-             CREATE (v)-[:SUPPLIES {{since: date('{since}')}}]->(i)",
+            "MATCH (v:Vendor) WHERE v.id = '{vid}' \
+             MATCH (i:Invoice) WHERE i.id = '{iid}' \
+             CREATE (v)-[:SUPPLIES {{since: '{since}'}}]->(i)",
             vid = escape_cypher(&vendor_id),
             iid = escape_cypher(&invoice_id),
             since = invoice_date,
@@ -155,7 +156,8 @@ pub fn write_invoice(conn: &Connection, invoice: &Invoice) -> Result<(), GraphEr
         )?;
 
         let cypher = format!(
-            "MATCH (i:Invoice {{id: '{iid}'}}), (p:Party {{id: '{pid}'}})
+            "MATCH (i:Invoice) WHERE i.id = '{iid}' \
+             MATCH (p:Party) WHERE p.id = '{pid}' \
              CREATE (i)-[:BILLED_TO]->(p)",
             iid = escape_cypher(&invoice_id),
             pid = escape_cypher(&party_id),
@@ -219,8 +221,8 @@ pub fn write_contract(conn: &Connection, contract: &Contract) -> Result<(), Grap
             contract_number: '{num}',
             title: '{title}',
             contract_type: '{ctype}',
-            effective_date: date('{eff}'),
-            expiration_date: date('{exp}'),
+            effective_date: '{eff}',
+            expiration_date: '{exp}',
             total_value: {total},
             currency: '{currency}',
             confidence: {confidence}
@@ -254,7 +256,8 @@ pub fn write_contract(conn: &Connection, contract: &Contract) -> Result<(), Grap
         )?;
 
         let cypher = format!(
-            "MATCH (p:Party {{id: '{pid}'}}), (c:Contract {{id: '{cid}'}})
+            "MATCH (p:Party) WHERE p.id = '{pid}' \
+             MATCH (c:Contract) WHERE c.id = '{cid}' \
              CREATE (p)-[:PARTY_TO {{role: 'contract_party'}}]->(c)",
             pid = escape_cypher(&party_id),
             cid = escape_cypher(&contract_id),
@@ -291,7 +294,8 @@ pub fn write_contract(conn: &Connection, contract: &Contract) -> Result<(), Grap
             .map_err(|e| GraphError::Write(format!("Create clause node: {e}")))?;
 
         let cypher = format!(
-            "MATCH (c:Contract {{id: '{cid}'}}), (cl:Clause {{id: '{clid}'}})
+            "MATCH (c:Contract) WHERE c.id = '{cid}' \
+             MATCH (cl:Clause) WHERE cl.id = '{clid}' \
              CREATE (c)-[:HAS_CLAUSE]->(cl)",
             cid = escape_cypher(&contract_id),
             clid = escape_cypher(&clause.clause_id),
@@ -320,7 +324,8 @@ pub fn link_invoice_to_contract(
 ) -> Result<(), GraphError> {
     let po = po_number.unwrap_or("");
     let cypher = format!(
-        "MATCH (i:Invoice {{id: '{iid}'}}), (c:Contract {{id: '{cid}'}})
+        "MATCH (i:Invoice) WHERE i.id = '{iid}' \
+         MATCH (c:Contract) WHERE c.id = '{cid}' \
          CREATE (i)-[:GOVERNED_BY {{po_number: '{po}'}}]->(c)",
         iid = escape_cypher(invoice_id),
         cid = escape_cypher(contract_id),

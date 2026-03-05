@@ -1,4 +1,4 @@
-use ryugraph::{Connection, Value};
+use kyu_graph::{Connection, TypedValue};
 use uuid::Uuid;
 
 use fen_core::domain::{ContractId, InvoiceId};
@@ -21,8 +21,8 @@ pub fn invoices_for_vendor(
         .map_err(|e| GraphError::Query(e.to_string()))?;
 
     let mut ids = Vec::new();
-    for row in result {
-        if let Some(Value::String(id_str)) = row.first() {
+    for row in result.iter_rows() {
+        if let Some(TypedValue::String(id_str)) = row.first() {
             if let Ok(uuid) = Uuid::parse_str(id_str) {
                 ids.push(InvoiceId(uuid));
             }
@@ -53,8 +53,8 @@ pub fn related_contracts(
         .map_err(|e| GraphError::Query(e.to_string()))?;
 
     let mut ids = Vec::new();
-    for row in result {
-        if let Some(Value::String(id_str)) = row.first() {
+    for row in result.iter_rows() {
+        if let Some(TypedValue::String(id_str)) = row.first() {
             if let Ok(uuid) = Uuid::parse_str(id_str) {
                 ids.push(ContractId(uuid));
             }
@@ -73,8 +73,8 @@ pub fn related_contracts(
         .query(&cypher)
         .map_err(|e| GraphError::Query(e.to_string()))?;
 
-    for row in result {
-        if let Some(Value::String(id_str)) = row.first() {
+    for row in result.iter_rows() {
+        if let Some(TypedValue::String(id_str)) = row.first() {
             if let Ok(uuid) = Uuid::parse_str(id_str) {
                 if !ids.contains(&ContractId(uuid)) {
                     ids.push(ContractId(uuid));
@@ -96,7 +96,7 @@ pub fn execute_cypher(
         .map_err(|e| GraphError::Query(e.to_string()))?;
 
     let mut rows = Vec::new();
-    for row in result {
+    for row in result.iter_rows() {
         let string_row: Vec<String> = row
             .iter()
             .map(|v| format!("{:?}", v))
@@ -114,8 +114,8 @@ pub fn count_nodes(conn: &Connection, label: &str) -> Result<u64, GraphError> {
         .query(&cypher)
         .map_err(|e| GraphError::Query(e.to_string()))?;
 
-    for row in result {
-        if let Some(Value::Int64(n)) = row.first() {
+    for row in result.iter_rows() {
+        if let Some(TypedValue::Int64(n)) = row.first() {
             return Ok(*n as u64);
         }
     }
@@ -131,11 +131,11 @@ pub fn list_vendors(conn: &Connection) -> Result<Vec<(String, String)>, GraphErr
         .map_err(|e| GraphError::Query(e.to_string()))?;
 
     let mut vendors = Vec::new();
-    for row in result {
-        if let (Some(Value::String(id)), Some(Value::String(name))) =
+    for row in result.iter_rows() {
+        if let (Some(TypedValue::String(id)), Some(TypedValue::String(name))) =
             (row.first(), row.get(1))
         {
-            vendors.push((id.clone(), name.clone()));
+            vendors.push((id.to_string(), name.to_string()));
         }
     }
 
@@ -146,21 +146,19 @@ pub fn list_vendors(conn: &Connection) -> Result<Vec<(String, String)>, GraphErr
 mod tests {
     use super::*;
     use crate::schema;
-    use ryugraph::{Database, SystemConfig};
+    use kyu_graph::Database;
 
     fn setup_db() -> Database {
-        let db = Database::in_memory(SystemConfig::default()).unwrap();
-        {
-            let conn = Connection::new(&db).unwrap();
-            schema::initialize_schema(&conn).unwrap();
-        }
+        let db = Database::in_memory();
+        let conn = db.connect();
+        schema::initialize_schema(&conn).unwrap();
         db
     }
 
     #[test]
     fn test_count_nodes_empty() {
         let db = setup_db();
-        let conn = Connection::new(&db).unwrap();
+        let conn = db.connect();
         assert_eq!(count_nodes(&conn, "Invoice").unwrap(), 0);
         assert_eq!(count_nodes(&conn, "Vendor").unwrap(), 0);
     }
@@ -168,7 +166,7 @@ mod tests {
     #[test]
     fn test_list_vendors_empty() {
         let db = setup_db();
-        let conn = Connection::new(&db).unwrap();
+        let conn = db.connect();
         assert!(list_vendors(&conn).unwrap().is_empty());
     }
 }

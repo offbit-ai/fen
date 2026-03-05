@@ -24,8 +24,8 @@ pub enum GraphError {
     Serialization(String),
 }
 
-impl From<ryugraph::Error> for GraphError {
-    fn from(e: ryugraph::Error) -> Self {
+impl From<kyu_graph::KyuError> for GraphError {
+    fn from(e: kyu_graph::KyuError) -> Self {
         GraphError::Database(e.to_string())
     }
 }

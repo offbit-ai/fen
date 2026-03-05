@@ -5,7 +5,8 @@ edition.workspace = true
 
 [dependencies]
 fen-core = { path = "../fen-core" }
-ryugraph = { version = "25.9.0", default-features = false }
+kyu-graph = { path = "../../../kyugraph/crates/kyu-graph" }
+ext-rdf = { path = "../../../kyugraph/extensions/ext-rdf" }
 async-trait.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use fen_events::LocalEventBus;
-use fen_graph::RyuGraphStore;
+use fen_graph::KyuGraphStore;
 use fen_ingestion::IngestionPipeline;
 use fen_ml::{
     DocumentIntelligence, DocumentIntelligenceConfig, EmbeddingModelConfig, LayoutModelConfig,
@@ -146,7 +146,7 @@ impl AppState {
         // Initialize knowledge graph (optional)
         let graph_store = if let Some(ref graph_path) = config.graph_storage_path {
             std::fs::create_dir_all(graph_path)?;
-            match RyuGraphStore::new(graph_path) {
+            match KyuGraphStore::new(graph_path) {
                 Ok(store) => {
                     tracing::info!(path = %graph_path.display(), "Knowledge graph initialized");
                     Some(Arc::new(store))

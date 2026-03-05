@@ -1,11 +1,12 @@
 pub mod error;
 pub mod query;
+pub mod rdf;
 pub mod schema;
 pub mod store;
 pub mod writer;
 
 pub use error::GraphError;
-pub use store::RyuGraphStore;
+pub use store::KyuGraphStore;
 
 use async_trait::async_trait;
 use fen_core::domain::{Contract, ContractId, Invoice, InvoiceId};
@@ -44,6 +45,17 @@ pub trait GraphStore: Send + Sync {
 
     /// Execute a raw Cypher query, returning results as string vectors.
     async fn query_cypher(&self, cypher: &str) -> Result<Vec<Vec<String>>, GraphError>;
+
+    /// Load an RDF file (Turtle/N-Triples/RDF-XML) into the graph.
+    /// Auto-creates node/rel tables from rdf:type and predicate URIs.
+    async fn load_rdf(&self, path: &str) -> Result<(), GraphError>;
+
+    /// Execute an RDF inspection procedure and return results as string vectors.
+    /// Supports: "stats", "prefixes", "types"
+    async fn rdf_inspect(&self, procedure: &str, path: &str) -> Result<Vec<Vec<String>>, GraphError>;
+
+    /// Query nodes imported from RDF by their inferred table name.
+    async fn rdf_nodes(&self, table_name: &str) -> Result<Vec<Vec<String>>, GraphError>;
 }
 
 #[cfg(test)]
@@ -90,7 +102,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_and_query_invoice() {
-        let store = RyuGraphStore::in_memory().unwrap();
+        let store = KyuGraphStore::in_memory().unwrap();
         let invoice = sample_invoice();
 
         store.write_invoice(&invoice).await.unwrap();
@@ -111,7 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_and_query_contract() {
-        let store = RyuGraphStore::in_memory().unwrap();
+        let store = KyuGraphStore::in_memory().unwrap();
         let contract = sample_contract();
 
         store.write_contract(&contract).await.unwrap();
@@ -147,7 +159,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_link_invoice_to_contract() {
-        let store = RyuGraphStore::in_memory().unwrap();
+        let store = KyuGraphStore::in_memory().unwrap();
 
         let invoice = sample_invoice();
         let contract = sample_contract();
@@ -169,7 +181,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_vendor_deduplication_across_invoices() {
-        let store = RyuGraphStore::in_memory().unwrap();
+        let store = KyuGraphStore::in_memory().unwrap();
 
         let mut inv1 = sample_invoice();
         inv1.invoice_number = "INV-001".to_string();
@@ -198,7 +210,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_related_contracts_via_vendor() {
-        let store = RyuGraphStore::in_memory().unwrap();
+        let store = KyuGraphStore::in_memory().unwrap();
 
         // Invoice 1 from Acme Corp, linked to a contract
         let mut inv1 = sample_invoice();
@@ -225,5 +237,120 @@ mod tests {
         let contracts = store.related_contracts(&inv2.id).await.unwrap();
         assert_eq!(contracts.len(), 1);
         assert_eq!(contracts[0], contract.id);
+    }
+
+    // ---- RDF integration tests ----
+
+    const TEST_TURTLE: &str = r#"
+@prefix rdf:    <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix foaf:   <http://xmlns.com/foaf/0.1/> .
+@prefix schema: <https://schema.org/> .
+@prefix xsd:    <http://www.w3.org/2001/XMLSchema#> .
+@prefix ex:     <https://example.org/> .
+
+ex:alice
+    a foaf:Person ;
+    foaf:name "Alice Smith" ;
+    foaf:mbox "alice@example.com" .
+
+ex:bob
+    a foaf:Person ;
+    foaf:name "Bob Jones" ;
+    foaf:mbox "bob@example.com" ;
+    foaf:knows ex:alice .
+
+ex:acme
+    a schema:Organization ;
+    schema:name "Acme Corp" ;
+    schema:location "New York" .
+
+ex:alice schema:affiliation ex:acme .
+ex:bob   schema:affiliation ex:acme .
+"#;
+
+    fn write_test_turtle() -> std::path::PathBuf {
+        let id = uuid::Uuid::new_v4();
+        let dir = std::env::temp_dir().join(format!("fen_graph_rdf_test_{id}"));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("test.ttl");
+        std::fs::write(&path, TEST_TURTLE).unwrap();
+        path
+    }
+
+    #[tokio::test]
+    async fn test_load_rdf_turtle() {
+        let ttl_path = write_test_turtle();
+        let store = KyuGraphStore::in_memory().unwrap();
+
+        store.load_rdf(ttl_path.to_str().unwrap()).await.unwrap();
+
+        // Verify Person nodes were created
+        let persons = store.rdf_nodes("Person").await.unwrap();
+        assert_eq!(persons.len(), 2);
+
+        // Verify Organization nodes were created
+        let orgs = store.rdf_nodes("Organization").await.unwrap();
+        assert_eq!(orgs.len(), 1);
+
+        let _ = std::fs::remove_dir_all(ttl_path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_rdf_inspect_stats() {
+        let ttl_path = write_test_turtle();
+        let store = KyuGraphStore::in_memory().unwrap();
+
+        let stats = store
+            .rdf_inspect("stats", ttl_path.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Should return exactly one row with triple/subject/predicate/type counts
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].len(), 4);
+
+        let _ = std::fs::remove_dir_all(ttl_path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_rdf_inspect_types() {
+        let ttl_path = write_test_turtle();
+        let store = KyuGraphStore::in_memory().unwrap();
+
+        let types = store
+            .rdf_inspect("types", ttl_path.to_str().unwrap())
+            .await
+            .unwrap();
+
+        // Should find Person and Organization types
+        assert!(types.len() >= 2);
+
+        let _ = std::fs::remove_dir_all(ttl_path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_rdf_creates_relationship_tables() {
+        let ttl_path = write_test_turtle();
+        let store = KyuGraphStore::in_memory().unwrap();
+
+        store.load_rdf(ttl_path.to_str().unwrap()).await.unwrap();
+
+        // Verify the "knows" relationship was imported
+        let knows = store
+            .query_cypher("MATCH (a:Person)-[:knows]->(b:Person) RETURN a.name, b.name")
+            .await
+            .unwrap();
+        assert_eq!(knows.len(), 1);
+
+        // Verify affiliation relationships
+        let affiliations = store
+            .query_cypher(
+                "MATCH (p:Person)-[:affiliation]->(o:Organization) RETURN p.name, o.name",
+            )
+            .await
+            .unwrap();
+        assert_eq!(affiliations.len(), 2);
+
+        let _ = std::fs::remove_dir_all(ttl_path.parent().unwrap());
     }
 }

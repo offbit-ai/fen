@@ -1,4 +1,4 @@
-use ryugraph::Connection;
+use kyu_graph::Connection;
 
 use crate::error::GraphError;
 
@@ -16,8 +16,8 @@ const NODE_TABLES: &[&str] = &[
         document_id STRING,
         tenant_id STRING,
         invoice_number STRING,
-        invoice_date DATE,
-        due_date DATE,
+        invoice_date STRING,
+        due_date STRING,
         total_amount DOUBLE,
         currency STRING,
         confidence DOUBLE,
@@ -30,8 +30,8 @@ const NODE_TABLES: &[&str] = &[
         contract_number STRING,
         title STRING,
         contract_type STRING,
-        effective_date DATE,
-        expiration_date DATE,
+        effective_date STRING,
+        expiration_date STRING,
         total_value DOUBLE,
         currency STRING,
         confidence DOUBLE,
@@ -55,7 +55,7 @@ const NODE_TABLES: &[&str] = &[
 
 /// Relationship table DDL statements
 const REL_TABLES: &[&str] = &[
-    "CREATE REL TABLE IF NOT EXISTS SUPPLIES(FROM Vendor TO Invoice, since DATE)",
+    "CREATE REL TABLE IF NOT EXISTS SUPPLIES(FROM Vendor TO Invoice, since STRING)",
     "CREATE REL TABLE IF NOT EXISTS BILLED_TO(FROM Invoice TO Party)",
     "CREATE REL TABLE IF NOT EXISTS GOVERNED_BY(FROM Invoice TO Contract, po_number STRING)",
     "CREATE REL TABLE IF NOT EXISTS PARTY_TO(FROM Party TO Contract, role STRING)",
@@ -63,7 +63,7 @@ const REL_TABLES: &[&str] = &[
 ];
 
 /// Initialize the graph schema by creating all node and relationship tables.
-/// Safe to call multiple times — uses IF NOT EXISTS.
+/// Safe to call multiple times — "already exists" errors are silently ignored.
 pub fn initialize_schema(conn: &Connection) -> Result<(), GraphError> {
     for ddl in NODE_TABLES {
         conn.query(ddl)
@@ -84,21 +84,21 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), GraphError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ryugraph::{Database, SystemConfig};
+    use kyu_graph::Database;
 
     #[test]
     fn test_schema_initialization() {
-        let db = Database::in_memory(SystemConfig::default()).unwrap();
-        let conn = Connection::new(&db).unwrap();
+        let db = Database::in_memory();
+        let conn = db.connect();
         initialize_schema(&conn).unwrap();
     }
 
     #[test]
     fn test_schema_idempotent() {
-        let db = Database::in_memory(SystemConfig::default()).unwrap();
-        let conn = Connection::new(&db).unwrap();
+        let db = Database::in_memory();
+        let conn = db.connect();
         initialize_schema(&conn).unwrap();
-        // Second call should succeed (IF NOT EXISTS)
+        // Second call should succeed (already exists errors ignored)
         initialize_schema(&conn).unwrap();
     }
 }
