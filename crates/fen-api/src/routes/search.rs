@@ -1,4 +1,10 @@
-//! Search endpoints for full-text and semantic search
+//! Search and query endpoints
+//!
+//! Provides three levels of query access:
+//! - `GET /search/text` — Full-text keyword search (Tantivy BM25)
+//! - `GET /search/semantic` — Vector similarity search (LanceDB)
+//! - `POST /query` — Unified FQL query engine (SQL or JSON, with parameters)
+//! - `POST /query/zip` — Cross-table ZIP queries with pipeline operations
 
 use std::sync::Arc;
 
@@ -8,12 +14,14 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use fen_storage::{parse_query, DocumentStore, FullTextSearchResult, QueryParams};
+use fen_storage::{parse_query, ColumnValue, DocumentStore, FullTextSearchResult, QueryParams};
 
 use crate::error::ApiError;
 use crate::routes::documents::contract_to_response;
 use crate::routes::ingest::invoice_to_full_response;
 use crate::state::AppState;
+
+// ==================== Search types ====================
 
 /// Query parameters for text search
 #[derive(Deserialize)]
@@ -53,10 +61,27 @@ pub struct SearchResponse {
     pub took_ms: u64,
 }
 
-/// Request body for query execution
+// ==================== Unified query types ====================
+
+/// Request body for the unified query endpoint.
+///
+/// Supports two modes:
+/// - **SQL mode**: `{ "sql": "SELECT ...", "params": { "vendor": "Acme" } }`
+/// - **JSON mode**: `{ "json": { "select": [...], "from": {...}, ... } }`
+///
+/// If both are provided, `sql` takes precedence.
+/// Parameters can be provided in `params` (SQL mode) or inline in the JSON query object.
 #[derive(Deserialize)]
 pub struct QueryRequest {
-    pub sql: String,
+    /// FQL query string
+    #[serde(default)]
+    pub sql: Option<String>,
+    /// JSON query object (alternative to SQL)
+    #[serde(default)]
+    pub json: Option<fen_storage::JsonQuery>,
+    /// Query parameters for `:param` bind variables
+    #[serde(default)]
+    pub params: Option<std::collections::HashMap<String, serde_json::Value>>,
 }
 
 /// Response for query execution
@@ -71,57 +96,29 @@ pub struct QueryMetadata {
     pub execution_time_ms: u64,
     pub rows_scanned: usize,
     pub rows_returned: usize,
+    pub used_vector_search: bool,
+    pub used_text_search: bool,
 }
 
-/// Enrich search results with full document data
-async fn enrich_results(
-    state: &AppState,
-    raw_results: Vec<FullTextSearchResult>,
-) -> Vec<SearchResultItem> {
-    let mut enriched = Vec::with_capacity(raw_results.len());
-
-    for r in raw_results {
-        // Try to parse as UUID and look up invoice or contract
-        if let Ok(uuid) = uuid::Uuid::parse_str(&r.id) {
-            let invoice_id = fen_core::domain::InvoiceId(uuid);
-            if let Ok(Some(invoice)) = state.storage.get_invoice(&invoice_id).await {
-                let data = invoice_to_full_response(&invoice);
-                enriched.push(SearchResultItem {
-                    id: r.id,
-                    document_type: "invoice".to_string(),
-                    score: r.score,
-                    highlight: None,
-                    data: serde_json::to_value(data).unwrap_or_default(),
-                });
-                continue;
-            }
-
-            let contract_id = fen_core::domain::ContractId(uuid);
-            if let Ok(Some(contract)) = state.storage.get_contract(&contract_id).await {
-                let data = contract_to_response(&contract);
-                enriched.push(SearchResultItem {
-                    id: r.id,
-                    document_type: "contract".to_string(),
-                    score: r.score,
-                    highlight: None,
-                    data: serde_json::to_value(data).unwrap_or_default(),
-                });
-                continue;
-            }
-        }
-
-        // Fallback: return bare result
-        enriched.push(SearchResultItem {
-            id: r.id,
-            document_type: "unknown".to_string(),
-            score: r.score,
-            highlight: None,
-            data: serde_json::Value::Null,
-        });
-    }
-
-    enriched
+/// Response for ZIP query execution
+#[derive(Serialize)]
+pub struct ZipQueryResponse {
+    pub pairs: Vec<serde_json::Value>,
+    pub metadata: ZipQueryMetadata,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<serde_json::Value>,
 }
+
+#[derive(Serialize)]
+pub struct ZipQueryMetadata {
+    pub execution_time_ms: u64,
+    pub pair_count: usize,
+    pub invoice_count: usize,
+    pub contract_count: usize,
+    pub zip_mode: String,
+}
+
+// ==================== Search handlers ====================
 
 /// GET /search/text - Full-text search across documents
 pub async fn text_search(
@@ -159,7 +156,6 @@ pub async fn semantic_search(
     let limit = params.limit.unwrap_or(10).min(100);
     let start = std::time::Instant::now();
 
-    // Need both ML pipeline (for query embedding) and warm storage (for vector search)
     let di = state.document_intelligence.as_ref().ok_or_else(|| {
         ApiError::Internal("Semantic search requires ML pipeline (ML_ENABLED=true)".to_string())
     })?;
@@ -167,19 +163,16 @@ pub async fn semantic_search(
         ApiError::Internal("Semantic search requires warm storage".to_string())
     })?;
 
-    // Generate query embedding
     let query_embedding = di.embedding.embed(&params.q).map_err(|e| {
         ApiError::Internal(format!("Failed to generate query embedding: {}", e))
     })?;
 
-    // Search warm storage by vector similarity
     let warm_guard = warm.read().await;
     let results = warm_guard
         .search_invoices_by_embedding(&query_embedding, limit)
         .await
         .map_err(|e| ApiError::Internal(format!("Vector search failed: {}", e)))?;
 
-    // Convert to SearchResultItem
     let items: Vec<SearchResultItem> = results
         .into_iter()
         .map(|(invoice, distance)| {
@@ -187,7 +180,7 @@ pub async fn semantic_search(
             SearchResultItem {
                 id: invoice.id.to_string(),
                 document_type: "invoice".to_string(),
-                score: 1.0 - distance, // Convert distance to similarity
+                score: 1.0 - distance,
                 highlight: None,
                 data: serde_json::to_value(data).unwrap_or_default(),
             }
@@ -205,55 +198,278 @@ pub async fn semantic_search(
     }))
 }
 
-/// POST /search/query - Execute a FenQuery (SQL-like query)
+// ==================== Unified query handler ====================
+
+/// POST /query - Execute a unified FQL query (SQL or JSON format)
+///
+/// Accepts SQL with parameter binding or structured JSON queries.
+/// Automatically routes to the morsel-parallel query executor.
 pub async fn execute_query(
     State(state): State<Arc<AppState>>,
     Json(request): Json<QueryRequest>,
 ) -> Result<Json<QueryResponse>, ApiError> {
-    let query = parse_query(&request.sql).map_err(|e| {
-        ApiError::BadRequest(format!("Invalid query syntax: {}", e))
-    })?;
+    let executor = state
+        .query_executor
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Query executor not available".to_string()))?;
 
-    if let Some(ref executor) = state.query_executor {
-        let params = QueryParams::new();
-        let result = executor
-            .execute(&query, &params)
-            .await
-            .map_err(|e| ApiError::Internal(format!("Query execution failed: {}", e)))?;
+    // Parse query from SQL or JSON
+    let (query, params) = parse_request(request)?;
 
-        let mut rows: Vec<serde_json::Value> = result
-            .rows
-            .into_iter()
-            .map(|row| {
-                let obj: serde_json::Map<String, serde_json::Value> = row
-                    .columns
-                    .into_iter()
-                    .map(|(k, v)| (k, column_value_to_json(v)))
-                    .collect();
-                serde_json::Value::Object(obj)
-            })
-            .collect();
+    // Redirect ZIP queries
+    if query.zip.is_some() {
+        return Err(ApiError::BadRequest(
+            "ZIP queries must use POST /query/zip endpoint".to_string(),
+        ));
+    }
 
-        // Apply graph pipeline ops if present
-        if query.uses_graph() {
-            if let Some(ref graph) = state.graph_store {
-                if let Some(ref pipeline) = query.pipeline {
-                    apply_graph_pipeline(&mut rows, pipeline, graph.as_ref()).await?;
+    // Execute via morsel-parallel executor
+    let result = executor
+        .execute(&query, &params)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Query execution failed: {}", e)))?;
+
+    let mut rows: Vec<serde_json::Value> = result
+        .rows
+        .into_iter()
+        .map(|row| {
+            let obj: serde_json::Map<String, serde_json::Value> = row
+                .columns
+                .into_iter()
+                .map(|(k, v)| (k, column_value_to_json(v)))
+                .collect();
+            serde_json::Value::Object(obj)
+        })
+        .collect();
+
+    // Apply graph pipeline ops if present
+    if query.uses_graph() {
+        if let Some(ref graph) = state.graph_store {
+            if let Some(ref pipeline) = query.pipeline {
+                apply_graph_pipeline(&mut rows, pipeline, graph.as_ref()).await?;
+            }
+        }
+    }
+
+    Ok(Json(QueryResponse {
+        rows,
+        metadata: QueryMetadata {
+            execution_time_ms: result.metadata.execution_time_ms,
+            rows_scanned: result.metadata.rows_scanned,
+            rows_returned: result.metadata.rows_returned,
+            used_vector_search: result.metadata.used_vector_search,
+            used_text_search: result.metadata.used_text_search,
+        },
+    }))
+}
+
+/// POST /query/zip - Execute a cross-table ZIP query with pipeline operations
+pub async fn execute_zip_query(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<QueryRequest>,
+) -> Result<Json<ZipQueryResponse>, ApiError> {
+    let zip_executor = state
+        .zip_executor
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("ZIP executor not available".to_string()))?;
+
+    let (query, params) = parse_request(request)?;
+
+    if query.zip.is_none() {
+        return Err(ApiError::BadRequest(
+            "Not a ZIP query. Use POST /query for standard queries.".to_string(),
+        ));
+    }
+
+    let result = zip_executor
+        .execute_zip_query(&query, &params)
+        .await
+        .map_err(|e| ApiError::Internal(format!("ZIP query execution failed: {}", e)))?;
+
+    // Convert pairs to JSON
+    let pairs: Vec<serde_json::Value> = result
+        .pairs
+        .iter()
+        .map(|pair| {
+            let mut obj = serde_json::Map::new();
+            if let Some(ref inv) = pair.invoice {
+                obj.insert(
+                    "invoice".to_string(),
+                    serde_json::to_value(invoice_to_full_response(inv)).unwrap_or_default(),
+                );
+            }
+            if let Some(ref con) = pair.contract {
+                obj.insert(
+                    "contract".to_string(),
+                    serde_json::to_value(contract_to_response(con)).unwrap_or_default(),
+                );
+            }
+            if let Some(score) = pair.score {
+                obj.insert(
+                    "score".to_string(),
+                    serde_json::Number::from_f64(score)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or(serde_json::Value::Null),
+                );
+            }
+            serde_json::Value::Object(obj)
+        })
+        .collect();
+
+    // Serialize pipeline results if present
+    let pipeline = result.pipeline_results.as_ref().map(|pr| {
+        let mut obj = serde_json::Map::new();
+        if !pr.anomalies.is_empty() {
+            obj.insert(
+                "anomalies".to_string(),
+                serde_json::to_value(&pr.anomalies).unwrap_or_default(),
+            );
+        }
+        if !pr.cross_validation_issues.is_empty() {
+            let issues: Vec<serde_json::Value> = pr
+                .cross_validation_issues
+                .iter()
+                .map(|issue| {
+                    serde_json::json!({
+                        "invoice_id": issue.invoice_id,
+                        "contract_id": issue.contract_id,
+                        "issue_type": format!("{:?}", issue.issue_type),
+                        "description": issue.description,
+                        "severity": format!("{:?}", issue.severity),
+                    })
+                })
+                .collect();
+            obj.insert(
+                "cross_validation_issues".to_string(),
+                serde_json::json!(issues),
+            );
+        }
+        if !pr.aggregates.is_empty() {
+            let aggs: serde_json::Map<String, serde_json::Value> = pr
+                .aggregates
+                .iter()
+                .map(|(k, v)| (k.clone(), aggregate_to_json(v)))
+                .collect();
+            obj.insert("aggregates".to_string(), serde_json::Value::Object(aggs));
+        }
+        serde_json::Value::Object(obj)
+    });
+
+    Ok(Json(ZipQueryResponse {
+        pairs,
+        metadata: ZipQueryMetadata {
+            execution_time_ms: result.metadata.execution_time_ms,
+            pair_count: result.metadata.pair_count,
+            invoice_count: result.metadata.invoice_count,
+            contract_count: result.metadata.contract_count,
+            zip_mode: result.metadata.zip_mode,
+        },
+        pipeline,
+    }))
+}
+
+// ==================== Helpers ====================
+
+/// Parse a QueryRequest into (FenQuery, QueryParams).
+fn parse_request(
+    request: QueryRequest,
+) -> Result<(fen_storage::FenQuery, QueryParams), ApiError> {
+    let (query, mut params) = if let Some(sql) = &request.sql {
+        let q = parse_query(sql)
+            .map_err(|e| ApiError::BadRequest(format!("Invalid query syntax: {}", e)))?;
+        (q, QueryParams::new())
+    } else if let Some(ref json_query) = request.json {
+        let q = json_query
+            .to_ast()
+            .map_err(|e| ApiError::BadRequest(format!("Invalid JSON query: {}", e)))?;
+        let p = json_query.to_params();
+        (q, p)
+    } else {
+        return Err(ApiError::BadRequest(
+            "Request must include either 'sql' or 'json' field".to_string(),
+        ));
+    };
+
+    // Merge request-level params (overrides JSON-embedded params)
+    if let Some(param_map) = request.params {
+        for (key, value) in param_map {
+            match value {
+                serde_json::Value::String(s) => {
+                    params = params.with_string(&key, s);
                 }
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        params = params.with_int(&key, i);
+                    } else if let Some(f) = n.as_f64() {
+                        params = params.with_float(&key, f);
+                    }
+                }
+                serde_json::Value::Bool(b) => {
+                    params = params.with_bool(&key, b);
+                }
+                serde_json::Value::Array(arr) => {
+                    let floats: Vec<f32> = arr
+                        .iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect();
+                    if floats.len() == arr.len() {
+                        params = params.with_vector(&key, floats);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok((query, params))
+}
+
+/// Enrich search results with full document data
+async fn enrich_results(
+    state: &AppState,
+    raw_results: Vec<FullTextSearchResult>,
+) -> Vec<SearchResultItem> {
+    let mut enriched = Vec::with_capacity(raw_results.len());
+
+    for r in raw_results {
+        if let Ok(uuid) = uuid::Uuid::parse_str(&r.id) {
+            let invoice_id = fen_core::domain::InvoiceId(uuid);
+            if let Ok(Some(invoice)) = state.storage.get_invoice(&invoice_id).await {
+                let data = invoice_to_full_response(&invoice);
+                enriched.push(SearchResultItem {
+                    id: r.id,
+                    document_type: "invoice".to_string(),
+                    score: r.score,
+                    highlight: None,
+                    data: serde_json::to_value(data).unwrap_or_default(),
+                });
+                continue;
+            }
+
+            let contract_id = fen_core::domain::ContractId(uuid);
+            if let Ok(Some(contract)) = state.storage.get_contract(&contract_id).await {
+                let data = contract_to_response(&contract);
+                enriched.push(SearchResultItem {
+                    id: r.id,
+                    document_type: "contract".to_string(),
+                    score: r.score,
+                    highlight: None,
+                    data: serde_json::to_value(data).unwrap_or_default(),
+                });
+                continue;
             }
         }
 
-        Ok(Json(QueryResponse {
-            rows,
-            metadata: QueryMetadata {
-                execution_time_ms: result.metadata.execution_time_ms,
-                rows_scanned: result.metadata.rows_scanned,
-                rows_returned: result.metadata.rows_returned,
-            },
-        }))
-    } else {
-        Err(ApiError::Internal("Query executor not available".to_string()))
+        enriched.push(SearchResultItem {
+            id: r.id,
+            document_type: "unknown".to_string(),
+            score: r.score,
+            highlight: None,
+            data: serde_json::Value::Null,
+        });
     }
+
+    enriched
 }
 
 /// Apply graph pipeline operations to query result rows
@@ -279,7 +495,6 @@ async fn apply_graph_pipeline(
                             continue;
                         }
 
-                        // Use vendor_name as graph entry point
                         if let Ok(vendor_id) = graph.resolve_vendor(&entry_value).await {
                             if let Ok(invoice_ids) = graph.invoices_for_vendor(&vendor_id).await {
                                 let ids: Vec<String> =
@@ -293,7 +508,6 @@ async fn apply_graph_pipeline(
                                     serde_json::Value::String(vendor_id.clone()),
                                 );
 
-                                // If depth > 1, also find contracts
                                 if *depth > 1 {
                                     let mut contract_ids = Vec::new();
                                     for inv_id in &invoice_ids {
@@ -319,7 +533,6 @@ async fn apply_graph_pipeline(
             PipelineOp::GraphEnrich => {
                 for row in rows.iter_mut() {
                     if let Some(obj) = row.as_object_mut() {
-                        // Try to enrich via invoice ID
                         if let Some(id_str) = obj.get("id").and_then(|v| v.as_str()) {
                             if let Ok(uuid) = id_str.parse::<uuid::Uuid>() {
                                 let invoice_id = fen_core::domain::InvoiceId(uuid);
@@ -334,7 +547,6 @@ async fn apply_graph_pipeline(
                             }
                         }
 
-                        // Try to enrich via vendor name
                         if let Some(vendor) = obj.get("vendor_name").and_then(|v| v.as_str()) {
                             if let Ok(vid) = graph.resolve_vendor(vendor).await {
                                 if let Ok(invoices) = graph.invoices_for_vendor(&vid).await {
@@ -348,15 +560,14 @@ async fn apply_graph_pipeline(
                     }
                 }
             }
-            _ => {} // Non-graph ops handled elsewhere
+            _ => {}
         }
     }
 
     Ok(())
 }
 
-fn column_value_to_json(v: fen_storage::ColumnValue) -> serde_json::Value {
-    use fen_storage::ColumnValue;
+fn column_value_to_json(v: ColumnValue) -> serde_json::Value {
     match v {
         ColumnValue::String(s) => serde_json::Value::String(s),
         ColumnValue::Integer(i) => serde_json::Value::Number(i.into()),
@@ -369,5 +580,19 @@ fn column_value_to_json(v: fen_storage::ColumnValue) -> serde_json::Value {
         ColumnValue::Date(d) => serde_json::Value::String(d.to_string()),
         ColumnValue::Boolean(b) => serde_json::Value::Bool(b),
         ColumnValue::Null => serde_json::Value::Null,
+    }
+}
+
+fn aggregate_to_json(v: &fen_storage::AggregateValue) -> serde_json::Value {
+    use fen_storage::AggregateValue;
+    match v {
+        AggregateValue::Count(n) => serde_json::json!(n),
+        AggregateValue::Sum(f)
+        | AggregateValue::Average(f)
+        | AggregateValue::Min(f)
+        | AggregateValue::Max(f) => serde_json::Number::from_f64(*f)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        AggregateValue::StringList(list) => serde_json::json!(list),
     }
 }

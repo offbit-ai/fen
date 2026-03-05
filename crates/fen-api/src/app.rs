@@ -60,6 +60,9 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/search/text", get(search::text_search))
         .route("/search/semantic", get(search::semantic_search))
         .route("/search/query", post(search::execute_query))
+        // Unified query engine
+        .route("/query", post(search::execute_query))
+        .route("/query/zip", post(search::execute_zip_query))
         // Storage management endpoints
         .route("/storage/tiers", get(storage::tier_distribution))
         .route("/storage/cache/stats", get(storage::cache_stats))

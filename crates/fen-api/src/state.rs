@@ -13,6 +13,7 @@ use fen_rules::RuleEngine;
 use fen_storage::{
     AnomalyStore, DocumentLocationIndex, ExecutorConfig, FullTextConfig, FullTextIndex,
     LanceStorage, QueryEngine, QueryEngineConfig, QueryExecutor, RedbStorage, TieredStorage,
+    ZipExecutor,
 };
 use tokio::sync::RwLock;
 
@@ -32,6 +33,7 @@ pub struct AppState {
     pub warm_storage: Option<Arc<RwLock<LanceStorage>>>,
     pub query_engine: Option<Arc<QueryEngine>>,
     pub query_executor: Option<Arc<QueryExecutor>>,
+    pub zip_executor: Option<Arc<ZipExecutor>>,
     pub location_index: Option<Arc<DocumentLocationIndex>>,
     pub tiered_storage: Option<Arc<TieredStorage>>,
     // Notification and event infrastructure
@@ -230,21 +232,28 @@ impl AppState {
             }
         };
 
-        // Initialize QueryExecutor (requires warm storage + fulltext)
-        let query_executor = match (&warm_storage, &fulltext_index) {
+        // Initialize QueryExecutor and ZipExecutor (requires warm storage + fulltext)
+        let (query_executor, zip_executor) = match (&warm_storage, &fulltext_index) {
             (Some(warm), Some(fti)) => {
+                let config = ExecutorConfig::default();
                 let executor = QueryExecutor::new(
                     storage.clone(),
                     warm.clone(),
                     fti.clone(),
-                    ExecutorConfig::default(),
+                    config.clone(),
                 );
-                tracing::info!("Query executor initialized");
-                Some(Arc::new(executor))
+                let zip = ZipExecutor::new(
+                    storage.clone(),
+                    warm.clone(),
+                    fti.clone(),
+                    config,
+                );
+                tracing::info!("Query executor and ZIP executor initialized");
+                (Some(Arc::new(executor)), Some(Arc::new(zip)))
             }
             _ => {
-                tracing::info!("Query executor not available (requires warm storage + fulltext index)");
-                None
+                tracing::info!("Query/ZIP executors not available (requires warm storage + fulltext index)");
+                (None, None)
             }
         };
 
@@ -315,6 +324,7 @@ impl AppState {
             warm_storage,
             query_engine,
             query_executor,
+            zip_executor,
             location_index: Some(location_index),
             tiered_storage: None, // Full tiered storage requires explicit configuration
             notification_hub: Some(notification_hub),
