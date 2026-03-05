@@ -239,24 +239,29 @@ pub async fn ingest_document(
         }
     }
 
-    // 3. Auto-validate + persist anomalies
-    match state.rule_engine.validate_invoice(&invoice).await {
-        Ok(validation_result) => {
-            if !validation_result.anomalies.is_empty() {
-                tracing::info!(
-                    invoice_id = %invoice.id,
-                    anomaly_count = validation_result.anomalies.len(),
-                    "Auto-validation detected anomalies"
-                );
-                crate::conversions::persist_anomalies(
-                    &state.anomaly_store,
-                    &validation_result.anomalies,
-                    &invoice,
-                ).await;
+    // 3. Publish DOCUMENT_PROCESSED event for async anomaly detection + notifications
+    if let Some(ref event_bus) = state.event_bus {
+        crate::workers::publish_document_processed(event_bus, &invoice).await;
+    } else {
+        // Fallback: synchronous anomaly detection when event bus is unavailable
+        match state.rule_engine.validate_invoice(&invoice).await {
+            Ok(validation_result) => {
+                if !validation_result.anomalies.is_empty() {
+                    tracing::info!(
+                        invoice_id = %invoice.id,
+                        anomaly_count = validation_result.anomalies.len(),
+                        "Auto-validation detected anomalies"
+                    );
+                    crate::conversions::persist_anomalies(
+                        &state.anomaly_store,
+                        &validation_result.anomalies,
+                        &invoice,
+                    ).await;
+                }
             }
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "Auto-validation failed");
+            Err(e) => {
+                tracing::warn!(error = %e, "Auto-validation failed");
+            }
         }
     }
 

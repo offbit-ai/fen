@@ -38,8 +38,7 @@ pub struct AppState {
     pub tiered_storage: Option<Arc<TieredStorage>>,
     // Notification and event infrastructure
     pub notification_hub: Option<Arc<NotificationHub>>,
-    /// Event bus for internal event routing (used by workers)
-    #[allow(dead_code)]
+    /// Event bus for internal event routing — drives async anomaly detection + notifications
     pub event_bus: Option<Arc<LocalEventBus>>,
     // ML document intelligence pipeline
     /// Optional ML pipeline (requires ONNX model files)

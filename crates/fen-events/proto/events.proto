@@ -27,7 +27,7 @@ message DocumentProcessed {
   float confidence_score = 5;
   uint64 processing_time_ms = 6;
   repeated string extracted_fields = 7;
-  bytes embedding = 8;  // 768-dim float32 vector
+  bytes embedding = 8;  // 384-dim float32 vector (all-MiniLM-L6-v2)
 }
 
 /// Event emitted when a document fails processing

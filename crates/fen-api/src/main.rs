@@ -11,6 +11,7 @@ mod gates;
 mod middleware;
 mod routes;
 mod state;
+mod workers;
 
 use crate::config::AppConfig;
 use crate::state::AppState;
@@ -41,6 +42,17 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(AppState::new(&config).await?);
 
     tracing::info!("Application state initialized");
+
+    // Spawn background anomaly detection worker on the local event bus
+    if let Some(ref event_bus) = state.event_bus {
+        let _worker_handle = workers::spawn_anomaly_worker(
+            event_bus.clone(),
+            state.rule_engine.clone(),
+            state.anomaly_store.clone(),
+            state.notification_hub.clone(),
+        );
+        tracing::info!("Anomaly detection worker spawned");
+    }
 
     // Build router
     let app = app::build_router(state, &config);
