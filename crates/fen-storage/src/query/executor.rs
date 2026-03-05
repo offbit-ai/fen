@@ -6,6 +6,7 @@
 //! - Standard SQL-like filters
 //! - Score fusion for hybrid ranking
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -111,12 +112,21 @@ impl Default for ExecutorConfig {
     }
 }
 
+/// Pre-computed query feature flags to avoid repeated AST walks
+struct QueryFlags {
+    uses_vector: bool,
+    uses_text: bool,
+    uses_contains: bool,
+}
+
 /// Unified query executor
 pub struct QueryExecutor {
     config: ExecutorConfig,
     hot_storage: Arc<RedbStorage>,
     warm_storage: Arc<tokio::sync::RwLock<LanceStorage>>,
     fulltext_index: Arc<FullTextIndex>,
+    /// Cache compiled LIKE/ILIKE regexes keyed by (pattern, case_insensitive)
+    like_cache: RefCell<HashMap<(String, bool), regex::Regex>>,
 }
 
 impl QueryExecutor {
@@ -132,6 +142,7 @@ impl QueryExecutor {
             hot_storage,
             warm_storage,
             fulltext_index,
+            like_cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -143,9 +154,19 @@ impl QueryExecutor {
     ) -> Result<ExecutionResult, StorageError> {
         let start = std::time::Instant::now();
 
+        // Pre-compute feature flags once instead of walking AST per-row
+        let flags = QueryFlags {
+            uses_vector: query.uses_vector_search(),
+            uses_text: query.uses_text_search(),
+            uses_contains: query.uses_contains(),
+        };
+
+        // Clear the LIKE regex cache between queries
+        self.like_cache.borrow_mut().clear();
+
         let result = match query.from {
-            QueryTarget::Invoices => self.execute_invoice_query(query, params).await?,
-            QueryTarget::Contracts => self.execute_contract_query(query, params).await?,
+            QueryTarget::Invoices => self.execute_invoice_query(query, params, &flags).await?,
+            QueryTarget::Contracts => self.execute_contract_query(query, params, &flags).await?,
         };
 
         let execution_time_ms = start.elapsed().as_millis() as u64;
@@ -154,8 +175,8 @@ impl QueryExecutor {
             metadata: ExecutionMetadata {
                 execution_time_ms,
                 rows_returned: result.len(),
-                used_vector_search: query.uses_vector_search(),
-                used_text_search: query.uses_text_search(),
+                used_vector_search: flags.uses_vector,
+                used_text_search: flags.uses_text,
                 ..Default::default()
             },
             rows: result,
@@ -166,6 +187,7 @@ impl QueryExecutor {
         &self,
         query: &FenQuery,
         params: &QueryParams,
+        flags: &QueryFlags,
     ) -> Result<Vec<ResultRow>, StorageError> {
         // Determine the limit
         let limit = query
@@ -176,9 +198,9 @@ impl QueryExecutor {
 
         let offset = query.offset.map(|o| o as usize).unwrap_or(0);
 
-        // Determine search strategy based on query features
-        let uses_vector = query.uses_vector_search();
-        let uses_text = query.uses_text_search() || query.uses_contains();
+        // Determine search strategy based on pre-computed flags
+        let uses_vector = flags.uses_vector;
+        let uses_text = flags.uses_text || flags.uses_contains;
 
         // Get candidate invoices based on search strategy
         let mut candidates = if uses_vector {
@@ -199,7 +221,7 @@ impl QueryExecutor {
         let mut scored_rows: Vec<(Invoice, f64)> = candidates
             .into_iter()
             .map(|(inv, base_score)| {
-                let score = self.calculate_combined_score(query, &inv, params, base_score);
+                let score = self.calculate_combined_score(query, &inv, params, base_score, flags);
                 (inv, score)
             })
             .collect();
@@ -224,6 +246,7 @@ impl QueryExecutor {
         &self,
         query: &FenQuery,
         params: &QueryParams,
+        flags: &QueryFlags,
     ) -> Result<Vec<ResultRow>, StorageError> {
         // Determine the limit
         let limit = query
@@ -235,7 +258,7 @@ impl QueryExecutor {
         let offset = query.offset.map(|o| o as usize).unwrap_or(0);
 
         // For contracts, we primarily use hot storage (no vector search for contracts yet)
-        let uses_text = query.uses_text_search() || query.uses_contains();
+        let uses_text = flags.uses_text || flags.uses_contains;
 
         // Get candidate contracts
         let mut candidates = if uses_text {
@@ -419,44 +442,36 @@ impl QueryExecutor {
     }
 
     fn get_contract_column(&self, contract: &Contract, column: &str) -> ColumnValue {
-        match column.to_lowercase().as_str() {
-            "id" => ColumnValue::String(contract.id.0.to_string()),
-            "document_id" => ColumnValue::String(contract.document_id.0.to_string()),
-            "contract_number" => contract
-                .contract_number
-                .clone()
-                .map(ColumnValue::String)
-                .unwrap_or(ColumnValue::Null),
-            "title" => ColumnValue::String(contract.title.clone()),
-            "contract_type" => ColumnValue::String(format!("{:?}", contract.contract_type)),
-            "effective_date" => ColumnValue::Date(contract.effective_date),
-            "expiration_date" => contract
-                .expiration_date
-                .map(ColumnValue::Date)
-                .unwrap_or(ColumnValue::Null),
-            "execution_date" => contract
-                .execution_date
-                .map(ColumnValue::Date)
-                .unwrap_or(ColumnValue::Null),
-            "total_value" => contract
-                .total_value
-                .map(ColumnValue::Decimal)
-                .unwrap_or(ColumnValue::Null),
-            "currency" => contract
-                .currency
-                .as_ref()
-                .map(|c| ColumnValue::String(format!("{:?}", c)))
-                .unwrap_or(ColumnValue::Null),
-            "validation_status" => ColumnValue::String(format!("{:?}", contract.validation_status)),
-            "confidence_score" => ColumnValue::Float(contract.confidence_score as f64),
-            "extracted_text" => ColumnValue::String(contract.extracted_text.clone()),
-            // Party name (first party if exists)
-            "party_name" | "vendor_name" => contract
-                .parties
-                .first()
-                .map(|p| ColumnValue::String(p.name.clone()))
-                .unwrap_or(ColumnValue::Null),
-            _ => ColumnValue::Null,
+        if column.eq_ignore_ascii_case("id") {
+            ColumnValue::String(contract.id.0.to_string())
+        } else if column.eq_ignore_ascii_case("document_id") {
+            ColumnValue::String(contract.document_id.0.to_string())
+        } else if column.eq_ignore_ascii_case("contract_number") {
+            contract.contract_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("title") {
+            ColumnValue::String(contract.title.clone())
+        } else if column.eq_ignore_ascii_case("contract_type") {
+            ColumnValue::String(format!("{:?}", contract.contract_type))
+        } else if column.eq_ignore_ascii_case("effective_date") {
+            ColumnValue::Date(contract.effective_date)
+        } else if column.eq_ignore_ascii_case("expiration_date") {
+            contract.expiration_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("execution_date") {
+            contract.execution_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("total_value") {
+            contract.total_value.map(ColumnValue::Decimal).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("currency") {
+            contract.currency.as_ref().map(|c| ColumnValue::String(format!("{:?}", c))).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("validation_status") {
+            ColumnValue::String(format!("{:?}", contract.validation_status))
+        } else if column.eq_ignore_ascii_case("confidence_score") {
+            ColumnValue::Float(contract.confidence_score as f64)
+        } else if column.eq_ignore_ascii_case("extracted_text") {
+            ColumnValue::String(contract.extracted_text.clone())
+        } else if column.eq_ignore_ascii_case("party_name") || column.eq_ignore_ascii_case("vendor_name") {
+            contract.parties.first().map(|p| ColumnValue::String(p.name.clone())).unwrap_or(ColumnValue::Null)
+        } else {
+            ColumnValue::Null
         }
     }
 
@@ -598,19 +613,27 @@ impl QueryExecutor {
 
         let search_results = self.fulltext_index.search_invoices(&search_terms, limit)?;
 
-        // Fetch full invoices for each result
+        // Fetch full invoices for each result — try hot first, batch warm misses
         let mut invoices = Vec::new();
+        let mut warm_pending: Vec<(InvoiceId, f64)> = Vec::new();
+
         for result in search_results {
             if let Ok(uuid) = result.id.parse::<uuid::Uuid>() {
                 let id = InvoiceId(uuid);
                 if let Ok(Some(inv)) = self.hot_storage.get_invoice(&id).await {
                     invoices.push((inv, result.score as f64));
-                    continue;
+                } else {
+                    warm_pending.push((id, result.score as f64));
                 }
-                // Try warm storage
-                let warm = self.warm_storage.read().await;
+            }
+        }
+
+        // Single warm storage lock for all misses
+        if !warm_pending.is_empty() {
+            let warm = self.warm_storage.read().await;
+            for (id, score) in warm_pending {
                 if let Ok(Some(inv)) = warm.get_invoice(&id).await {
-                    invoices.push((inv, result.score as f64));
+                    invoices.push((inv, score));
                 }
             }
         }
@@ -854,37 +877,42 @@ impl QueryExecutor {
     }
 
     fn get_invoice_column(&self, invoice: &Invoice, column: &str) -> ColumnValue {
-        match column.to_lowercase().as_str() {
-            "id" => ColumnValue::String(invoice.id.0.to_string()),
-            "document_id" => ColumnValue::String(invoice.document_id.0.to_string()),
-            "invoice_number" => ColumnValue::String(invoice.invoice_number.clone()),
-            "invoice_date" => ColumnValue::Date(invoice.invoice_date),
-            "due_date" => invoice
-                .due_date
-                .map(ColumnValue::Date)
-                .unwrap_or(ColumnValue::Null),
-            "po_number" => invoice
-                .po_number
-                .clone()
-                .map(ColumnValue::String)
-                .unwrap_or(ColumnValue::Null),
-            "vendor_name" => ColumnValue::String(invoice.vendor.name.clone()),
-            "vendor_tax_id" => invoice
-                .vendor
-                .tax_id
-                .clone()
-                .map(ColumnValue::String)
-                .unwrap_or(ColumnValue::Null),
-            "bill_to_name" => ColumnValue::String(invoice.bill_to.name.clone()),
-            "currency" => ColumnValue::String(format!("{:?}", invoice.currency)),
-            "subtotal" => ColumnValue::Decimal(invoice.subtotal),
-            "tax_amount" => ColumnValue::Decimal(invoice.tax_amount),
-            "discount_amount" => ColumnValue::Decimal(invoice.discount_amount),
-            "total_amount" => ColumnValue::Decimal(invoice.total_amount),
-            "validation_status" => ColumnValue::String(format!("{:?}", invoice.validation_status)),
-            "confidence_score" => ColumnValue::Float(invoice.confidence_score as f64),
-            "extracted_text" => ColumnValue::String(invoice.extracted_text.clone()),
-            _ => ColumnValue::Null,
+        if column.eq_ignore_ascii_case("id") {
+            ColumnValue::String(invoice.id.0.to_string())
+        } else if column.eq_ignore_ascii_case("document_id") {
+            ColumnValue::String(invoice.document_id.0.to_string())
+        } else if column.eq_ignore_ascii_case("invoice_number") {
+            ColumnValue::String(invoice.invoice_number.clone())
+        } else if column.eq_ignore_ascii_case("invoice_date") {
+            ColumnValue::Date(invoice.invoice_date)
+        } else if column.eq_ignore_ascii_case("due_date") {
+            invoice.due_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("po_number") {
+            invoice.po_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("vendor_name") {
+            ColumnValue::String(invoice.vendor.name.clone())
+        } else if column.eq_ignore_ascii_case("vendor_tax_id") {
+            invoice.vendor.tax_id.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("bill_to_name") {
+            ColumnValue::String(invoice.bill_to.name.clone())
+        } else if column.eq_ignore_ascii_case("currency") {
+            ColumnValue::String(format!("{:?}", invoice.currency))
+        } else if column.eq_ignore_ascii_case("subtotal") {
+            ColumnValue::Decimal(invoice.subtotal)
+        } else if column.eq_ignore_ascii_case("tax_amount") {
+            ColumnValue::Decimal(invoice.tax_amount)
+        } else if column.eq_ignore_ascii_case("discount_amount") {
+            ColumnValue::Decimal(invoice.discount_amount)
+        } else if column.eq_ignore_ascii_case("total_amount") {
+            ColumnValue::Decimal(invoice.total_amount)
+        } else if column.eq_ignore_ascii_case("validation_status") {
+            ColumnValue::String(format!("{:?}", invoice.validation_status))
+        } else if column.eq_ignore_ascii_case("confidence_score") {
+            ColumnValue::Float(invoice.confidence_score as f64)
+        } else if column.eq_ignore_ascii_case("extracted_text") {
+            ColumnValue::String(invoice.extracted_text.clone())
+        } else {
+            ColumnValue::Null
         }
     }
 
@@ -943,26 +971,18 @@ impl QueryExecutor {
     ) -> bool {
         match (value, pattern) {
             (ColumnValue::String(v), ColumnValue::String(p)) => {
-                let v = if case_insensitive {
-                    v.to_lowercase()
-                } else {
-                    v.clone()
-                };
-                let p = if case_insensitive {
-                    p.to_lowercase()
-                } else {
-                    p.clone()
-                };
-
-                // Simple LIKE pattern matching: % matches any sequence, _ matches single char
-                let regex_pattern = format!(
-                    "^{}$",
-                    regex::escape(&p).replace("%", ".*").replace("_", ".")
-                );
-
-                regex::Regex::new(&regex_pattern)
-                    .map(|re| re.is_match(&v))
-                    .unwrap_or(false)
+                let mut cache = self.like_cache.borrow_mut();
+                let key = (p.clone(), case_insensitive);
+                let re = cache.entry(key).or_insert_with(|| {
+                    let escaped = regex::escape(p).replace("%", ".*").replace("_", ".");
+                    let regex_pattern = if case_insensitive {
+                        format!("(?i)^{}$", escaped)
+                    } else {
+                        format!("^{}$", escaped)
+                    };
+                    regex::Regex::new(&regex_pattern).expect("valid LIKE regex pattern")
+                });
+                re.is_match(v)
             }
             _ => false,
         }
@@ -974,12 +994,13 @@ impl QueryExecutor {
         invoice: &Invoice,
         params: &QueryParams,
         base_score: f64,
+        flags: &QueryFlags,
     ) -> f64 {
         // If the query has a custom score expression in ORDER BY, use that
         // Otherwise, use weighted combination of vector and text scores
 
-        let uses_vector = query.uses_vector_search();
-        let uses_text = query.uses_text_search();
+        let uses_vector = flags.uses_vector;
+        let uses_text = flags.uses_text;
 
         if !uses_vector && !uses_text {
             return base_score;

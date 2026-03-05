@@ -44,7 +44,8 @@ impl<'a> QueryParser<'a> {
     pub fn parse(&mut self) -> Result<FenQuery, ParseError> {
         // Tokenize
         let mut lexer = Lexer::new(self.source);
-        self.tokens = lexer.tokenize()?.to_vec();
+        lexer.tokenize()?;
+        self.tokens = lexer.into_tokens();
         self.pos = 0;
 
         // Parse SELECT
