@@ -2,19 +2,10 @@ use std::sync::Arc;
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-mod app;
-mod config;
-mod conversions;
-pub mod db;
-mod error;
-mod gates;
-mod middleware;
-mod routes;
-mod state;
-mod workers;
-
-use crate::config::AppConfig;
-use crate::state::AppState;
+use fen_api::app;
+use fen_api::config::AppConfig;
+use fen_api::state::AppState;
+use fen_api::workers;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

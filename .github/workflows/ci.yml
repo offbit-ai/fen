@@ -76,7 +76,6 @@ jobs:
 
       - name: Run integration tests
         run: cargo test -p fen-tests
-        continue-on-error: true  # Integration tests may need external services
 
   build:
     name: Build

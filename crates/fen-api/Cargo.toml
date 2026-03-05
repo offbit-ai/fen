@@ -3,6 +3,10 @@ name = "fen-api"
 version.workspace = true
 edition.workspace = true
 
+[lib]
+name = "fen_api"
+path = "src/lib.rs"
+
 [[bin]]
 name = "fen-api"
 path = "src/main.rs"

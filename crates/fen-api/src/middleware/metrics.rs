@@ -97,11 +97,18 @@ fn is_dynamic_segment(segment: &str) -> bool {
 
 /// Initialize the Prometheus metrics recorder and return the handle
 /// for serving the `/metrics` endpoint.
+///
+/// Safe to call multiple times — the global recorder is installed only once.
 pub fn init_metrics() -> metrics_exporter_prometheus::PrometheusHandle {
-    let builder = metrics_exporter_prometheus::PrometheusBuilder::new();
-    builder
-        .install_recorder()
-        .expect("Failed to install Prometheus metrics recorder")
+    static HANDLE: std::sync::OnceLock<metrics_exporter_prometheus::PrometheusHandle> =
+        std::sync::OnceLock::new();
+    HANDLE
+        .get_or_init(|| {
+            metrics_exporter_prometheus::PrometheusBuilder::new()
+                .install_recorder()
+                .expect("Failed to install Prometheus metrics recorder")
+        })
+        .clone()
 }
 
 /// Handler for GET /metrics — returns Prometheus exposition format.

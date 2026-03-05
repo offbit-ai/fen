@@ -3154,8 +3154,11 @@ name = "fen-tests"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "chrono",
+ "fen-api",
  "fen-core",
+ "fen-events",
  "fen-graph",
  "fen-ingestion",
  "fen-ml",
@@ -3163,6 +3166,7 @@ dependencies = [
  "fen-storage",
  "futures",
  "image",
+ "jsonwebtoken",
  "rust_decimal",
  "rust_decimal_macros",
  "serde",
@@ -3171,6 +3175,8 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
  "tracing",
  "tracing-subscriber",
  "uuid",
