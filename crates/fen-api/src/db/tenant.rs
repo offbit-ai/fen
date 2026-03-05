@@ -181,11 +181,12 @@ impl TenantRepository {
 
     /// Suspend a tenant
     pub async fn suspend(&self, id: &TenantId) -> Result<bool, sqlx::Error> {
-        let result =
-            sqlx::query("UPDATE tenants SET status = 'suspended', updated_at = NOW() WHERE id = $1")
-                .bind(id.0)
-                .execute(&self.pool)
-                .await?;
+        let result = sqlx::query(
+            "UPDATE tenants SET status = 'suspended', updated_at = NOW() WHERE id = $1",
+        )
+        .bind(id.0)
+        .execute(&self.pool)
+        .await?;
 
         Ok(result.rows_affected() > 0)
     }

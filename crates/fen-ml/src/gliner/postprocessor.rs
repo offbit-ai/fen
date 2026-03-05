@@ -50,7 +50,11 @@ pub fn decode_logits(
     }
 
     // Sort by score descending
-    candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     candidates
 }
 
@@ -158,7 +162,11 @@ pub fn build_entities(
     }
 
     // Sort by score descending
-    entities.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    entities.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     entities
 }
 
@@ -380,15 +388,7 @@ mod tests {
             token_type_ids: vec![],
             words_mask: vec![],
             text_lengths: vec![4],
-            span_idx: vec![
-                [0, 0],
-                [0, 1],
-                [1, 1],
-                [1, 2],
-                [2, 2],
-                [2, 3],
-                [3, 3],
-            ],
+            span_idx: vec![[0, 0], [0, 1], [1, 1], [1, 2], [2, 2], [2, 3], [3, 3]],
             span_mask: vec![1, 1, 1, 1, 1, 1, 1],
             num_labels: 2,
             seq_length: 20,

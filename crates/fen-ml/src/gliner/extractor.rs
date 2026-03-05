@@ -33,9 +33,10 @@ impl GlinerExtractor {
     ) -> Result<Self, MlError> {
         let models_dir = models_dir.as_ref();
 
-        let medium = if let (Some(model), Some(tok)) =
-            (config.medium.effective_model_path(), config.medium.tokenizer_path.as_deref())
-        {
+        let medium = if let (Some(model), Some(tok)) = (
+            config.medium.effective_model_path(),
+            config.medium.tokenizer_path.as_deref(),
+        ) {
             GlinerModel::with_model(
                 config.medium.clone(),
                 models_dir.join(model),
@@ -46,9 +47,10 @@ impl GlinerExtractor {
             GlinerModel::new(config.medium.clone(), ModelTier::Medium)?
         };
 
-        let large = if let (Some(model), Some(tok)) =
-            (config.large.effective_model_path(), config.large.tokenizer_path.as_deref())
-        {
+        let large = if let (Some(model), Some(tok)) = (
+            config.large.effective_model_path(),
+            config.large.tokenizer_path.as_deref(),
+        ) {
             GlinerModel::with_model(
                 config.large.clone(),
                 models_dir.join(model),
@@ -208,11 +210,7 @@ mod tests {
         let extractor = GlinerExtractor::new(config).unwrap();
 
         let (result, confidence) = extractor
-            .extract(
-                "Invoice INV-001",
-                &["invoice_number"],
-                &["invoice_number"],
-            )
+            .extract("Invoice INV-001", &["invoice_number"], &["invoice_number"])
             .unwrap();
 
         assert!(result.entities.is_empty());

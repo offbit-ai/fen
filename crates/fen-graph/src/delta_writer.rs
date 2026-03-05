@@ -30,8 +30,8 @@ pub fn build_invoice_delta(invoice: &Invoice) -> kyu_delta::DeltaBatch {
     let source = format!("doc:invoice:{}", invoice_id);
     let timestamp = chrono::Utc::now().timestamp_millis() as u64;
 
-    let total_amount: f64 = rust_decimal::prelude::ToPrimitive::to_f64(&invoice.total_amount)
-        .unwrap_or(0.0);
+    let total_amount: f64 =
+        rust_decimal::prelude::ToPrimitive::to_f64(&invoice.total_amount).unwrap_or(0.0);
     let invoice_date = invoice.invoice_date.format("%Y-%m-%d").to_string();
     let due_date = invoice
         .due_date
@@ -46,14 +46,32 @@ pub fn build_invoice_delta(invoice: &Invoice) -> kyu_delta::DeltaBatch {
             vec![],
             [
                 ("id", DeltaValue::String(SmolStr::new(&invoice_id))),
-                ("document_id", DeltaValue::String(SmolStr::new(invoice.document_id.to_string()))),
-                ("tenant_id", DeltaValue::String(SmolStr::new(invoice.tenant_id.to_string()))),
-                ("invoice_number", DeltaValue::String(SmolStr::new(&invoice.invoice_number))),
-                ("invoice_date", DeltaValue::String(SmolStr::new(&invoice_date))),
+                (
+                    "document_id",
+                    DeltaValue::String(SmolStr::new(invoice.document_id.to_string())),
+                ),
+                (
+                    "tenant_id",
+                    DeltaValue::String(SmolStr::new(invoice.tenant_id.to_string())),
+                ),
+                (
+                    "invoice_number",
+                    DeltaValue::String(SmolStr::new(&invoice.invoice_number)),
+                ),
+                (
+                    "invoice_date",
+                    DeltaValue::String(SmolStr::new(&invoice_date)),
+                ),
                 ("due_date", DeltaValue::String(SmolStr::new(&due_date))),
                 ("total_amount", DeltaValue::Double(total_amount)),
-                ("currency", DeltaValue::String(SmolStr::new(invoice.currency.to_string()))),
-                ("confidence", DeltaValue::Double(invoice.confidence_score as f64)),
+                (
+                    "currency",
+                    DeltaValue::String(SmolStr::new(invoice.currency.to_string())),
+                ),
+                (
+                    "confidence",
+                    DeltaValue::Double(invoice.confidence_score as f64),
+                ),
             ],
         );
 
@@ -67,17 +85,25 @@ pub fn build_invoice_delta(invoice: &Invoice) -> kyu_delta::DeltaBatch {
                 vec![],
                 [
                     ("id", DeltaValue::String(SmolStr::new(&vendor_key))),
-                    ("name", DeltaValue::String(SmolStr::new(&invoice.vendor.name))),
-                    ("tax_id", DeltaValue::String(SmolStr::new(
-                        invoice.vendor.tax_id.as_deref().unwrap_or(""),
-                    ))),
+                    (
+                        "name",
+                        DeltaValue::String(SmolStr::new(&invoice.vendor.name)),
+                    ),
+                    (
+                        "tax_id",
+                        DeltaValue::String(SmolStr::new(
+                            invoice.vendor.tax_id.as_deref().unwrap_or(""),
+                        )),
+                    ),
                     ("country", DeltaValue::String(SmolStr::new(""))),
                 ],
             )
             .upsert_edge(
-                "Vendor", &vendor_key,
+                "Vendor",
+                &vendor_key,
                 "SUPPLIES",
-                "Invoice", &invoice_id,
+                "Invoice",
+                &invoice_id,
                 [("since", DeltaValue::String(SmolStr::new(&invoice_date)))],
             );
     }
@@ -92,17 +118,25 @@ pub fn build_invoice_delta(invoice: &Invoice) -> kyu_delta::DeltaBatch {
                 vec![],
                 [
                     ("id", DeltaValue::String(SmolStr::new(&party_key))),
-                    ("name", DeltaValue::String(SmolStr::new(&invoice.bill_to.name))),
-                    ("tax_id", DeltaValue::String(SmolStr::new(
-                        invoice.bill_to.tax_id.as_deref().unwrap_or(""),
-                    ))),
+                    (
+                        "name",
+                        DeltaValue::String(SmolStr::new(&invoice.bill_to.name)),
+                    ),
+                    (
+                        "tax_id",
+                        DeltaValue::String(SmolStr::new(
+                            invoice.bill_to.tax_id.as_deref().unwrap_or(""),
+                        )),
+                    ),
                     ("role", DeltaValue::String(SmolStr::new("bill_to"))),
                 ],
             )
             .upsert_edge(
-                "Invoice", &invoice_id,
+                "Invoice",
+                &invoice_id,
                 "BILLED_TO",
-                "Party", &party_key,
+                "Party",
+                &party_key,
                 Vec::<(&str, DeltaValue)>::new(),
             );
     }
@@ -111,12 +145,15 @@ pub fn build_invoice_delta(invoice: &Invoice) -> kyu_delta::DeltaBatch {
     if let Some(contract_id) = &invoice.contract_id {
         let cid = contract_id.to_string();
         builder = builder.upsert_edge(
-            "Invoice", &invoice_id,
+            "Invoice",
+            &invoice_id,
             "GOVERNED_BY",
-            "Contract", &cid,
-            [("po_number", DeltaValue::String(SmolStr::new(
-                invoice.po_number.as_deref().unwrap_or(""),
-            )))],
+            "Contract",
+            &cid,
+            [(
+                "po_number",
+                DeltaValue::String(SmolStr::new(invoice.po_number.as_deref().unwrap_or(""))),
+            )],
         );
     }
 
@@ -155,18 +192,39 @@ pub fn build_contract_delta(contract: &Contract) -> kyu_delta::DeltaBatch {
             vec![],
             [
                 ("id", DeltaValue::String(SmolStr::new(&contract_id))),
-                ("document_id", DeltaValue::String(SmolStr::new(contract.document_id.to_string()))),
-                ("tenant_id", DeltaValue::String(SmolStr::new(contract.tenant_id.to_string()))),
-                ("contract_number", DeltaValue::String(SmolStr::new(
-                    contract.contract_number.as_deref().unwrap_or(""),
-                ))),
+                (
+                    "document_id",
+                    DeltaValue::String(SmolStr::new(contract.document_id.to_string())),
+                ),
+                (
+                    "tenant_id",
+                    DeltaValue::String(SmolStr::new(contract.tenant_id.to_string())),
+                ),
+                (
+                    "contract_number",
+                    DeltaValue::String(SmolStr::new(
+                        contract.contract_number.as_deref().unwrap_or(""),
+                    )),
+                ),
                 ("title", DeltaValue::String(SmolStr::new(&contract.title))),
-                ("contract_type", DeltaValue::String(SmolStr::new(&contract_type))),
-                ("effective_date", DeltaValue::String(SmolStr::new(&effective_date))),
-                ("expiration_date", DeltaValue::String(SmolStr::new(&expiration_date))),
+                (
+                    "contract_type",
+                    DeltaValue::String(SmolStr::new(&contract_type)),
+                ),
+                (
+                    "effective_date",
+                    DeltaValue::String(SmolStr::new(&effective_date)),
+                ),
+                (
+                    "expiration_date",
+                    DeltaValue::String(SmolStr::new(&expiration_date)),
+                ),
                 ("total_value", DeltaValue::Double(total_value)),
                 ("currency", DeltaValue::String(SmolStr::new(&currency))),
-                ("confidence", DeltaValue::Double(contract.confidence_score as f64)),
+                (
+                    "confidence",
+                    DeltaValue::Double(contract.confidence_score as f64),
+                ),
             ],
         );
 
@@ -184,16 +242,19 @@ pub fn build_contract_delta(contract: &Contract) -> kyu_delta::DeltaBatch {
                 [
                     ("id", DeltaValue::String(SmolStr::new(&party_key))),
                     ("name", DeltaValue::String(SmolStr::new(&party.name))),
-                    ("tax_id", DeltaValue::String(SmolStr::new(
-                        party.tax_id.as_deref().unwrap_or(""),
-                    ))),
+                    (
+                        "tax_id",
+                        DeltaValue::String(SmolStr::new(party.tax_id.as_deref().unwrap_or(""))),
+                    ),
                     ("role", DeltaValue::String(SmolStr::new("contract_party"))),
                 ],
             )
             .upsert_edge(
-                "Party", &party_key,
+                "Party",
+                &party_key,
                 "PARTY_TO",
-                "Contract", &contract_id,
+                "Contract",
+                &contract_id,
                 [("role", DeltaValue::String(SmolStr::new("contract_party")))],
             );
     }
@@ -217,15 +278,20 @@ pub fn build_contract_delta(contract: &Contract) -> kyu_delta::DeltaBatch {
                 vec![],
                 [
                     ("id", DeltaValue::String(SmolStr::new(&clause_id))),
-                    ("clause_type", DeltaValue::String(SmolStr::new(&clause_type))),
+                    (
+                        "clause_type",
+                        DeltaValue::String(SmolStr::new(&clause_type)),
+                    ),
                     ("title", DeltaValue::String(SmolStr::new(clause_title))),
                     ("text", DeltaValue::String(SmolStr::new(clause_text))),
                 ],
             )
             .upsert_edge(
-                "Contract", &contract_id,
+                "Contract",
+                &contract_id,
                 "HAS_CLAUSE",
-                "Clause", &clause_id,
+                "Clause",
+                &clause_id,
                 Vec::<(&str, DeltaValue)>::new(),
             );
     }
@@ -305,9 +371,10 @@ mod tests {
         contract.total_value = Some(dec!(100000.00));
         contract.currency = Some(Currency::USD);
         contract.parties = vec![Party::new("Acme Corp"), Party::new("Widget Inc")];
-        contract.clauses = vec![
-            ContractClause::new(ClauseType::PaymentTerms, "Net 30 payment terms"),
-        ];
+        contract.clauses = vec![ContractClause::new(
+            ClauseType::PaymentTerms,
+            "Net 30 payment terms",
+        )];
         contract
     }
 
@@ -353,7 +420,9 @@ mod tests {
         let batch = build_invoice_batch(&[inv1, inv2]);
 
         // Both invoices create Vendor upserts with same key — apply_delta merges them
-        let vendor_labels: Vec<_> = batch.referenced_labels().into_iter()
+        let vendor_labels: Vec<_> = batch
+            .referenced_labels()
+            .into_iter()
             .filter(|l| l.as_str() == "Vendor")
             .collect();
         assert_eq!(vendor_labels.len(), 1); // Same label referenced

@@ -69,13 +69,7 @@ fn normalize_path(path: &str) -> String {
     let segments: Vec<&str> = path.split('/').collect();
     let normalized: Vec<&str> = segments
         .iter()
-        .map(|seg| {
-            if is_dynamic_segment(seg) {
-                ":id"
-            } else {
-                seg
-            }
-        })
+        .map(|seg| if is_dynamic_segment(seg) { ":id" } else { seg })
         .collect();
     normalized.join("/")
 }
@@ -87,9 +81,7 @@ fn is_dynamic_segment(segment: &str) -> bool {
     }
     // UUID pattern: 8-4-4-4-12 hex digits
     if segment.len() == 36 && segment.chars().filter(|c| *c == '-').count() == 4 {
-        return segment
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() || c == '-');
+        return segment.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
     }
     // Pure numeric
     segment.chars().all(|c| c.is_ascii_digit()) && !segment.is_empty()
@@ -113,7 +105,9 @@ pub fn init_metrics() -> metrics_exporter_prometheus::PrometheusHandle {
 
 /// Handler for GET /metrics — returns Prometheus exposition format.
 pub async fn metrics_handler(
-    axum::extract::State(handle): axum::extract::State<metrics_exporter_prometheus::PrometheusHandle>,
+    axum::extract::State(handle): axum::extract::State<
+        metrics_exporter_prometheus::PrometheusHandle,
+    >,
 ) -> String {
     handle.render()
 }

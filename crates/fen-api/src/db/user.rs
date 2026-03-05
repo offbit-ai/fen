@@ -111,13 +111,12 @@ impl UserRepository {
         tenant_id: &TenantId,
         email: &str,
     ) -> Result<Option<UserRow>, sqlx::Error> {
-        let row = sqlx::query_as::<_, UserRow>(
-            "SELECT * FROM users WHERE tenant_id = $1 AND email = $2",
-        )
-        .bind(tenant_id.0)
-        .bind(email)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row =
+            sqlx::query_as::<_, UserRow>("SELECT * FROM users WHERE tenant_id = $1 AND email = $2")
+                .bind(tenant_id.0)
+                .bind(email)
+                .fetch_optional(&self.pool)
+                .await?;
 
         Ok(row)
     }

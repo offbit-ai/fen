@@ -37,11 +37,17 @@ impl InvoiceRuleEngine {
             invoice_number: self.extract_invoice_number(&lines),
             invoice_date: self.extract_labeled_date(&lines, &["invoice date", "date"]),
             due_date: self.extract_labeled_date(&lines, &["due date", "payment date", "pay by"]),
-            total_amount: self.extract_labeled_amount(&lines, &["total", "amount due", "balance due", "grand total"]),
+            total_amount: self.extract_labeled_amount(
+                &lines,
+                &["total", "amount due", "balance due", "grand total"],
+            ),
             subtotal: self.extract_labeled_amount(&lines, &["subtotal", "sub total", "sub-total"]),
             tax_amount: self.extract_labeled_amount(&lines, &["tax", "vat", "gst", "sales tax"]),
             vendor: self.extract_vendor(&lines),
-            bill_to: self.extract_section_value(&lines, &["bill to", "customer", "client", "buyer", "sold to"]),
+            bill_to: self.extract_section_value(
+                &lines,
+                &["bill to", "customer", "client", "buyer", "sold to"],
+            ),
             po_number: self.extract_po_number(&lines),
             currency: self.detect_currency(text),
         }
@@ -49,8 +55,14 @@ impl InvoiceRuleEngine {
 
     fn extract_invoice_number(&self, lines: &[&str]) -> Option<String> {
         let labels = [
-            "invoice #", "invoice no", "invoice number", "inv #", "inv no",
-            "invoice#", "invoice:", "inv:",
+            "invoice #",
+            "invoice no",
+            "invoice number",
+            "inv #",
+            "inv no",
+            "invoice#",
+            "invoice:",
+            "inv:",
         ];
 
         for (i, line) in lines.iter().enumerate() {
@@ -115,7 +127,9 @@ impl InvoiceRuleEngine {
                 }
                 // For "total", skip lines with "subtotal" or "sub total"
                 if *label == "total"
-                    && (lower.contains("subtotal") || lower.contains("sub total") || lower.contains("sub-total"))
+                    && (lower.contains("subtotal")
+                        || lower.contains("sub total")
+                        || lower.contains("sub-total"))
                 {
                     continue;
                 }
@@ -142,7 +156,14 @@ impl InvoiceRuleEngine {
         // Strategy 1: labeled vendor
         let labeled = self.extract_section_value(
             lines,
-            &["from", "vendor", "supplier", "seller", "sold by", "billed by"],
+            &[
+                "from",
+                "vendor",
+                "supplier",
+                "seller",
+                "sold by",
+                "billed by",
+            ],
         );
         if labeled.is_some() {
             return labeled;
@@ -244,8 +265,8 @@ impl Default for InvoiceRuleEngine {
 
 fn parse_date(s: &str) -> Option<NaiveDate> {
     let formats = [
-        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y",
-        "%m-%d-%Y", "%m-%d-%y", "%Y-%m-%d", "%Y/%m/%d",
+        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y", "%m-%d-%Y", "%m-%d-%y", "%Y-%m-%d",
+        "%Y/%m/%d",
     ];
 
     let cleaned = s.trim().replace(['$', '€', '£'], "");
@@ -313,8 +334,14 @@ mod tests {
 
         let text = "Invoice Date: 01/15/2024\nDue Date: 02/15/2024\nTotal: $100.00";
         let result = engine.extract(text);
-        assert_eq!(result.invoice_date, Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()));
-        assert_eq!(result.due_date, Some(NaiveDate::from_ymd_opt(2024, 2, 15).unwrap()));
+        assert_eq!(
+            result.invoice_date,
+            Some(NaiveDate::from_ymd_opt(2024, 1, 15).unwrap())
+        );
+        assert_eq!(
+            result.due_date,
+            Some(NaiveDate::from_ymd_opt(2024, 2, 15).unwrap())
+        );
     }
 
     #[test]

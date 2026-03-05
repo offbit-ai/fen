@@ -200,7 +200,12 @@ impl FenQuery {
     /// Check if this query uses graph operations
     pub fn uses_graph(&self) -> bool {
         self.pipeline.as_ref().is_some_and(|ops| {
-            ops.iter().any(|op| matches!(op, PipelineOp::GraphTraverse { .. } | PipelineOp::GraphEnrich))
+            ops.iter().any(|op| {
+                matches!(
+                    op,
+                    PipelineOp::GraphTraverse { .. } | PipelineOp::GraphEnrich
+                )
+            })
         })
     }
 

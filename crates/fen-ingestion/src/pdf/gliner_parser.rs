@@ -74,9 +74,7 @@ impl GlinerInvoiceParser {
             .map(|e| Party::new(e.text.trim()))
             .unwrap_or_else(Party::unknown);
 
-        let po_number = result
-            .best_entity("po_number")
-            .map(|e| e.text.clone());
+        let po_number = result.best_entity("po_number").map(|e| e.text.clone());
 
         let total_amount = result
             .best_entity("total_amount")
@@ -131,13 +129,7 @@ impl Default for GlinerInvoiceParser {
 
 fn parse_date(s: &str) -> Option<NaiveDate> {
     let formats = [
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%m-%d-%Y",
-        "%m-%d-%y",
-        "%Y-%m-%d",
+        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y", "%m-%d-%Y", "%m-%d-%y", "%Y-%m-%d",
         "%Y/%m/%d",
     ];
 

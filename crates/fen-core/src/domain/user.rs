@@ -114,7 +114,11 @@ pub struct User {
 
 impl User {
     /// Create a new local user.
-    pub fn new_local(tenant_id: TenantId, email: impl Into<String>, display_name: impl Into<String>) -> Self {
+    pub fn new_local(
+        tenant_id: TenantId,
+        email: impl Into<String>,
+        display_name: impl Into<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: UserId::new(),
@@ -293,8 +297,8 @@ mod tests {
     #[test]
     fn test_admin_check() {
         let tenant_id = TenantId::new();
-        let user = User::new_local(tenant_id, "admin@example.com", "Admin")
-            .with_role(Role::TenantAdmin);
+        let user =
+            User::new_local(tenant_id, "admin@example.com", "Admin").with_role(Role::TenantAdmin);
 
         assert!(user.is_admin());
     }

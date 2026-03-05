@@ -77,10 +77,7 @@ impl ExtractionLogger {
 
         std::fs::create_dir_all(&config.log_dir)?;
 
-        let filename = format!(
-            "extractions_{}.jsonl",
-            chrono::Utc::now().format("%Y%m%d")
-        );
+        let filename = format!("extractions_{}.jsonl", chrono::Utc::now().format("%Y%m%d"));
         let path = config.log_dir.join(filename);
         let file = std::fs::OpenOptions::new()
             .create(true)
@@ -201,7 +198,9 @@ impl ExtractionLogger {
 
 /// Find the character span of `needle` in `haystack`.
 fn find_span(haystack: &str, needle: &str) -> Option<(usize, usize)> {
-    haystack.find(needle).map(|start| (start, start + needle.len()))
+    haystack
+        .find(needle)
+        .map(|start| (start, start + needle.len()))
 }
 
 /// Find an amount value in text, handling currency symbols and formatting.
@@ -229,14 +228,12 @@ mod tests {
         let event = ExtractionEvent {
             document_id: "doc-123".to_string(),
             text: "Invoice #: INV-001\nTotal: $100.00".to_string(),
-            entities: vec![
-                TrainingEntity {
-                    label: "invoice_number".to_string(),
-                    text: "INV-001".to_string(),
-                    char_start: 11,
-                    char_end: 18,
-                },
-            ],
+            entities: vec![TrainingEntity {
+                label: "invoice_number".to_string(),
+                text: "INV-001".to_string(),
+                char_start: 11,
+                char_end: 18,
+            }],
             source: ExtractionSource::LayoutLmv3,
             confidence: 0.85,
             timestamp: chrono::Utc::now(),

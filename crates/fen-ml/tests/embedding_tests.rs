@@ -10,8 +10,15 @@ fn test_embedding_model_loading() {
     common::init_test_tracing();
     let models = common::require_models();
     let model = common::build_embedding_model(&models);
-    assert!(model.has_model(), "Embedding model should report model loaded");
-    assert_eq!(model.embedding_dim(), 384, "MiniLM-L6-v2 embedding dim should be 384");
+    assert!(
+        model.has_model(),
+        "Embedding model should report model loaded"
+    );
+    assert_eq!(
+        model.embedding_dim(),
+        384,
+        "MiniLM-L6-v2 embedding dim should be 384"
+    );
 }
 
 #[test]
@@ -39,9 +46,17 @@ fn test_embed_batch() {
     ];
     let embeddings = model.embed_batch(&texts).unwrap();
 
-    assert_eq!(embeddings.len(), 3, "Batch should return one embedding per text");
+    assert_eq!(
+        embeddings.len(),
+        3,
+        "Batch should return one embedding per text"
+    );
     for (i, emb) in embeddings.iter().enumerate() {
-        common::assert_valid_embedding(emb, model.embedding_dim(), &format!("Batch embedding {}", i));
+        common::assert_valid_embedding(
+            emb,
+            model.embedding_dim(),
+            &format!("Batch embedding {}", i),
+        );
     }
 }
 
@@ -53,8 +68,12 @@ fn test_embedding_semantic_similarity() {
     let model = common::build_embedding_model(&models);
 
     let emb_invoice1 = model.embed("Invoice for office supplies").unwrap();
-    let emb_invoice2 = model.embed("Bill for office materials and stationery").unwrap();
-    let emb_unrelated = model.embed("The weather forecast predicts rain tomorrow").unwrap();
+    let emb_invoice2 = model
+        .embed("Bill for office materials and stationery")
+        .unwrap();
+    let emb_unrelated = model
+        .embed("The weather forecast predicts rain tomorrow")
+        .unwrap();
 
     let sim_related = model.cosine_similarity(&emb_invoice1, &emb_invoice2);
     let sim_unrelated = model.cosine_similarity(&emb_invoice1, &emb_unrelated);
@@ -100,15 +119,25 @@ fn test_embed_document() {
 
     let full_text = "Invoice INV-2024-001 from Acme Supplies for Widget Corp. Total: $1,134.00";
     let sections = vec![
-        ("s0".to_string(), "Header".to_string(), "Invoice INV-2024-001".to_string()),
-        ("s1".to_string(), "Body".to_string(), "Widget Corp order details".to_string()),
+        (
+            "s0".to_string(),
+            "Header".to_string(),
+            "Invoice INV-2024-001".to_string(),
+        ),
+        (
+            "s1".to_string(),
+            "Body".to_string(),
+            "Widget Corp order details".to_string(),
+        ),
     ];
     let entities = vec![
         ("Amount".to_string(), "$1,134.00".to_string()),
         ("Date".to_string(), "2024-01-15".to_string()),
     ];
 
-    let doc_embeddings = model.embed_document(full_text, &sections, &entities).unwrap();
+    let doc_embeddings = model
+        .embed_document(full_text, &sections, &entities)
+        .unwrap();
 
     common::assert_valid_embedding(&doc_embeddings.document, dim, "Document embedding");
     assert_eq!(doc_embeddings.sections.len(), 2);

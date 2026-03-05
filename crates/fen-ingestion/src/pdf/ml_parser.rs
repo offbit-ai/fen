@@ -8,8 +8,8 @@ use fen_ml::layout::{EntityType, LayoutResult, NamedEntity};
 use fen_ml::table::ExtractedTable;
 use fen_ml::ProcessedDocument;
 
-use crate::error::IngestionError;
 use super::rule_engine::{InvoiceRuleEngine, RuleExtractionResult};
+use crate::error::IngestionError;
 
 /// Minimum entity count from LayoutLMv3 before GLiNER fallback triggers
 const GLINER_FALLBACK_THRESHOLD: usize = 3;
@@ -151,7 +151,10 @@ impl MlInvoiceParser {
         }
 
         // 3. GLiNER
-        if let Some(val) = gliner.and_then(|g| g.best_entity("invoice_number")).map(|e| e.text.clone()) {
+        if let Some(val) = gliner
+            .and_then(|g| g.best_entity("invoice_number"))
+            .map(|e| e.text.clone())
+        {
             return val;
         }
 
@@ -403,7 +406,10 @@ impl MlInvoiceParser {
         }
 
         // 3. GLiNER
-        if let Some(name) = gliner.and_then(|g| g.best_entity("vendor_name")).map(|e| e.text.clone()) {
+        if let Some(name) = gliner
+            .and_then(|g| g.best_entity("vendor_name"))
+            .map(|e| e.text.clone())
+        {
             return Party::new(name);
         }
 
@@ -439,7 +445,10 @@ impl MlInvoiceParser {
         }
 
         // 3. GLiNER
-        if let Some(name) = gliner.and_then(|g| g.best_entity("bill_to_name")).map(|e| e.text.clone()) {
+        if let Some(name) = gliner
+            .and_then(|g| g.best_entity("bill_to_name"))
+            .map(|e| e.text.clone())
+        {
             return Party::new(name);
         }
 
@@ -466,7 +475,10 @@ impl MlInvoiceParser {
         }
 
         // 3. GLiNER
-        if let Some(val) = gliner.and_then(|g| g.best_entity("po_number")).map(|e| e.text.clone()) {
+        if let Some(val) = gliner
+            .and_then(|g| g.best_entity("po_number"))
+            .map(|e| e.text.clone())
+        {
             return Some(val);
         }
 

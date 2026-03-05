@@ -130,8 +130,7 @@ pub fn morsel_filter_score_invoices(
                 .unwrap_or(true)
         })
         .map(|(inv, base_score)| {
-            let score =
-                calculate_invoice_score(query, &inv, params, base_score, features, ctx);
+            let score = calculate_invoice_score(query, &inv, params, base_score, features, ctx);
             (inv, score)
         })
         .collect()
@@ -164,10 +163,7 @@ pub fn morsel_filter_score_contracts(
 }
 
 /// Parallel sort using rayon's par_sort_unstable.
-pub fn morsel_sort_invoices(
-    results: &mut [(Invoice, f64)],
-    order_by: &OrderByClause,
-) {
+pub fn morsel_sort_invoices(results: &mut [(Invoice, f64)], order_by: &OrderByClause) {
     if results.len() < PARALLEL_THRESHOLD {
         // Sequential sort for small sets
         sequential_sort(results, order_by);
@@ -189,10 +185,7 @@ pub fn morsel_sort_invoices(
 }
 
 /// Parallel sort for contracts.
-pub fn morsel_sort_contracts(
-    results: &mut [(Contract, f64)],
-    order_by: &OrderByClause,
-) {
+pub fn morsel_sort_contracts(results: &mut [(Contract, f64)], order_by: &OrderByClause) {
     if results.len() < PARALLEL_THRESHOLD {
         sequential_sort_contracts(results, order_by);
         return;
@@ -253,8 +246,7 @@ fn sequential_filter_score_invoices(
                 .unwrap_or(true)
         })
         .map(|(inv, base_score)| {
-            let score =
-                calculate_invoice_score(query, &inv, params, base_score, features, ctx);
+            let score = calculate_invoice_score(query, &inv, params, base_score, features, ctx);
             (inv, score)
         })
         .collect()
@@ -281,7 +273,11 @@ fn sequential_sort(results: &mut [(Invoice, f64)], order_by: &OrderByClause) {
         let ascending = matches!(first.direction, SortDirection::Asc);
         results.sort_by(|a, b| {
             let cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
-            if ascending { cmp } else { cmp.reverse() }
+            if ascending {
+                cmp
+            } else {
+                cmp.reverse()
+            }
         });
     }
 }
@@ -291,7 +287,11 @@ fn sequential_sort_contracts(results: &mut [(Contract, f64)], order_by: &OrderBy
         let ascending = matches!(first.direction, SortDirection::Asc);
         results.sort_by(|a, b| {
             let cmp = a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal);
-            if ascending { cmp } else { cmp.reverse() }
+            if ascending {
+                cmp
+            } else {
+                cmp.reverse()
+            }
         });
     }
 }
@@ -408,8 +408,7 @@ fn eval_invoice_value(
             if args.len() >= 2 {
                 if let (Expr::Column(col), Expr::Parameter(param_name)) = (&args[0], &args[1]) {
                     let text = get_invoice_col(invoice, &col.column);
-                    if let (ColumnValue::String(t), Some(q)) =
-                        (text, params.get_string(param_name))
+                    if let (ColumnValue::String(t), Some(q)) = (text, params.get_string(param_name))
                     {
                         let score = ft.bm25_score(&t, q);
                         return ColumnValue::Float(score as f64);
@@ -524,8 +523,7 @@ fn eval_contract_value(
             if args.len() >= 2 {
                 if let (Expr::Column(col), Expr::Parameter(param_name)) = (&args[0], &args[1]) {
                     let text = get_contract_col(contract, &col.column);
-                    if let (ColumnValue::String(t), Some(q)) =
-                        (text, params.get_string(param_name))
+                    if let (ColumnValue::String(t), Some(q)) = (text, params.get_string(param_name))
                     {
                         let score = ft.bm25_score(&t, q);
                         return ColumnValue::Float(score as f64);
@@ -550,13 +548,25 @@ fn get_invoice_col(invoice: &Invoice, column: &str) -> ColumnValue {
     } else if column.eq_ignore_ascii_case("invoice_date") {
         ColumnValue::Date(invoice.invoice_date)
     } else if column.eq_ignore_ascii_case("due_date") {
-        invoice.due_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null)
+        invoice
+            .due_date
+            .map(ColumnValue::Date)
+            .unwrap_or(ColumnValue::Null)
     } else if column.eq_ignore_ascii_case("po_number") {
-        invoice.po_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null)
+        invoice
+            .po_number
+            .clone()
+            .map(ColumnValue::String)
+            .unwrap_or(ColumnValue::Null)
     } else if column.eq_ignore_ascii_case("vendor_name") {
         ColumnValue::String(invoice.vendor.name.clone())
     } else if column.eq_ignore_ascii_case("vendor_tax_id") {
-        invoice.vendor.tax_id.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null)
+        invoice
+            .vendor
+            .tax_id
+            .clone()
+            .map(ColumnValue::String)
+            .unwrap_or(ColumnValue::Null)
     } else if column.eq_ignore_ascii_case("bill_to_name") {
         ColumnValue::String(invoice.bill_to.name.clone())
     } else if column.eq_ignore_ascii_case("currency") {
@@ -586,7 +596,11 @@ fn get_contract_col(contract: &Contract, column: &str) -> ColumnValue {
     } else if column.eq_ignore_ascii_case("document_id") {
         ColumnValue::String(contract.document_id.0.to_string())
     } else if column.eq_ignore_ascii_case("contract_number") {
-        contract.contract_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null)
+        contract
+            .contract_number
+            .clone()
+            .map(ColumnValue::String)
+            .unwrap_or(ColumnValue::Null)
     } else if column.eq_ignore_ascii_case("title") {
         ColumnValue::String(contract.title.clone())
     } else if column.eq_ignore_ascii_case("contract_type") {
@@ -594,21 +608,40 @@ fn get_contract_col(contract: &Contract, column: &str) -> ColumnValue {
     } else if column.eq_ignore_ascii_case("effective_date") {
         ColumnValue::Date(contract.effective_date)
     } else if column.eq_ignore_ascii_case("expiration_date") {
-        contract.expiration_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null)
+        contract
+            .expiration_date
+            .map(ColumnValue::Date)
+            .unwrap_or(ColumnValue::Null)
     } else if column.eq_ignore_ascii_case("execution_date") {
-        contract.execution_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null)
+        contract
+            .execution_date
+            .map(ColumnValue::Date)
+            .unwrap_or(ColumnValue::Null)
     } else if column.eq_ignore_ascii_case("total_value") {
-        contract.total_value.map(ColumnValue::Decimal).unwrap_or(ColumnValue::Null)
+        contract
+            .total_value
+            .map(ColumnValue::Decimal)
+            .unwrap_or(ColumnValue::Null)
     } else if column.eq_ignore_ascii_case("currency") {
-        contract.currency.as_ref().map(|c| ColumnValue::String(format!("{:?}", c))).unwrap_or(ColumnValue::Null)
+        contract
+            .currency
+            .as_ref()
+            .map(|c| ColumnValue::String(format!("{:?}", c)))
+            .unwrap_or(ColumnValue::Null)
     } else if column.eq_ignore_ascii_case("validation_status") {
         ColumnValue::String(format!("{:?}", contract.validation_status))
     } else if column.eq_ignore_ascii_case("confidence_score") {
         ColumnValue::Float(contract.confidence_score as f64)
     } else if column.eq_ignore_ascii_case("extracted_text") {
         ColumnValue::String(contract.extracted_text.clone())
-    } else if column.eq_ignore_ascii_case("party_name") || column.eq_ignore_ascii_case("vendor_name") {
-        contract.parties.first().map(|p| ColumnValue::String(p.name.clone())).unwrap_or(ColumnValue::Null)
+    } else if column.eq_ignore_ascii_case("party_name")
+        || column.eq_ignore_ascii_case("vendor_name")
+    {
+        contract
+            .parties
+            .first()
+            .map(|p| ColumnValue::String(p.name.clone()))
+            .unwrap_or(ColumnValue::Null)
     } else {
         ColumnValue::Null
     }
@@ -637,7 +670,9 @@ fn calculate_invoice_score(
 
     if features.uses_text {
         if let Some(search_terms) = find_text_param_from_query(query, params) {
-            let bm25 = ctx.fulltext_index.bm25_score(&invoice.extracted_text, &search_terms);
+            let bm25 = ctx
+                .fulltext_index
+                .bm25_score(&invoice.extracted_text, &search_terms);
             text_score = (bm25 as f64).min(10.0) / 10.0;
         }
     }
@@ -720,17 +755,26 @@ fn project_invoice_row(invoice: &Invoice, select: &[SelectItem], score: f64) -> 
     for item in select {
         match &item.expr {
             Expr::Wildcard => {
-                columns.insert("id".to_string(), ColumnValue::String(invoice.id.0.to_string()));
+                columns.insert(
+                    "id".to_string(),
+                    ColumnValue::String(invoice.id.0.to_string()),
+                );
                 columns.insert(
                     "invoice_number".to_string(),
                     ColumnValue::String(invoice.invoice_number.clone()),
                 );
-                columns.insert("invoice_date".to_string(), ColumnValue::Date(invoice.invoice_date));
+                columns.insert(
+                    "invoice_date".to_string(),
+                    ColumnValue::Date(invoice.invoice_date),
+                );
                 columns.insert(
                     "vendor_name".to_string(),
                     ColumnValue::String(invoice.vendor.name.clone()),
                 );
-                columns.insert("total_amount".to_string(), ColumnValue::Decimal(invoice.total_amount));
+                columns.insert(
+                    "total_amount".to_string(),
+                    ColumnValue::Decimal(invoice.total_amount),
+                );
                 columns.insert(
                     "confidence_score".to_string(),
                     ColumnValue::Float(invoice.confidence_score as f64),
@@ -836,10 +880,8 @@ mod tests {
     #[test]
     fn test_query_features_vector() {
         use crate::query::lang::parse_query;
-        let q = parse_query(
-            "SELECT VECTOR_DISTANCE(embedding, :vec) AS score FROM invoices",
-        )
-        .unwrap();
+        let q =
+            parse_query("SELECT VECTOR_DISTANCE(embedding, :vec) AS score FROM invoices").unwrap();
         let f = QueryFeatures::from_query(&q);
         assert!(f.uses_vector);
         assert!(!f.uses_text);
@@ -848,10 +890,8 @@ mod tests {
     #[test]
     fn test_query_features_text() {
         use crate::query::lang::parse_query;
-        let q = parse_query(
-            "SELECT BM25_SCORE(extracted_text, :terms) AS score FROM invoices",
-        )
-        .unwrap();
+        let q = parse_query("SELECT BM25_SCORE(extracted_text, :terms) AS score FROM invoices")
+            .unwrap();
         let f = QueryFeatures::from_query(&q);
         assert!(!f.uses_vector);
         assert!(f.uses_text);
@@ -862,7 +902,11 @@ mod tests {
         let v = ColumnValue::String("Hello World".to_string());
         let p = ColumnValue::String("%World".to_string());
         assert!(like_match_inline(&v, &p, false));
-        assert!(!like_match_inline(&v, &ColumnValue::String("%world".to_string()), false));
+        assert!(!like_match_inline(
+            &v,
+            &ColumnValue::String("%world".to_string()),
+            false
+        ));
     }
 
     #[test]

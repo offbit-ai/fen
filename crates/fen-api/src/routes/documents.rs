@@ -111,18 +111,24 @@ pub fn contract_to_response(c: &Contract) -> ContractResponse {
                 id: p.id.to_string(),
                 name: p.name.clone(),
                 tax_id: p.tax_id.clone(),
-                address: p.address.as_ref().map(|a| crate::routes::ingest::AddressResponse {
-                    street: a.street.clone(),
-                    city: a.city.clone(),
-                    state: a.state.clone(),
-                    postal_code: a.postal_code.clone(),
-                    country: a.country.clone(),
-                }),
-                contact: p.contact.as_ref().map(|ct| crate::routes::ingest::ContactResponse {
-                    name: ct.name.clone(),
-                    email: ct.email.clone(),
-                    phone: ct.phone.clone(),
-                }),
+                address: p
+                    .address
+                    .as_ref()
+                    .map(|a| crate::routes::ingest::AddressResponse {
+                        street: a.street.clone(),
+                        city: a.city.clone(),
+                        state: a.state.clone(),
+                        postal_code: a.postal_code.clone(),
+                        country: a.country.clone(),
+                    }),
+                contact: p
+                    .contact
+                    .as_ref()
+                    .map(|ct| crate::routes::ingest::ContactResponse {
+                        name: ct.name.clone(),
+                        email: ct.email.clone(),
+                        phone: ct.phone.clone(),
+                    }),
             })
             .collect(),
         effective_date: c.effective_date.to_string(),

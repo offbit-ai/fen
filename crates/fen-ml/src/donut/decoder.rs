@@ -24,13 +24,11 @@ pub fn autoregressive_decode(
         let seq_len = generated.len();
 
         // Build decoder input tensors
-        let decoder_input_ids =
-            Array2::from_shape_vec((1, seq_len), generated.clone())
-                .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let decoder_input_ids = Array2::from_shape_vec((1, seq_len), generated.clone())
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let decoder_attention_mask =
-            Array2::from_shape_vec((1, seq_len), vec![1i64; seq_len])
-                .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let decoder_attention_mask = Array2::from_shape_vec((1, seq_len), vec![1i64; seq_len])
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
         let decoder_input_ids_t = TensorRef::from_array_view(&decoder_input_ids)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
@@ -39,9 +37,9 @@ pub fn autoregressive_decode(
         let encoder_hidden_states_t = TensorRef::from_array_view(encoder_hidden_states)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let mut session = decoder.lock().map_err(|e| {
-            MlError::ModelLoading(format!("Failed to acquire decoder lock: {}", e))
-        })?;
+        let mut session = decoder
+            .lock()
+            .map_err(|e| MlError::ModelLoading(format!("Failed to acquire decoder lock: {}", e)))?;
 
         let outputs = session.run(ort::inputs![
             "input_ids" => decoder_input_ids_t,

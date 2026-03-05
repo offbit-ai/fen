@@ -187,7 +187,7 @@ impl OcrEngine {
 
     /// Round up to the nearest multiple of 32 (required by PaddleOCR detection model).
     fn round_to_32(val: u32) -> u32 {
-        ((val + 31) / 32) * 32
+        val.div_ceil(32) * 32
     }
 
     /// Preprocess image for detection model
@@ -368,7 +368,12 @@ impl OcrEngine {
                 let mut stack = vec![(x, y)];
                 while let Some((cx, cy)) = stack.pop() {
                     let cidx = cy * map_w + cx;
-                    if cx >= map_w || cy >= map_h || cidx >= data.len() || visited[cidx] || data[cidx] < threshold {
+                    if cx >= map_w
+                        || cy >= map_h
+                        || cidx >= data.len()
+                        || visited[cidx]
+                        || data[cidx] < threshold
+                    {
                         continue;
                     }
                     visited[cidx] = true;
@@ -380,10 +385,18 @@ impl OcrEngine {
                     max_y = max_y.max(cy);
 
                     // 4-connected neighbors
-                    if cx > 0 { stack.push((cx - 1, cy)); }
-                    if cx + 1 < map_w { stack.push((cx + 1, cy)); }
-                    if cy > 0 { stack.push((cx, cy - 1)); }
-                    if cy + 1 < map_h { stack.push((cx, cy + 1)); }
+                    if cx > 0 {
+                        stack.push((cx - 1, cy));
+                    }
+                    if cx + 1 < map_w {
+                        stack.push((cx + 1, cy));
+                    }
+                    if cy > 0 {
+                        stack.push((cx, cy - 1));
+                    }
+                    if cy + 1 < map_h {
+                        stack.push((cx, cy + 1));
+                    }
                 }
 
                 // Filter out very small regions (noise)
@@ -586,10 +599,7 @@ impl OcrEngine {
             let end = (start + vocab_size).min(probs.len());
             let frame = &probs[start..end];
 
-            let frame_log_probs: Vec<f32> = frame
-                .iter()
-                .map(|&p| (p + 1e-10).ln())
-                .collect();
+            let frame_log_probs: Vec<f32> = frame.iter().map(|&p| (p + 1e-10).ln()).collect();
 
             log_probs.push(frame_log_probs);
         }
@@ -791,8 +801,10 @@ impl OcrProvider for OcrEngine {
                 let new_w = (w as f32 * scale) as u32;
                 let new_h = (h as f32 * scale) as u32;
                 tracing::debug!(
-                    original_w = w, original_h = h,
-                    new_w = new_w, new_h = new_h,
+                    original_w = w,
+                    original_h = h,
+                    new_w = new_w,
+                    new_h = new_h,
                     "Upscaling small image for OCR"
                 );
                 std::borrow::Cow::Owned(image.resize_exact(

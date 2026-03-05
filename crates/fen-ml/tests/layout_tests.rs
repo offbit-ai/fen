@@ -25,11 +25,17 @@ async fn test_layout_analysis_on_invoice() {
     let image = common::load_test_document("invoice_simple.png");
 
     let ocr_result = ocr_engine.process_image(&image).await.unwrap();
-    assert!(!ocr_result.regions.is_empty(), "Need OCR regions for layout test");
+    assert!(
+        !ocr_result.regions.is_empty(),
+        "Need OCR regions for layout test"
+    );
 
     let layout_result = layout_model.analyze(&image, &ocr_result).unwrap();
 
-    assert!(!layout_result.text.is_empty(), "Layout text should not be empty");
+    assert!(
+        !layout_result.text.is_empty(),
+        "Layout text should not be empty"
+    );
     assert!(layout_result.processing_time_ms > 0);
 
     assert!(
@@ -63,7 +69,11 @@ async fn test_layout_entity_extraction() {
     let layout_result = layout_model.analyze(&image, &ocr_result).unwrap();
 
     for (i, entity) in layout_result.entities.iter().enumerate() {
-        assert!(!entity.value.is_empty(), "Entity {} value should not be empty", i);
+        assert!(
+            !entity.value.is_empty(),
+            "Entity {} value should not be empty",
+            i
+        );
         common::assert_valid_confidence(entity.confidence, &format!("Entity {}", i));
         assert!(
             entity.start_pos <= entity.end_pos,

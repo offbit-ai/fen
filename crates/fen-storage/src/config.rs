@@ -202,7 +202,7 @@ impl HotStorageBackend {
 }
 
 /// Knowledge graph backend configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum GraphBackend {
     /// Embedded graph database (RyuGraph) on local filesystem
@@ -215,13 +215,8 @@ pub enum GraphBackend {
     InMemory,
 
     /// Graph disabled
+    #[default]
     Disabled,
-}
-
-impl Default for GraphBackend {
-    fn default() -> Self {
-        Self::Disabled
-    }
 }
 
 impl GraphBackend {

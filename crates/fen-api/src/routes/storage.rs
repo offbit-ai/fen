@@ -2,12 +2,7 @@
 
 use std::sync::Arc;
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::Serialize;
 
 use fen_storage::DocumentStore;
@@ -112,9 +107,15 @@ pub async fn clear_cache(
 ) -> Result<impl IntoResponse, ApiError> {
     if let Some(ref query_engine) = state.query_engine {
         query_engine.clear_cache();
-        Ok((StatusCode::OK, Json(serde_json::json!({"message": "Cache cleared"}))))
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({"message": "Cache cleared"})),
+        ))
     } else {
-        Ok((StatusCode::OK, Json(serde_json::json!({"message": "No cache to clear"}))))
+        Ok((
+            StatusCode::OK,
+            Json(serde_json::json!({"message": "No cache to clear"})),
+        ))
     }
 }
 
@@ -133,7 +134,10 @@ pub async fn trigger_migration(
 
         Ok(Json(MigrationResponse {
             migrated,
-            message: format!("Successfully migrated {} documents to warm storage", migrated),
+            message: format!(
+                "Successfully migrated {} documents to warm storage",
+                migrated
+            ),
         }))
     } else {
         Ok(Json(MigrationResponse {

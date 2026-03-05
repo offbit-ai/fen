@@ -15,7 +15,10 @@ pub use config::S3Config;
 pub use config::{GraphBackend, HotStorageBackend, WarmStorageBackend};
 pub use error::StorageError;
 pub use fulltext::{FullTextConfig, FullTextIndex, SearchResult as FullTextSearchResult};
-pub use hot::{AnomalyRecord, AnomalyStats, AnomalyStatus, AnomalyStore, BaselineStore, CacheStats, RedbStorage};
+pub use hot::{
+    AnomalyRecord, AnomalyStats, AnomalyStatus, AnomalyStore, BaselineStore, CacheStats,
+    RedbStorage,
+};
 pub use location::{DocumentLocationIndex, TierDistribution};
 pub use query::{
     parse_query,

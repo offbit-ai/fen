@@ -65,13 +65,21 @@ impl GlinerExtractionResult {
         self.entities
             .iter()
             .filter(|e| e.label == label)
-            .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.score
+                    .partial_cmp(&b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
     }
 
     /// Get all entities for a given label, sorted by score descending
     pub fn entities_for_label(&self, label: &str) -> Vec<&GlinerEntity> {
         let mut ents: Vec<_> = self.entities.iter().filter(|e| e.label == label).collect();
-        ents.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        ents.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         ents
     }
 

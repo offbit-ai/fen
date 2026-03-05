@@ -35,8 +35,8 @@ pub fn invoices_for_vendor(
 /// Find contracts related to an invoice.
 ///
 /// Checks two paths:
-/// 1. Direct: Invoice -[GOVERNED_BY]-> Contract
-/// 2. Via vendor: Invoice <-[SUPPLIES]- Vendor -[SUPPLIES]-> Invoice -[GOVERNED_BY]-> Contract
+/// 1. Direct: Invoice -\[GOVERNED_BY\]-> Contract
+/// 2. Via vendor: Invoice <-\[SUPPLIES\]- Vendor -\[SUPPLIES\]-> Invoice -\[GOVERNED_BY\]-> Contract
 pub fn related_contracts(
     conn: &Connection,
     invoice_id: &str,
@@ -87,20 +87,14 @@ pub fn related_contracts(
 }
 
 /// Execute a raw Cypher query and return results as string vectors.
-pub fn execute_cypher(
-    conn: &Connection,
-    cypher: &str,
-) -> Result<Vec<Vec<String>>, GraphError> {
+pub fn execute_cypher(conn: &Connection, cypher: &str) -> Result<Vec<Vec<String>>, GraphError> {
     let result = conn
         .query(cypher)
         .map_err(|e| GraphError::Query(e.to_string()))?;
 
     let mut rows = Vec::new();
     for row in result.iter_rows() {
-        let string_row: Vec<String> = row
-            .iter()
-            .map(|v| format!("{:?}", v))
-            .collect();
+        let string_row: Vec<String> = row.iter().map(|v| format!("{:?}", v)).collect();
         rows.push(string_row);
     }
 

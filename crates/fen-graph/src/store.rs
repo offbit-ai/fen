@@ -3,9 +3,7 @@ use std::sync::Arc;
 
 use kyu_graph::Database;
 
-use fen_core::domain::{
-    Contract, ContractId, Invoice, InvoiceId,
-};
+use fen_core::domain::{Contract, ContractId, Invoice, InvoiceId};
 
 use crate::delta_writer;
 use crate::error::GraphError;
@@ -45,7 +43,6 @@ impl KyuGraphStore {
         }
         Ok(Self { db: Arc::new(db) })
     }
-
 }
 
 #[async_trait::async_trait]
@@ -88,9 +85,11 @@ impl GraphStore for KyuGraphStore {
                 chrono::Utc::now().timestamp_millis() as u64,
             )
             .upsert_edge(
-                "Invoice", &iid,
+                "Invoice",
+                &iid,
                 "GOVERNED_BY",
-                "Contract", &cid,
+                "Contract",
+                &cid,
                 Vec::<(&str, kyu_delta::DeltaValue)>::new(),
             )
             .build();
@@ -117,8 +116,14 @@ impl GraphStore for KyuGraphStore {
                 &vendor_key,
                 vec![],
                 [
-                    ("id", kyu_delta::DeltaValue::String(smol_str::SmolStr::new(&vendor_key))),
-                    ("name", kyu_delta::DeltaValue::String(smol_str::SmolStr::new(&name))),
+                    (
+                        "id",
+                        kyu_delta::DeltaValue::String(smol_str::SmolStr::new(&vendor_key)),
+                    ),
+                    (
+                        "name",
+                        kyu_delta::DeltaValue::String(smol_str::SmolStr::new(&name)),
+                    ),
                 ],
             )
             .build();
@@ -130,10 +135,7 @@ impl GraphStore for KyuGraphStore {
         .await?
     }
 
-    async fn invoices_for_vendor(
-        &self,
-        vendor_id: &str,
-    ) -> Result<Vec<InvoiceId>, GraphError> {
+    async fn invoices_for_vendor(&self, vendor_id: &str) -> Result<Vec<InvoiceId>, GraphError> {
         let db = self.db.clone();
         let vid = vendor_id.to_string();
         tokio::task::spawn_blocking(move || {
@@ -156,10 +158,7 @@ impl GraphStore for KyuGraphStore {
         .await?
     }
 
-    async fn query_cypher(
-        &self,
-        cypher: &str,
-    ) -> Result<Vec<Vec<String>>, GraphError> {
+    async fn query_cypher(&self, cypher: &str) -> Result<Vec<Vec<String>>, GraphError> {
         let db = self.db.clone();
         let cypher = cypher.to_string();
         tokio::task::spawn_blocking(move || {
@@ -202,10 +201,7 @@ impl GraphStore for KyuGraphStore {
         .await?
     }
 
-    async fn rdf_nodes(
-        &self,
-        table_name: &str,
-    ) -> Result<Vec<Vec<String>>, GraphError> {
+    async fn rdf_nodes(&self, table_name: &str) -> Result<Vec<Vec<String>>, GraphError> {
         let db = self.db.clone();
         let table_name = table_name.to_string();
         tokio::task::spawn_blocking(move || {
@@ -222,7 +218,8 @@ impl GraphStore for KyuGraphStore {
         let count = batch.len() as u64;
         tokio::task::spawn_blocking(move || {
             let conn = db.connect();
-            let stats = conn.apply_delta(batch)
+            let stats = conn
+                .apply_delta(batch)
                 .map_err(|e| GraphError::Write(format!("Batch delta apply failed: {e}")))?;
             tracing::info!(
                 nodes_created = stats.nodes_created,
@@ -243,7 +240,8 @@ impl GraphStore for KyuGraphStore {
         let count = batch.len() as u64;
         tokio::task::spawn_blocking(move || {
             let conn = db.connect();
-            let stats = conn.apply_delta(batch)
+            let stats = conn
+                .apply_delta(batch)
                 .map_err(|e| GraphError::Write(format!("Batch delta apply failed: {e}")))?;
             tracing::info!(
                 nodes_created = stats.nodes_created,

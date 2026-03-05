@@ -55,10 +55,7 @@ impl ExtractionConfidence {
         // Mean and min scores
         let scores: Vec<f32> = entities.iter().map(|e| e.score).collect();
         let mean_entity_score = scores.iter().sum::<f32>() / scores.len() as f32;
-        let min_entity_score = scores
-            .iter()
-            .copied()
-            .fold(f32::INFINITY, f32::min);
+        let min_entity_score = scores.iter().copied().fold(f32::INFINITY, f32::min);
 
         // Completeness: fraction of expected labels that were found
         let found_count = expected_labels
@@ -101,11 +98,7 @@ impl ExtractionConfidence {
     }
 
     /// Check if extraction quality is satisfactory (no escalation needed)
-    pub fn satisfactory(
-        &self,
-        escalation_threshold: f32,
-        completeness_threshold: f32,
-    ) -> bool {
+    pub fn satisfactory(&self, escalation_threshold: f32, completeness_threshold: f32) -> bool {
         self.overall >= escalation_threshold
             && self.completeness >= completeness_threshold
             && self.min_entity_score >= 0.3
@@ -142,7 +135,12 @@ mod tests {
             make_entity("total_amount", 0.88),
             make_entity("invoice_date", 0.85),
         ];
-        let expected = &["invoice_number", "vendor_name", "total_amount", "invoice_date"];
+        let expected = &[
+            "invoice_number",
+            "vendor_name",
+            "total_amount",
+            "invoice_date",
+        ];
 
         let conf = ExtractionConfidence::compute(&entities, expected);
 
@@ -159,7 +157,12 @@ mod tests {
             make_entity("invoice_number", 0.4),
             make_entity("vendor_name", 0.35),
         ];
-        let expected = &["invoice_number", "vendor_name", "total_amount", "invoice_date"];
+        let expected = &[
+            "invoice_number",
+            "vendor_name",
+            "total_amount",
+            "invoice_date",
+        ];
 
         let conf = ExtractionConfidence::compute(&entities, expected);
 

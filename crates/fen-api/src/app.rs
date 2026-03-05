@@ -11,7 +11,10 @@ use tower_http::trace::TraceLayer;
 
 use crate::config::AppConfig;
 use crate::middleware::{auth_middleware, metrics::metrics_middleware, RateLimitLayer};
-use crate::routes::{admin, anomalies, auth, documents, events, graph, health, ingest, notifications, rules, search, storage, validate};
+use crate::routes::{
+    admin, anomalies, auth, documents, events, graph, health, ingest, notifications, rules, search,
+    storage, validate,
+};
 use crate::state::AppState;
 
 /// Build the application router
@@ -33,8 +36,7 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/ready", get(health::readiness_check))
         .route(
             "/metrics",
-            get(crate::middleware::metrics::metrics_handler)
-                .with_state(prom_handle),
+            get(crate::middleware::metrics::metrics_handler).with_state(prom_handle),
         )
         // Authentication endpoints (must be public for login flow)
         .route("/auth/login", get(auth::login))
@@ -57,7 +59,10 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/ingest", post(ingest::ingest_document))
         .route("/ingest/contract", post(ingest::ingest_contract))
         // Per-document actions
-        .route("/documents/:id/validate", post(documents::validate_document))
+        .route(
+            "/documents/:id/validate",
+            post(documents::validate_document),
+        )
         .route("/documents/:id/approve", post(documents::approve_document))
         .route("/documents/:id/reject", post(documents::reject_document))
         // Validation (bulk)
@@ -72,7 +77,10 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/anomalies/:id", get(anomalies::get_anomaly))
         .route("/anomalies/:id/resolve", post(anomalies::resolve_anomaly))
         .route("/anomalies/:id/dismiss", post(anomalies::dismiss_anomaly))
-        .route("/anomalies/:id/investigate", post(anomalies::investigate_anomaly))
+        .route(
+            "/anomalies/:id/investigate",
+            post(anomalies::investigate_anomaly),
+        )
         // Search endpoints
         .route("/search/text", get(search::text_search))
         .route("/search/semantic", get(search::semantic_search))
@@ -92,9 +100,15 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/rules/:id", get(rules::get_rule))
         .route("/rules/:id/test", post(rules::test_rule))
         // Notifications
-        .route("/notifications/providers", get(notifications::list_providers))
+        .route(
+            "/notifications/providers",
+            get(notifications::list_providers),
+        )
         .route("/notifications/health", get(notifications::provider_health))
-        .route("/notifications/send", post(notifications::send_notification))
+        .route(
+            "/notifications/send",
+            post(notifications::send_notification),
+        )
         .route(
             "/notifications/preferences/:tenant_id",
             get(notifications::get_preferences).put(notifications::set_preferences),
@@ -102,7 +116,10 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         // Knowledge graph
         .route("/graph/query", post(graph::query_cypher))
         .route("/graph/vendors/:name/network", get(graph::vendor_network))
-        .route("/graph/invoices/:id/contracts", get(graph::invoice_contracts))
+        .route(
+            "/graph/invoices/:id/contracts",
+            get(graph::invoice_contracts),
+        )
         .route("/graph/rdf/load", post(graph::rdf_load))
         .route("/graph/rdf/inspect", post(graph::rdf_inspect))
         // Event streaming
@@ -113,17 +130,31 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .route("/auth/userinfo", get(auth::userinfo))
         .route("/auth/logout", post(auth::logout))
         // Admin endpoints
-        .route("/admin/tenants", get(admin::list_tenants).post(admin::create_tenant))
+        .route(
+            "/admin/tenants",
+            get(admin::list_tenants).post(admin::create_tenant),
+        )
         .route(
             "/admin/tenants/:tenant_id",
             get(admin::get_tenant).put(admin::update_tenant),
         )
-        .route("/admin/tenants/:tenant_id/suspend", post(admin::suspend_tenant))
-        .route("/admin/tenants/:tenant_id/activate", post(admin::activate_tenant))
-        .route("/admin/users", get(admin::list_users).post(admin::create_user))
+        .route(
+            "/admin/tenants/:tenant_id/suspend",
+            post(admin::suspend_tenant),
+        )
+        .route(
+            "/admin/tenants/:tenant_id/activate",
+            post(admin::activate_tenant),
+        )
+        .route(
+            "/admin/users",
+            get(admin::list_users).post(admin::create_user),
+        )
         .route(
             "/admin/users/:user_id",
-            get(admin::get_user).put(admin::update_user).delete(admin::delete_user),
+            get(admin::get_user)
+                .put(admin::update_user)
+                .delete(admin::delete_user),
         )
         .route("/admin/users/:user_id/roles", put(admin::assign_roles))
         .route("/admin/users/:user_id/suspend", post(admin::suspend_user))
@@ -136,7 +167,10 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
-        .layer(middleware::from_fn_with_state(state.clone(), metrics_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            metrics_middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .layer(rate_limit)
         .layer(RequestBodyLimitLayer::new(config.max_upload_size))
@@ -163,9 +197,7 @@ fn build_cors_layer(config: &AppConfig) -> CorsLayer {
         HeaderName::from_static("accept"),
     ];
 
-    let origin = if config.cors_origins.is_empty()
-        || config.cors_origins.iter().any(|o| o == "*")
-    {
+    let origin = if config.cors_origins.is_empty() || config.cors_origins.iter().any(|o| o == "*") {
         AllowOrigin::any()
     } else {
         let origins: Vec<_> = config

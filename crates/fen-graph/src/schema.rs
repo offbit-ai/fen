@@ -75,8 +75,11 @@ pub fn initialize_schema(conn: &Connection) -> Result<(), GraphError> {
             .map_err(|e| GraphError::SchemaInit(format!("Rel table DDL failed: {e}")))?;
     }
 
-    tracing::info!("Graph schema initialized ({} node tables, {} rel tables)",
-        NODE_TABLES.len(), REL_TABLES.len());
+    tracing::info!(
+        "Graph schema initialized ({} node tables, {} rel tables)",
+        NODE_TABLES.len(),
+        REL_TABLES.len()
+    );
 
     Ok(())
 }

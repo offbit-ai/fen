@@ -20,10 +20,7 @@ pub struct RdfMapping<'a> {
 /// `:SAME_AS` relationship edges between them.
 ///
 /// Returns the total number of SAME_AS edges created.
-pub fn map_rdf_to_fen(
-    conn: &Connection,
-    mappings: &[RdfMapping<'_>],
-) -> Result<usize, GraphError> {
+pub fn map_rdf_to_fen(conn: &Connection, mappings: &[RdfMapping<'_>]) -> Result<usize, GraphError> {
     let mut total = 0;
 
     for mapping in mappings {

@@ -10,9 +10,8 @@ use fen_core::ValidationStatus;
 use fen_storage::{DocumentStore, InvoiceFilter, StorageTier};
 use fen_tests::{
     consistent_embedding, init_test_tracing, random_embedding, sample_contract_text,
-    sample_invoice_text, sample_sow_text, ContractFixture, GraphIngestionTestEnv,
-    IngestionTestEnv, IntegrationTestEnv, InvoiceFixture, MlPipelineTestEnv, QueryTestEnv,
-    TestEnv,
+    sample_invoice_text, sample_sow_text, ContractFixture, GraphIngestionTestEnv, IngestionTestEnv,
+    IntegrationTestEnv, InvoiceFixture, MlPipelineTestEnv, QueryTestEnv, TestEnv,
 };
 
 // ============================================================================
@@ -259,7 +258,11 @@ mod storage {
             .unwrap();
 
         // Should find at least 2 Acme Corp invoices (shared warm storage may contain more)
-        assert!(results.len() >= 2, "Expected at least 2 Acme Corp invoices, got {}", results.len());
+        assert!(
+            results.len() >= 2,
+            "Expected at least 2 Acme Corp invoices, got {}",
+            results.len()
+        );
         for inv in &results {
             assert_eq!(inv.vendor.name, "Acme Corp");
         }
@@ -2386,9 +2389,7 @@ mod integration {
 
         // At least one anomaly should reference this invoice
         assert!(
-            anomalies
-                .iter()
-                .any(|a| a.invoice_id == Some(invoice.id)),
+            anomalies.iter().any(|a| a.invoice_id == Some(invoice.id)),
             "Persisted anomaly should reference the invoice"
         );
 
@@ -2406,9 +2407,7 @@ mod integration {
     async fn test_valid_invoice_no_anomalies_persisted() {
         let env = IntegrationTestEnv::new().await;
 
-        let invoice = InvoiceFixture::new()
-            .with_number("INTEG-VALID-001")
-            .build();
+        let invoice = InvoiceFixture::new().with_number("INTEG-VALID-001").build();
 
         let embedding = consistent_embedding(&invoice.invoice_number, 384);
         env.store_and_enrich(&invoice, &embedding).await.unwrap();
@@ -2514,10 +2513,7 @@ mod integration {
 
         use fen_storage::DocumentStore;
         env.hot_storage.store_contract(&contract).await.unwrap();
-        env.fulltext_index
-            .index_contract(&contract)
-            .await
-            .unwrap();
+        env.fulltext_index.index_contract(&contract).await.unwrap();
         env.fulltext_index.commit().await.unwrap();
 
         // Search should find the contract
@@ -2562,10 +2558,16 @@ mod integration {
         // All should be stored
         assert_eq!(invoice_ids.len(), 5);
         let count = env.hot_storage.count_invoices().await.unwrap();
-        assert_eq!(count, 5, "All concurrently ingested invoices should be stored");
+        assert_eq!(
+            count, 5,
+            "All concurrently ingested invoices should be stored"
+        );
 
         // All should be searchable via fulltext
-        let results = env.fulltext_index.search_invoices("service delivery", 10).unwrap();
+        let results = env
+            .fulltext_index
+            .search_invoices("service delivery", 10)
+            .unwrap();
         assert_eq!(
             results.len(),
             5,
@@ -2625,11 +2627,7 @@ mod integration {
 
         // Hot tier: direct retrieval
         use fen_storage::DocumentStore;
-        let from_hot = env
-            .hot_storage
-            .get_invoice(&invoice.id)
-            .await
-            .unwrap();
+        let from_hot = env.hot_storage.get_invoice(&invoice.id).await.unwrap();
         assert!(from_hot.is_some(), "Invoice should be in hot storage");
 
         // Warm tier: vector search
@@ -2657,9 +2655,7 @@ mod integration {
         // Anomaly store: validation results
         let anomalies = env.anomaly_store.list_all(100, 0).await.unwrap();
         assert!(
-            anomalies
-                .iter()
-                .any(|a| a.invoice_id == Some(invoice.id)),
+            anomalies.iter().any(|a| a.invoice_id == Some(invoice.id)),
             "Anomaly store should contain validation results for this invoice"
         );
     }
@@ -2674,8 +2670,8 @@ mod integration {
 
 mod data_ingestion {
     use super::*;
-    use std::sync::Arc;
     use fen_graph::GraphStore;
+    use std::sync::Arc;
 
     // ---- Contract Text Ingestion ----
 
@@ -2689,15 +2685,18 @@ mod data_ingestion {
         let contract = env.pipeline.ingest_contract_text(text).await.unwrap();
 
         // Verify contract was parsed with key fields
-        assert!(!contract.title.is_empty(), "Contract title should be parsed");
         assert!(
-            !contract.id.0.is_nil(),
-            "Contract should have a valid ID"
+            !contract.title.is_empty(),
+            "Contract title should be parsed"
         );
+        assert!(!contract.id.0.is_nil(), "Contract should have a valid ID");
 
         // Verify stored
         let retrieved = env.storage.get_contract(&contract.id).await.unwrap();
-        assert!(retrieved.is_some(), "Contract should be retrievable from storage");
+        assert!(
+            retrieved.is_some(),
+            "Contract should be retrievable from storage"
+        );
         assert_eq!(retrieved.unwrap().title, contract.title);
     }
 
@@ -2814,7 +2813,11 @@ mod data_ingestion {
             .query_cypher("MATCH (i:Invoice) RETURN i.id")
             .await
             .unwrap();
-        assert_eq!(results.len(), 1, "Graph should contain exactly one Invoice node");
+        assert_eq!(
+            results.len(),
+            1,
+            "Graph should contain exactly one Invoice node"
+        );
 
         // Graph should contain a Vendor node
         let vendors = env
@@ -2989,9 +2992,7 @@ Total: $2,500.00
         // Verify GOVERNED_BY edge exists
         let governed = env
             .graph
-            .query_cypher(
-                "MATCH (i:Invoice)-[:GOVERNED_BY]->(c:Contract) RETURN c.title",
-            )
+            .query_cypher("MATCH (i:Invoice)-[:GOVERNED_BY]->(c:Contract) RETURN c.title")
             .await
             .unwrap();
         assert_eq!(governed.len(), 1);
@@ -3085,7 +3086,12 @@ Total: $3,000.00
 
         // Both retrievable
         assert!(env.storage.get_invoice(&inv.id).await.unwrap().is_some());
-        assert!(env.storage.get_contract(&contract.id).await.unwrap().is_some());
+        assert!(env
+            .storage
+            .get_contract(&contract.id)
+            .await
+            .unwrap()
+            .is_some());
     }
 
     /// Test: concurrent mixed document ingestion
@@ -3125,7 +3131,10 @@ Total: $3,000.00
         let contract_count = env.storage.count_contracts().await.unwrap();
 
         assert_eq!(inv_count, 3, "All concurrent invoices should be stored");
-        assert_eq!(contract_count, 2, "All concurrent contracts should be stored");
+        assert_eq!(
+            contract_count, 2,
+            "All concurrent contracts should be stored"
+        );
     }
 
     /// Test: storage → graph → query roundtrip with explicit fixtures
@@ -3171,11 +3180,17 @@ Total: $3,000.00
         // Verify vendor deduplication: resolving the same name returns same ID
         let alpha_id = env.graph.resolve_vendor("Alpha Corp").await.unwrap();
         let alpha_id_2 = env.graph.resolve_vendor("Alpha Corp").await.unwrap();
-        assert_eq!(alpha_id, alpha_id_2, "Same vendor name should resolve to same ID");
+        assert_eq!(
+            alpha_id, alpha_id_2,
+            "Same vendor name should resolve to same ID"
+        );
 
         // Verify both vendors exist with different IDs
         let beta_id = env.graph.resolve_vendor("Beta Services").await.unwrap();
-        assert_ne!(alpha_id, beta_id, "Different vendors should have different IDs");
+        assert_ne!(
+            alpha_id, beta_id,
+            "Different vendors should have different IDs"
+        );
 
         // Verify invoices_for_vendor returns correct per-vendor counts
         let alpha_invoices = env.graph.invoices_for_vendor(&alpha_id).await.unwrap();
@@ -3212,7 +3227,11 @@ Total: $3,000.00
             "Ingestion should succeed without graph"
         );
         assert!(
-            env.storage.get_invoice(&invoice.id).await.unwrap().is_some(),
+            env.storage
+                .get_invoice(&invoice.id)
+                .await
+                .unwrap()
+                .is_some(),
             "Invoice should still be in storage"
         );
     }
@@ -3241,9 +3260,7 @@ Total: $3,000.00
         // Should have all clauses (2 default + 2 added = 4)
         let clauses = env
             .graph
-            .query_cypher(
-                "MATCH (c:Contract)-[:HAS_CLAUSE]->(cl:Clause) RETURN cl.clause_type",
-            )
+            .query_cypher("MATCH (c:Contract)-[:HAS_CLAUSE]->(cl:Clause) RETURN cl.clause_type")
             .await
             .unwrap();
         assert_eq!(
@@ -3378,8 +3395,10 @@ mod ml_pipeline {
         );
 
         for region in &result.layout_result.regions {
-            assert!(!region.text.is_empty() || region.confidence > 0.0,
-                "Region should have text or confidence");
+            assert!(
+                !region.text.is_empty() || region.confidence > 0.0,
+                "Region should have text or confidence"
+            );
             assert!(
                 region.bbox.width >= 0.0 && region.bbox.height >= 0.0,
                 "Region bbox should have non-negative dimensions"
@@ -3697,11 +3716,7 @@ mod ml_pipeline {
         );
 
         // Verify stored
-        let stored = env
-            .storage
-            .get_invoice(&result.invoice.id)
-            .await
-            .unwrap();
+        let stored = env.storage.get_invoice(&result.invoice.id).await.unwrap();
         assert!(stored.is_some(), "Invoice should be stored");
     }
 
@@ -3718,7 +3733,10 @@ mod ml_pipeline {
             .await
             .unwrap();
 
-        assert!(!result.invoice.id.0.is_nil(), "Should produce valid invoice");
+        assert!(
+            !result.invoice.id.0.is_nil(),
+            "Should produce valid invoice"
+        );
         assert!(
             result.invoice.confidence_score > 0.0,
             "Should have positive confidence"

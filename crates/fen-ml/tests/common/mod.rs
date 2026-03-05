@@ -5,15 +5,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Once;
 
-use image::DynamicImage;
 use fen_ml::{
-    DocumentIntelligence, DocumentIntelligenceConfig,
-    EmbeddingModel, EmbeddingModelConfig,
-    LayoutModel, LayoutModelConfig,
-    OcrConfig, OcrEngine,
-    TableExtractor, TableExtractorConfig,
-    BoundingBox,
+    BoundingBox, DocumentIntelligence, DocumentIntelligenceConfig, EmbeddingModel,
+    EmbeddingModelConfig, LayoutModel, LayoutModelConfig, OcrConfig, OcrEngine, TableExtractor,
+    TableExtractorConfig,
 };
+use image::DynamicImage;
 
 static INIT_TRACING: Once = Once::new();
 
@@ -196,8 +193,7 @@ pub fn build_full_pipeline(models: &Path) -> DocumentIntelligence {
         },
         ..Default::default()
     };
-    DocumentIntelligence::with_models(config, models)
-        .expect("Failed to create full pipeline")
+    DocumentIntelligence::with_models(config, models).expect("Failed to create full pipeline")
 }
 
 // ---------------------------------------------------------------------------
@@ -226,8 +222,8 @@ pub struct LoadedPdf {
 /// Load a PDF: extract embedded text first. Only render to images if text
 /// extraction fails (scanned/image-only PDF).
 pub fn load_pdf(filename: &str) -> LoadedPdf {
-    use pdfium_render::prelude::*;
     use image::RgbaImage;
+    use pdfium_render::prelude::*;
 
     let path = documents_dir().join(filename);
     assert!(
@@ -299,15 +295,11 @@ pub fn load_pdf(filename: &str) -> LoadedPdf {
 /// Load a PDF and render all pages to images unconditionally.
 /// Use when you specifically need the image representation (e.g. for OCR testing).
 pub fn load_pdf_pages(filename: &str) -> Vec<DynamicImage> {
-    use pdfium_render::prelude::*;
     use image::RgbaImage;
+    use pdfium_render::prelude::*;
 
     let path = documents_dir().join(filename);
-    assert!(
-        path.exists(),
-        "PDF document not found: {}",
-        path.display(),
-    );
+    assert!(path.exists(), "PDF document not found: {}", path.display(),);
 
     let pdfium = bind_pdfium();
     let bytes = std::fs::read(&path)
@@ -337,13 +329,19 @@ pub fn load_pdf_pages(filename: &str) -> Vec<DynamicImage> {
         pages.push(DynamicImage::ImageRgba8(img));
     }
 
-    assert!(!pages.is_empty(), "PDF {} rendered zero pages", path.display());
+    assert!(
+        !pages.is_empty(),
+        "PDF {} rendered zero pages",
+        path.display()
+    );
     pages
 }
 
 /// Load a PDF and return only the first page as an image.
 pub fn load_pdf_first_page(filename: &str) -> DynamicImage {
-    load_pdf_pages(filename).into_iter().next()
+    load_pdf_pages(filename)
+        .into_iter()
+        .next()
         .unwrap_or_else(|| panic!("PDF {} has no pages", filename))
 }
 

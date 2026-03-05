@@ -99,7 +99,11 @@ pub fn preprocess_image(image: &DynamicImage, config: &PreprocessingConfig) -> D
 
     // Step 4: Binarization (optional, aggressive)
     if config.binarize {
-        working = binarize_image(&working, config.binarization_strategy, config.adaptive_block_size);
+        working = binarize_image(
+            &working,
+            config.binarization_strategy,
+            config.adaptive_block_size,
+        );
     }
 
     working
@@ -134,13 +138,14 @@ fn deskew(image: &DynamicImage, max_angle: f32) -> DynamicImage {
 
     // Otsu threshold to create binary image
     let threshold = otsu_level(&detect_gray);
-    let binary: GrayImage = GrayImage::from_fn(detect_gray.width(), detect_gray.height(), |x, y| {
-        if detect_gray.get_pixel(x, y)[0] < threshold {
-            Luma([0u8]) // text (dark)
-        } else {
-            Luma([255u8]) // background (light)
-        }
-    });
+    let binary: GrayImage =
+        GrayImage::from_fn(detect_gray.width(), detect_gray.height(), |x, y| {
+            if detect_gray.get_pixel(x, y)[0] < threshold {
+                Luma([0u8]) // text (dark)
+            } else {
+                Luma([255u8]) // background (light)
+            }
+        });
 
     // Test candidate angles and find the one that maximizes projection profile variance
     let step = 0.5f32;
@@ -185,7 +190,10 @@ fn deskew(image: &DynamicImage, max_angle: f32) -> DynamicImage {
 
     // Skip rotation if angle is negligible
     if best_angle.abs() < 0.3 {
-        tracing::debug!(detected_angle = best_angle, "Skew angle negligible, skipping deskew");
+        tracing::debug!(
+            detected_angle = best_angle,
+            "Skew angle negligible, skipping deskew"
+        );
         return image.clone();
     }
 

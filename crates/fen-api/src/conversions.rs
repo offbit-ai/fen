@@ -7,7 +7,7 @@ use fen_storage::{AnomalyRecord, AnomalyStore};
 /// using context from the associated invoice.
 pub fn anomaly_to_record(anomaly: &Anomaly, invoice: &Invoice) -> AnomalyRecord {
     let mut record = AnomalyRecord::new(
-        anomaly.document_id.clone(),
+        anomaly.document_id,
         &invoice.vendor.name,
         anomaly.anomaly_type.clone(),
         anomaly.severity,

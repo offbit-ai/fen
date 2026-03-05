@@ -166,7 +166,9 @@ pub fn contract_type_to_string(ct: &fen_core::domain::ContractType) -> String {
     match ct {
         fen_core::domain::ContractType::ServiceAgreement => "service_agreement".to_string(),
         fen_core::domain::ContractType::PurchaseOrder => "purchase_order".to_string(),
-        fen_core::domain::ContractType::MasterServiceAgreement => "master_service_agreement".to_string(),
+        fen_core::domain::ContractType::MasterServiceAgreement => {
+            "master_service_agreement".to_string()
+        }
         fen_core::domain::ContractType::StatementOfWork => "statement_of_work".to_string(),
         fen_core::domain::ContractType::Amendment => "amendment".to_string(),
         fen_core::domain::ContractType::Other => "other".to_string(),
@@ -261,7 +263,8 @@ pub async fn ingest_document(
                         &state.anomaly_store,
                         &validation_result.anomalies,
                         &invoice,
-                    ).await;
+                    )
+                    .await;
                 }
             }
             Err(e) => {
@@ -319,7 +322,10 @@ pub async fn ingest_contract(
 
     tracing::info!(filename = %filename, size = data.len(), "Processing uploaded contract");
 
-    let result = state.ingestion.ingest_contract_pdf(&data, &filename).await?;
+    let result = state
+        .ingestion
+        .ingest_contract_pdf(&data, &filename)
+        .await?;
     let contract = result.contract;
     let embedding = result.embedding;
 

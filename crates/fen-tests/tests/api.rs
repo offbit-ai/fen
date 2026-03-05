@@ -20,16 +20,14 @@ use fen_storage::{AnomalyStore, RedbStorage};
 /// Build a minimal `AppState` suitable for testing (no ML, no graph, no DB).
 async fn test_state(require_auth: bool) -> (Arc<AppState>, AppConfig) {
     let storage = Arc::new(RedbStorage::in_memory().expect("redb in-memory"));
-    let anomaly_store =
-        Arc::new(AnomalyStore::new(storage.db().clone()).expect("anomaly store"));
+    let anomaly_store = Arc::new(AnomalyStore::new(storage.db().clone()).expect("anomaly store"));
     let rule_engine = Arc::new(
         RuleEngine::new(None::<&std::path::Path>)
             .await
             .expect("rule engine"),
     );
-    let ingestion = Arc::new(
-        fen_ingestion::IngestionPipeline::new(storage.clone()).expect("ingestion"),
-    );
+    let ingestion =
+        Arc::new(fen_ingestion::IngestionPipeline::new(storage.clone()).expect("ingestion"));
     let event_bus = Arc::new(LocalEventBus::new());
 
     let config = AppConfig {

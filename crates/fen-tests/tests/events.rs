@@ -14,10 +14,7 @@ async fn domain_event_json_round_trip() {
     let bus = Arc::new(LocalEventBus::new());
     let consumer = LocalEventConsumer::new(bus.clone());
 
-    consumer
-        .subscribe(&["document.processed"])
-        .await
-        .unwrap();
+    consumer.subscribe(&["document.processed"]).await.unwrap();
 
     // Simulate a domain event payload
     let payload = serde_json::json!({
@@ -73,9 +70,7 @@ async fn multiple_subscribers_receive_independently() {
     consumer_a.subscribe(&["shared.topic"]).await.unwrap();
     consumer_b.subscribe(&["shared.topic"]).await.unwrap();
 
-    bus.publish("shared.topic", b"key", b"msg1")
-        .await
-        .unwrap();
+    bus.publish("shared.topic", b"key", b"msg1").await.unwrap();
 
     let events_a = consumer_a.poll(200).await.unwrap();
     let events_b = consumer_b.poll(200).await.unwrap();
@@ -122,18 +117,14 @@ async fn unsubscribe_stops_receiving() {
 
     consumer.subscribe(&["unsub.topic"]).await.unwrap();
 
-    bus.publish("unsub.topic", b"k1", b"before")
-        .await
-        .unwrap();
+    bus.publish("unsub.topic", b"k1", b"before").await.unwrap();
 
     let events = consumer.poll(100).await.unwrap();
     assert_eq!(events.len(), 1);
 
     consumer.unsubscribe().await.unwrap();
 
-    bus.publish("unsub.topic", b"k2", b"after")
-        .await
-        .unwrap();
+    bus.publish("unsub.topic", b"k2", b"after").await.unwrap();
 
     let events = consumer.poll(100).await.unwrap();
     assert_eq!(events.len(), 0, "Should not receive after unsubscribe");

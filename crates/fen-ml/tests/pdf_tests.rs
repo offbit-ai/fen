@@ -61,7 +61,10 @@ async fn test_pdf_ocr_on_rendered_invoice() {
 
     let result = ocr_engine.process_image(&image).await.unwrap();
 
-    assert!(!result.text.is_empty(), "OCR should extract text from rendered PDF");
+    assert!(
+        !result.text.is_empty(),
+        "OCR should extract text from rendered PDF"
+    );
     assert!(
         !result.regions.is_empty(),
         "OCR should detect regions in rendered PDF"
@@ -160,10 +163,9 @@ async fn test_pdf_varied_invoices() {
     );
 
     // Different PDFs should produce different embeddings
-    let sim = pipeline.embedding.cosine_similarity(
-        &embeddings[0].1,
-        &embeddings[1].1,
-    );
+    let sim = pipeline
+        .embedding
+        .cosine_similarity(&embeddings[0].1, &embeddings[1].1);
     assert!(
         sim < 0.99,
         "Different PDFs ({} vs {}) should have < 0.99 cosine similarity, got {}",

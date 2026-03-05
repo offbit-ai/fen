@@ -225,7 +225,7 @@ fn anomaly_to_event(anomaly: &Anomaly, invoice: &Invoice) -> AnomalyDetectedEven
 /// Convert domain Anomaly to AnomalyRecord for persistence.
 fn anomaly_to_record(anomaly: &Anomaly, invoice: &Invoice) -> AnomalyRecord {
     let mut record = AnomalyRecord::new(
-        anomaly.document_id.clone(),
+        anomaly.document_id,
         &invoice.vendor.name,
         anomaly.anomaly_type.clone(),
         anomaly.severity,
@@ -252,11 +252,7 @@ fn anomaly_to_record(anomaly: &Anomaly, invoice: &Invoice) -> AnomalyRecord {
 }
 
 /// Persist anomalies to the anomaly store. Non-fatal — logs warnings on individual failures.
-async fn persist_anomalies(
-    anomaly_store: &AnomalyStore,
-    anomalies: &[Anomaly],
-    invoice: &Invoice,
-) {
+async fn persist_anomalies(anomaly_store: &AnomalyStore, anomalies: &[Anomaly], invoice: &Invoice) {
     for anomaly in anomalies {
         let record = anomaly_to_record(anomaly, invoice);
         if let Err(e) = anomaly_store.store_anomaly(&record).await {
@@ -272,20 +268,11 @@ async fn persist_anomalies(
 
 /// Map domain anomaly severities to notification severity.
 fn map_anomaly_severity(anomalies: &[Anomaly]) -> fen_notify::Severity {
-    if anomalies
-        .iter()
-        .any(|a| a.severity == Severity::Critical)
-    {
+    if anomalies.iter().any(|a| a.severity == Severity::Critical) {
         fen_notify::Severity::Critical
-    } else if anomalies
-        .iter()
-        .any(|a| a.severity == Severity::High)
-    {
+    } else if anomalies.iter().any(|a| a.severity == Severity::High) {
         fen_notify::Severity::Error
-    } else if anomalies
-        .iter()
-        .any(|a| a.severity == Severity::Medium)
-    {
+    } else if anomalies.iter().any(|a| a.severity == Severity::Medium) {
         fen_notify::Severity::Warning
     } else {
         fen_notify::Severity::Info
@@ -297,10 +284,7 @@ async fn validate_invoice(
     invoice: &Invoice,
     engine: &RuleEngine,
     state: &WorkerState,
-) -> Result<
-    (Vec<AnomalyDetectedEvent>, bool, u64),
-    Box<dyn std::error::Error + Send + Sync>,
-> {
+) -> Result<(Vec<AnomalyDetectedEvent>, bool, u64), Box<dyn std::error::Error + Send + Sync>> {
     let start = Instant::now();
 
     // Get baselines for statistical analysis
@@ -462,7 +446,8 @@ async fn run_worker(
                             let high_severity_count = anomaly_events
                                 .iter()
                                 .filter(|a| a.severity == "High" || a.severity == "Critical")
-                                .count() as u32;
+                                .count()
+                                as u32;
 
                             let completion = ValidationCompletedEvent {
                                 document_id: invoice.document_id.to_string(),

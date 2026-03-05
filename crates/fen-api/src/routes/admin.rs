@@ -173,7 +173,10 @@ pub async fn suspend_tenant(
         .map_err(|_| ApiError::BadRequest("Invalid tenant ID".to_string()))?;
 
     // TODO: Update tenant status
-    Ok((StatusCode::OK, Json(serde_json::json!({"message": "Tenant suspended"}))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"message": "Tenant suspended"})),
+    ))
 }
 
 /// POST /admin/tenants/:tenant_id/activate - Activate a tenant (SystemAdmin only).
@@ -190,7 +193,10 @@ pub async fn activate_tenant(
         .map_err(|_| ApiError::BadRequest("Invalid tenant ID".to_string()))?;
 
     // TODO: Update tenant status
-    Ok((StatusCode::OK, Json(serde_json::json!({"message": "Tenant activated"}))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"message": "Tenant activated"})),
+    ))
 }
 
 // ============================================================================
@@ -237,11 +243,8 @@ pub async fn create_user(
     }
 
     // Parse roles from request
-    let roles: std::collections::HashSet<Role> = request
-        .roles
-        .iter()
-        .map(|r| parse_role(r))
-        .collect();
+    let roles: std::collections::HashSet<Role> =
+        request.roles.iter().map(|r| parse_role(r)).collect();
 
     // SystemAdmin can create users in any tenant
     // TenantAdmin can only create users in their own tenant
@@ -253,8 +256,7 @@ pub async fn create_user(
         auth.tenant_id.clone()
     };
 
-    let user = User::new_local(tenant_id, &request.email, &request.display_name)
-        .with_roles(roles);
+    let user = User::new_local(tenant_id, &request.email, &request.display_name).with_roles(roles);
 
     // TODO: Persist user to storage
 
@@ -347,11 +349,8 @@ pub async fn assign_roles(
         .map_err(|_| ApiError::BadRequest("Invalid user ID".to_string()))?;
 
     // Parse new roles
-    let _roles: std::collections::HashSet<Role> = request
-        .roles
-        .iter()
-        .map(|r| parse_role(r))
-        .collect();
+    let _roles: std::collections::HashSet<Role> =
+        request.roles.iter().map(|r| parse_role(r)).collect();
 
     // TODO: Load user, update roles, persist
     Err(ApiError::NotFound("User not found".to_string()))
@@ -371,7 +370,10 @@ pub async fn suspend_user(
         .map_err(|_| ApiError::BadRequest("Invalid user ID".to_string()))?;
 
     // TODO: Load user, suspend, persist
-    Ok((StatusCode::OK, Json(serde_json::json!({"message": "User suspended"}))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"message": "User suspended"})),
+    ))
 }
 
 /// POST /admin/users/:user_id/activate - Activate a user.
@@ -388,7 +390,10 @@ pub async fn activate_user(
         .map_err(|_| ApiError::BadRequest("Invalid user ID".to_string()))?;
 
     // TODO: Load user, activate, persist
-    Ok((StatusCode::OK, Json(serde_json::json!({"message": "User activated"}))))
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"message": "User activated"})),
+    ))
 }
 
 // ============================================================================

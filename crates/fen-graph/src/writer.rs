@@ -18,7 +18,9 @@ pub fn resolve_vendor(
         "MATCH (v:Vendor) WHERE v.name = '{}' RETURN v.id",
         escape_cypher(name)
     );
-    let result = conn.query(&cypher).map_err(|e| GraphError::Query(e.to_string()))?;
+    let result = conn
+        .query(&cypher)
+        .map_err(|e| GraphError::Query(e.to_string()))?;
 
     for row in result.iter_rows() {
         if let Some(TypedValue::String(id)) = row.first() {
@@ -35,7 +37,8 @@ pub fn resolve_vendor(
         escape_cypher(name),
         escape_cypher(tax_id_val),
     );
-    conn.query(&cypher).map_err(|e| GraphError::Write(e.to_string()))?;
+    conn.query(&cypher)
+        .map_err(|e| GraphError::Write(e.to_string()))?;
 
     tracing::debug!(vendor_id = %id, name = %name, "Created vendor node");
     Ok(id)
@@ -53,7 +56,9 @@ fn resolve_party(
         "MATCH (p:Party) WHERE p.name = '{}' RETURN p.id",
         escape_cypher(name)
     );
-    let result = conn.query(&cypher).map_err(|e| GraphError::Query(e.to_string()))?;
+    let result = conn
+        .query(&cypher)
+        .map_err(|e| GraphError::Query(e.to_string()))?;
 
     for row in result.iter_rows() {
         if let Some(TypedValue::String(id)) = row.first() {
@@ -71,7 +76,8 @@ fn resolve_party(
         escape_cypher(tax_id_val),
         escape_cypher(role),
     );
-    conn.query(&cypher).map_err(|e| GraphError::Write(e.to_string()))?;
+    conn.query(&cypher)
+        .map_err(|e| GraphError::Write(e.to_string()))?;
 
     tracing::debug!(party_id = %id, name = %name, role = %role, "Created party node");
     Ok(id)
@@ -96,8 +102,8 @@ pub fn write_invoice(conn: &Connection, invoice: &Invoice) -> Result<(), GraphEr
         .map(|d| d.format("%Y-%m-%d").to_string())
         .unwrap_or_default();
 
-    let total_amount: f64 = rust_decimal::prelude::ToPrimitive::to_f64(&invoice.total_amount)
-        .unwrap_or(0.0);
+    let total_amount: f64 =
+        rust_decimal::prelude::ToPrimitive::to_f64(&invoice.total_amount).unwrap_or(0.0);
     let currency = invoice.currency.to_string();
     let confidence = invoice.confidence_score as f64;
 
@@ -119,20 +125,22 @@ pub fn write_invoice(conn: &Connection, invoice: &Invoice) -> Result<(), GraphEr
         tenant = escape_cypher(&tenant_id),
         inv_num = escape_cypher(&invoice.invoice_number),
         inv_date = invoice_date,
-        due = if due_date.is_empty() { &invoice_date } else { &due_date },
+        due = if due_date.is_empty() {
+            &invoice_date
+        } else {
+            &due_date
+        },
         total = total_amount,
         currency = escape_cypher(&currency),
         confidence = confidence,
     );
-    conn.query(&cypher).map_err(|e| GraphError::Write(format!("Create invoice node: {e}")))?;
+    conn.query(&cypher)
+        .map_err(|e| GraphError::Write(format!("Create invoice node: {e}")))?;
 
     // 2. Resolve vendor + SUPPLIES edge
     if !invoice.vendor.is_unknown() {
-        let vendor_id = resolve_vendor(
-            conn,
-            &invoice.vendor.name,
-            invoice.vendor.tax_id.as_deref(),
-        )?;
+        let vendor_id =
+            resolve_vendor(conn, &invoice.vendor.name, invoice.vendor.tax_id.as_deref())?;
 
         let cypher = format!(
             "MATCH (v:Vendor) WHERE v.id = '{vid}' \
@@ -248,12 +256,7 @@ pub fn write_contract(conn: &Connection, contract: &Contract) -> Result<(), Grap
             continue;
         }
 
-        let party_id = resolve_party(
-            conn,
-            &party.name,
-            party.tax_id.as_deref(),
-            "contract_party",
-        )?;
+        let party_id = resolve_party(conn, &party.name, party.tax_id.as_deref(), "contract_party")?;
 
         let cypher = format!(
             "MATCH (p:Party) WHERE p.id = '{pid}' \

@@ -46,9 +46,7 @@ impl GlinerModel {
             return Err(MlError::ModelNotFound(model_path.display().to_string()));
         }
         if !tokenizer_path.exists() {
-            return Err(MlError::ModelNotFound(
-                tokenizer_path.display().to_string(),
-            ));
+            return Err(MlError::ModelNotFound(tokenizer_path.display().to_string()));
         }
 
         let session = Session::builder()?.commit_from_file(model_path)?;
@@ -146,43 +144,38 @@ impl GlinerModel {
             .as_ref()
             .ok_or_else(|| MlError::ModelLoading("GLiNER model not loaded".to_string()))?
             .lock()
-            .map_err(|e| {
-                MlError::ModelLoading(format!("Failed to acquire session lock: {}", e))
-            })?;
+            .map_err(|e| MlError::ModelLoading(format!("Failed to acquire session lock: {}", e)))?;
 
         let seq_len = self.config.max_seq_length;
         let num_spans = input.span_idx.len();
         let batch = 1;
 
         // Build tensors
-        let input_ids =
-            Array2::from_shape_vec((batch, seq_len), input.input_ids.clone())
-                .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let input_ids = Array2::from_shape_vec((batch, seq_len), input.input_ids.clone())
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let attention_mask =
-            Array2::from_shape_vec((batch, seq_len), input.attention_mask.clone())
-                .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let attention_mask = Array2::from_shape_vec((batch, seq_len), input.attention_mask.clone())
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let token_type_ids =
-            Array2::from_shape_vec((batch, seq_len), input.token_type_ids.clone())
-                .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let token_type_ids = Array2::from_shape_vec((batch, seq_len), input.token_type_ids.clone())
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let words_mask =
-            Array2::from_shape_vec((batch, seq_len), input.words_mask.clone())
-                .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let words_mask = Array2::from_shape_vec((batch, seq_len), input.words_mask.clone())
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let text_lengths =
-            Array1::from_vec(input.text_lengths.clone());
+        let text_lengths = Array1::from_vec(input.text_lengths.clone());
 
         // span_idx: [batch, num_spans, 2]
-        let span_flat: Vec<i64> = input.span_idx.iter().flat_map(|s| s.iter().copied()).collect();
-        let span_idx =
-            Array3::from_shape_vec((batch, num_spans, 2), span_flat)
-                .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let span_flat: Vec<i64> = input
+            .span_idx
+            .iter()
+            .flat_map(|s| s.iter().copied())
+            .collect();
+        let span_idx = Array3::from_shape_vec((batch, num_spans, 2), span_flat)
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let span_mask =
-            Array2::from_shape_vec((batch, num_spans), input.span_mask.clone())
-                .map_err(|e| MlError::Preprocessing(e.to_string()))?;
+        let span_mask = Array2::from_shape_vec((batch, num_spans), input.span_mask.clone())
+            .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
         // Build tensor refs
         let input_ids_t = TensorRef::from_array_view(&input_ids)

@@ -12,7 +12,10 @@ fn test_ocr_model_loading() {
     common::init_test_tracing();
     let models = common::require_models();
     let engine = common::build_ocr_engine(&models);
-    assert!(engine.has_models(), "OCR engine should report models loaded");
+    assert!(
+        engine.has_models(),
+        "OCR engine should report models loaded"
+    );
 }
 
 #[tokio::test]
@@ -25,13 +28,23 @@ async fn test_ocr_invoice_produces_text() {
 
     let result = engine.process_image(&image).await.unwrap();
 
-    assert!(!result.text.is_empty(), "OCR should extract text from invoice");
+    assert!(
+        !result.text.is_empty(),
+        "OCR should extract text from invoice"
+    );
     assert!(!result.regions.is_empty(), "OCR should detect text regions");
-    assert!(result.processing_time_ms > 0, "Processing time should be recorded");
+    assert!(
+        result.processing_time_ms > 0,
+        "Processing time should be recorded"
+    );
     common::assert_valid_confidence(result.confidence, "OCR overall");
 
     for (i, region) in result.regions.iter().enumerate() {
-        assert!(!region.text.is_empty(), "Region {} text should not be empty", i);
+        assert!(
+            !region.text.is_empty(),
+            "Region {} text should not be empty",
+            i
+        );
         common::assert_valid_confidence(region.confidence, &format!("Region {}", i));
         common::assert_valid_bbox(&region.bbox, &format!("Region {} bbox", i));
     }

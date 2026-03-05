@@ -2,7 +2,7 @@ use std::env;
 use std::path::PathBuf;
 
 /// Configuration for ML document intelligence pipeline
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct MlConfig {
     /// Enable ML-based document intelligence
     pub enabled: bool,
@@ -10,16 +10,6 @@ pub struct MlConfig {
     pub models_dir: Option<PathBuf>,
     /// Enable GPU acceleration for ONNX inference
     pub gpu_enabled: bool,
-}
-
-impl Default for MlConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            models_dir: None,
-            gpu_enabled: false,
-        }
-    }
 }
 
 impl MlConfig {

@@ -143,9 +143,10 @@ pub async fn send_notification(
     State(state): State<Arc<AppState>>,
     Json(request): Json<SendNotificationRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let hub = state.notification_hub.as_ref().ok_or_else(|| {
-        ApiError::Internal("Notification hub not configured".to_string())
-    })?;
+    let hub = state
+        .notification_hub
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Notification hub not configured".to_string()))?;
 
     // Parse tenant ID
     let tenant_id = TenantId::from_string(&request.tenant_id)
@@ -162,10 +163,7 @@ pub async fn send_notification(
     };
 
     // Parse severity
-    let severity = request
-        .severity
-        .parse()
-        .unwrap_or(Severity::Info);
+    let severity = request.severity.parse().unwrap_or(Severity::Info);
 
     // Create payload
     let mut payload = NotificationPayload::new(
@@ -184,9 +182,9 @@ pub async fn send_notification(
     let notification_id = payload.id.clone();
 
     // Broadcast notification
-    hub.broadcast(payload).await.map_err(|e| {
-        ApiError::Internal(format!("Failed to send notification: {}", e))
-    })?;
+    hub.broadcast(payload)
+        .await
+        .map_err(|e| ApiError::Internal(format!("Failed to send notification: {}", e)))?;
 
     Ok((
         StatusCode::OK,
@@ -203,9 +201,10 @@ pub async fn get_preferences(
     State(state): State<Arc<AppState>>,
     Path(tenant_id): Path<String>,
 ) -> Result<Json<TenantPreferences>, ApiError> {
-    let hub = state.notification_hub.as_ref().ok_or_else(|| {
-        ApiError::Internal("Notification hub not configured".to_string())
-    })?;
+    let hub = state
+        .notification_hub
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Notification hub not configured".to_string()))?;
 
     let tenant = TenantId::from_string(&tenant_id)
         .map_err(|_| ApiError::BadRequest("Invalid tenant ID".to_string()))?;
@@ -221,9 +220,10 @@ pub async fn set_preferences(
     Path(tenant_id): Path<String>,
     Json(preferences): Json<TenantPreferences>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let hub = state.notification_hub.as_ref().ok_or_else(|| {
-        ApiError::Internal("Notification hub not configured".to_string())
-    })?;
+    let hub = state
+        .notification_hub
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Notification hub not configured".to_string()))?;
 
     let tenant = TenantId::from_string(&tenant_id)
         .map_err(|_| ApiError::BadRequest("Invalid tenant ID".to_string()))?;

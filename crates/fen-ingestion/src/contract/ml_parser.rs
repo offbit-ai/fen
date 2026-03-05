@@ -113,7 +113,10 @@ impl MlContractParser {
         // Look for title in key-value pairs
         for kv in &layout.key_value_pairs {
             let key_lower = kv.key.to_lowercase();
-            if key_lower == "title" || key_lower == "agreement title" || key_lower == "contract title" {
+            if key_lower == "title"
+                || key_lower == "agreement title"
+                || key_lower == "contract title"
+            {
                 return kv.value.clone();
             }
         }
@@ -537,9 +540,8 @@ impl MlContractParser {
 
         // Entity extraction confidence
         if !layout.entities.is_empty() {
-            let avg_entity_conf: f32 =
-                layout.entities.iter().map(|e| e.confidence).sum::<f32>()
-                    / layout.entities.len() as f32;
+            let avg_entity_conf: f32 = layout.entities.iter().map(|e| e.confidence).sum::<f32>()
+                / layout.entities.len() as f32;
             score += avg_entity_conf;
             factors += 1;
         }
@@ -595,17 +597,29 @@ fn detect_clause_type(header: &str) -> Option<ClauseType> {
         Some(ClauseType::PaymentTerms)
     } else if lower.contains("termination") || lower.contains("cancellation") {
         Some(ClauseType::Termination)
-    } else if lower.contains("confidential") || lower.contains("non-disclosure") || lower.contains("nda") {
+    } else if lower.contains("confidential")
+        || lower.contains("non-disclosure")
+        || lower.contains("nda")
+    {
         Some(ClauseType::Confidentiality)
     } else if lower.contains("liability") || lower.contains("indemnif") {
         Some(ClauseType::Liability)
-    } else if lower.contains("intellectual property") || lower.contains("ip rights") || lower.contains("ownership") {
+    } else if lower.contains("intellectual property")
+        || lower.contains("ip rights")
+        || lower.contains("ownership")
+    {
         Some(ClauseType::IntellectualProperty)
-    } else if lower.contains("dispute") || lower.contains("arbitration") || lower.contains("mediation") {
+    } else if lower.contains("dispute")
+        || lower.contains("arbitration")
+        || lower.contains("mediation")
+    {
         Some(ClauseType::DisputeResolution)
     } else if lower.contains("force majeure") {
         Some(ClauseType::ForceMajeure)
-    } else if lower.contains("governing law") || lower.contains("jurisdiction") || lower.contains("applicable law") {
+    } else if lower.contains("governing law")
+        || lower.contains("jurisdiction")
+        || lower.contains("applicable law")
+    {
         Some(ClauseType::GoverningLaw)
     } else {
         None
@@ -615,13 +629,7 @@ fn detect_clause_type(header: &str) -> Option<ClauseType> {
 /// Parse various date formats
 fn parse_date(s: &str) -> Option<NaiveDate> {
     let formats = [
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%m-%d-%Y",
-        "%m-%d-%y",
-        "%Y-%m-%d",
+        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y", "%m-%d-%Y", "%m-%d-%y", "%Y-%m-%d",
         "%Y/%m/%d",
     ];
 

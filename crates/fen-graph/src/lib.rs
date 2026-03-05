@@ -53,7 +53,11 @@ pub trait GraphStore: Send + Sync {
 
     /// Execute an RDF inspection procedure and return results as string vectors.
     /// Supports: "stats", "prefixes", "types"
-    async fn rdf_inspect(&self, procedure: &str, path: &str) -> Result<Vec<Vec<String>>, GraphError>;
+    async fn rdf_inspect(
+        &self,
+        procedure: &str,
+        path: &str,
+    ) -> Result<Vec<Vec<String>>, GraphError>;
 
     /// Query nodes imported from RDF by their inferred table name.
     async fn rdf_nodes(&self, table_name: &str) -> Result<Vec<Vec<String>>, GraphError>;
@@ -99,13 +103,13 @@ mod tests {
         contract.total_value = Some(dec!(100000.00));
         contract.currency = Some(Currency::USD);
         contract.confidence_score = 0.92;
-        contract.parties = vec![
-            Party::new("Acme Corp"),
-            Party::new("Widget Inc"),
-        ];
+        contract.parties = vec![Party::new("Acme Corp"), Party::new("Widget Inc")];
         contract.clauses = vec![
             ContractClause::new(ClauseType::PaymentTerms, "Net 30 payment terms"),
-            ContractClause::new(ClauseType::Termination, "Either party may terminate with 30 days notice"),
+            ContractClause::new(
+                ClauseType::Termination,
+                "Either party may terminate with 30 days notice",
+            ),
         ];
         contract
     }
@@ -354,9 +358,7 @@ ex:bob   schema:affiliation ex:acme .
 
         // Verify affiliation relationships
         let affiliations = store
-            .query_cypher(
-                "MATCH (p:Person)-[:affiliation]->(o:Organization) RETURN p.name, o.name",
-            )
+            .query_cypher("MATCH (p:Person)-[:affiliation]->(o:Organization) RETURN p.name, o.name")
             .await
             .unwrap();
         assert_eq!(affiliations.len(), 2);

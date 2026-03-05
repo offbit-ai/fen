@@ -515,7 +515,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Wrapper to implement ShardServiceHandler for Arc<DataNodeHandler>
+/// Wrapper to implement ShardServiceHandler for `Arc<DataNodeHandler>`
 struct DataNodeHandlerWrapper(Arc<DataNodeHandler>);
 
 #[async_trait]

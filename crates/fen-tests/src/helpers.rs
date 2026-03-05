@@ -19,14 +19,14 @@ struct SharedWarm {
     _temp_dir: TempDir,
 }
 
-static SHARED_WARM_STORAGE: tokio::sync::OnceCell<SharedWarm> =
-    tokio::sync::OnceCell::const_new();
+static SHARED_WARM_STORAGE: tokio::sync::OnceCell<SharedWarm> = tokio::sync::OnceCell::const_new();
 
 /// Get or initialize the shared LanceDB warm storage (async, initialized once).
 async fn shared_warm_storage() -> Arc<tokio::sync::RwLock<fen_storage::LanceStorage>> {
     SHARED_WARM_STORAGE
         .get_or_init(|| async {
-            let temp_dir = TempDir::new().expect("Failed to create temp dir for shared warm storage");
+            let temp_dir =
+                TempDir::new().expect("Failed to create temp dir for shared warm storage");
             let warm_path = temp_dir.path().join("shared_warm");
             let storage = fen_storage::LanceStorage::new(&warm_path)
                 .await
@@ -173,11 +173,8 @@ impl QueryTestEnv {
         let hot_storage = Arc::new(RedbStorage::in_memory().expect("Failed to create hot storage"));
 
         let warm = shared_warm_storage().await;
-        let query_engine = QueryEngine::with_shared_warm(
-            hot_storage.clone(),
-            warm,
-            QueryEngineConfig::default(),
-        );
+        let query_engine =
+            QueryEngine::with_shared_warm(hot_storage.clone(), warm, QueryEngineConfig::default());
 
         Self {
             query_engine,
@@ -417,7 +414,10 @@ impl IntegrationTestEnv {
             .index_invoice(&invoice)
             .await
             .expect("Fulltext index failed");
-        self.fulltext_index.commit().await.expect("Fulltext commit failed");
+        self.fulltext_index
+            .commit()
+            .await
+            .expect("Fulltext commit failed");
 
         // 2. Warm-tier with deterministic embedding
         let embedding = crate::consistent_embedding(&invoice.invoice_number, 384);
@@ -432,7 +432,7 @@ impl IntegrationTestEnv {
         if let Ok(validation_result) = self.rule_engine.validate_invoice(&invoice).await {
             for anomaly in &validation_result.anomalies {
                 let record = fen_storage::AnomalyRecord::new(
-                    anomaly.document_id.clone(),
+                    anomaly.document_id,
                     &invoice.vendor.name,
                     anomaly.anomaly_type.clone(),
                     anomaly.severity,
@@ -474,7 +474,7 @@ impl IntegrationTestEnv {
         if let Ok(validation_result) = self.rule_engine.validate_invoice(invoice).await {
             for anomaly in &validation_result.anomalies {
                 let record = fen_storage::AnomalyRecord::new(
-                    anomaly.document_id.clone(),
+                    anomaly.document_id,
                     &invoice.vendor.name,
                     anomaly.anomaly_type.clone(),
                     anomaly.severity,
@@ -603,8 +603,7 @@ pub fn load_test_document(filename: &str) -> image::DynamicImage {
 pub fn load_test_pdf(filename: &str) -> Vec<u8> {
     let path = documents_dir().join(filename);
     assert!(path.exists(), "Test PDF not found: {}", path.display());
-    std::fs::read(&path)
-        .unwrap_or_else(|e| panic!("Failed to read PDF {}: {}", path.display(), e))
+    std::fs::read(&path).unwrap_or_else(|e| panic!("Failed to read PDF {}: {}", path.display(), e))
 }
 
 /// Create a small synthetic test image (white background with a black rectangle).

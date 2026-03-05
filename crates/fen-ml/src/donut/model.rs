@@ -143,9 +143,7 @@ impl DonutModel {
         task_prompt: Option<&str>,
     ) -> Result<DonutOutput, MlError> {
         if !self.has_model() {
-            return Err(MlError::ModelLoading(
-                "Donut model not loaded".to_string(),
-            ));
+            return Err(MlError::ModelLoading("Donut model not loaded".to_string()));
         }
 
         let tokenizer = self.tokenizer.as_ref().unwrap();
@@ -170,9 +168,7 @@ impl DonutModel {
             .collect();
 
         // Determine EOS token ID
-        let eos_token_id = tokenizer
-            .token_to_id("</s>")
-            .unwrap_or(2) as i64;
+        let eos_token_id = tokenizer.token_to_id("</s>").unwrap_or(2) as i64;
 
         // Step 4: Autoregressive decode
         let generated_ids = decoder::autoregressive_decode(
@@ -234,9 +230,9 @@ impl DonutModel {
         let pixel_t = TensorRef::from_array_view(pixel_values)
             .map_err(|e| MlError::Preprocessing(e.to_string()))?;
 
-        let mut session = encoder.lock().map_err(|e| {
-            MlError::ModelLoading(format!("Failed to acquire encoder lock: {}", e))
-        })?;
+        let mut session = encoder
+            .lock()
+            .map_err(|e| MlError::ModelLoading(format!("Failed to acquire encoder lock: {}", e)))?;
 
         let outputs = session.run(ort::inputs![
             "pixel_values" => pixel_t

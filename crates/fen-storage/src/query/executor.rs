@@ -252,12 +252,8 @@ impl QueryExecutor {
         }
 
         // Apply OFFSET and LIMIT with parallel projection
-        let results = super::morsel::morsel_project_invoices(
-            scored_rows,
-            &query.select,
-            offset,
-            limit,
-        );
+        let results =
+            super::morsel::morsel_project_invoices(scored_rows, &query.select, offset, limit);
 
         Ok(results)
     }
@@ -358,7 +354,11 @@ impl QueryExecutor {
         } else if column.eq_ignore_ascii_case("document_id") {
             ColumnValue::String(contract.document_id.0.to_string())
         } else if column.eq_ignore_ascii_case("contract_number") {
-            contract.contract_number.clone().map(ColumnValue::String).unwrap_or(ColumnValue::Null)
+            contract
+                .contract_number
+                .clone()
+                .map(ColumnValue::String)
+                .unwrap_or(ColumnValue::Null)
         } else if column.eq_ignore_ascii_case("title") {
             ColumnValue::String(contract.title.clone())
         } else if column.eq_ignore_ascii_case("contract_type") {
@@ -366,21 +366,40 @@ impl QueryExecutor {
         } else if column.eq_ignore_ascii_case("effective_date") {
             ColumnValue::Date(contract.effective_date)
         } else if column.eq_ignore_ascii_case("expiration_date") {
-            contract.expiration_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null)
+            contract
+                .expiration_date
+                .map(ColumnValue::Date)
+                .unwrap_or(ColumnValue::Null)
         } else if column.eq_ignore_ascii_case("execution_date") {
-            contract.execution_date.map(ColumnValue::Date).unwrap_or(ColumnValue::Null)
+            contract
+                .execution_date
+                .map(ColumnValue::Date)
+                .unwrap_or(ColumnValue::Null)
         } else if column.eq_ignore_ascii_case("total_value") {
-            contract.total_value.map(ColumnValue::Decimal).unwrap_or(ColumnValue::Null)
+            contract
+                .total_value
+                .map(ColumnValue::Decimal)
+                .unwrap_or(ColumnValue::Null)
         } else if column.eq_ignore_ascii_case("currency") {
-            contract.currency.as_ref().map(|c| ColumnValue::String(format!("{:?}", c))).unwrap_or(ColumnValue::Null)
+            contract
+                .currency
+                .as_ref()
+                .map(|c| ColumnValue::String(format!("{:?}", c)))
+                .unwrap_or(ColumnValue::Null)
         } else if column.eq_ignore_ascii_case("validation_status") {
             ColumnValue::String(format!("{:?}", contract.validation_status))
         } else if column.eq_ignore_ascii_case("confidence_score") {
             ColumnValue::Float(contract.confidence_score as f64)
         } else if column.eq_ignore_ascii_case("extracted_text") {
             ColumnValue::String(contract.extracted_text.clone())
-        } else if column.eq_ignore_ascii_case("party_name") || column.eq_ignore_ascii_case("vendor_name") {
-            contract.parties.first().map(|p| ColumnValue::String(p.name.clone())).unwrap_or(ColumnValue::Null)
+        } else if column.eq_ignore_ascii_case("party_name")
+            || column.eq_ignore_ascii_case("vendor_name")
+        {
+            contract
+                .parties
+                .first()
+                .map(|p| ColumnValue::String(p.name.clone()))
+                .unwrap_or(ColumnValue::Null)
         } else {
             ColumnValue::Null
         }
@@ -638,5 +657,4 @@ impl QueryExecutor {
                 StorageError::Query(format!("Text parameter '{}' not provided", param_name))
             })
     }
-
 }

@@ -12,7 +12,10 @@ fn test_table_model_loading() {
     common::init_test_tracing();
     let models = common::require_models();
     let extractor = common::build_table_extractor(&models);
-    assert!(extractor.has_models(), "Table extractor should report models loaded");
+    assert!(
+        extractor.has_models(),
+        "Table extractor should report models loaded"
+    );
 }
 
 #[tokio::test]

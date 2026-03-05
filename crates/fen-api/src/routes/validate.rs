@@ -93,7 +93,8 @@ pub async fn validate_documents(
                 &state.anomaly_store,
                 &validation_result.anomalies,
                 &invoice,
-            ).await;
+            )
+            .await;
         }
 
         results.push(DocumentValidation {

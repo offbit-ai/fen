@@ -13,7 +13,7 @@ pub struct WordInfo {
 /// Preprocessed input ready for GLiNER ONNX model
 #[derive(Debug, Clone)]
 pub struct GlinerInput {
-    /// Token IDs: [CLS] label1 [SEP] label2 [SEP] ... [SEP] word1 word2 ... [SEP]
+    /// Token IDs: \[CLS\] label1 \[SEP\] label2 \[SEP\] ... \[SEP\] word1 word2 ... \[SEP\]
     pub input_ids: Vec<i64>,
 
     /// Attention mask (1 for real tokens, 0 for padding)
@@ -256,10 +256,7 @@ mod tests {
     fn test_enumerate_spans() {
         // 3 words, max width 2
         let spans = enumerate_spans(3, 2);
-        assert_eq!(
-            spans,
-            vec![[0, 1], [0, 2], [1, 2], [1, 3], [2, 3]]
-        );
+        assert_eq!(spans, vec![[0, 1], [0, 2], [1, 2], [1, 3], [2, 3]]);
     }
 
     #[test]

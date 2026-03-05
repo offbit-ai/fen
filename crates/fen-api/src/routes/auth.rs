@@ -41,7 +41,11 @@ pub struct OidcConfig {
 }
 
 fn default_scopes() -> Vec<String> {
-    vec!["openid".to_string(), "profile".to_string(), "email".to_string()]
+    vec![
+        "openid".to_string(),
+        "profile".to_string(),
+        "email".to_string(),
+    ]
 }
 
 impl Default for OidcConfig {
@@ -140,9 +144,10 @@ pub async fn login(
     State(state): State<Arc<AppState>>,
     Query(params): Query<LoginParams>,
 ) -> impl IntoResponse {
-    let oidc = state.oidc_config.as_ref().ok_or_else(|| {
-        ApiError::Internal("OIDC not configured".to_string())
-    });
+    let oidc = state
+        .oidc_config
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("OIDC not configured".to_string()));
 
     match oidc {
         Ok(config) => {
@@ -176,9 +181,10 @@ pub async fn callback(
     State(state): State<Arc<AppState>>,
     Query(params): Query<CallbackParams>,
 ) -> Result<Json<TokenResponse>, ApiError> {
-    let oidc = state.oidc_config.as_ref().ok_or_else(|| {
-        ApiError::Internal("OIDC not configured".to_string())
-    })?;
+    let oidc = state
+        .oidc_config
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("OIDC not configured".to_string()))?;
 
     // Exchange authorization code for tokens with the OIDC provider
     let token_url = format!("{}/protocol/openid-connect/token", oidc.issuer_url);
@@ -209,7 +215,10 @@ pub async fn callback(
 
     if !response.status().is_success() {
         let error_text = response.text().await.unwrap_or_default();
-        return Err(ApiError::Internal(format!("Token exchange failed: {}", error_text)));
+        return Err(ApiError::Internal(format!(
+            "Token exchange failed: {}",
+            error_text
+        )));
     }
 
     let oidc_tokens: OidcTokenResponse = response
@@ -244,15 +253,16 @@ pub async fn token(
 ) -> Result<Json<TokenResponse>, ApiError> {
     match request.grant_type.as_str() {
         "refresh_token" => {
-            let refresh_token = request.refresh_token.ok_or_else(|| {
-                ApiError::BadRequest("refresh_token is required".to_string())
-            })?;
+            let refresh_token = request
+                .refresh_token
+                .ok_or_else(|| ApiError::BadRequest("refresh_token is required".to_string()))?;
 
             // For now, re-validate with OIDC provider
             // In production, you might want to cache user info
-            let oidc = state.oidc_config.as_ref().ok_or_else(|| {
-                ApiError::Internal("OIDC not configured".to_string())
-            })?;
+            let oidc = state
+                .oidc_config
+                .as_ref()
+                .ok_or_else(|| ApiError::Internal("OIDC not configured".to_string()))?;
 
             let token_url = format!("{}/protocol/openid-connect/token", oidc.issuer_url);
 
@@ -269,9 +279,9 @@ pub async fn token(
             }
 
             let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .map_err(|e| ApiError::Internal(format!("HTTP client error: {}", e)))?;
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .map_err(|e| ApiError::Internal(format!("HTTP client error: {}", e)))?;
             let response = client
                 .post(&token_url)
                 .form(&form_params)
@@ -283,10 +293,9 @@ pub async fn token(
                 return Err(ApiError::Unauthorized("Invalid refresh token".to_string()));
             }
 
-            let oidc_tokens: OidcTokenResponse = response
-                .json()
-                .await
-                .map_err(|e| ApiError::Internal(format!("Failed to parse token response: {}", e)))?;
+            let oidc_tokens: OidcTokenResponse = response.json().await.map_err(|e| {
+                ApiError::Internal(format!("Failed to parse token response: {}", e))
+            })?;
 
             let id_token_claims = decode_id_token(&oidc_tokens.id_token)
                 .map_err(|e| ApiError::Internal(format!("Failed to decode ID token: {}", e)))?;
@@ -323,25 +332,26 @@ pub struct TokenRequest {
 pub async fn userinfo(
     auth: Option<axum::Extension<AuthContext>>,
 ) -> Result<Json<UserInfoResponse>, ApiError> {
-    let auth = auth.ok_or_else(|| {
-        ApiError::Unauthorized("Authentication required".to_string())
-    })?;
+    let auth = auth.ok_or_else(|| ApiError::Unauthorized("Authentication required".to_string()))?;
 
     Ok(Json(UserInfoResponse {
         sub: auth.user_id.clone(),
         email: None, // Would be populated from user store
         name: None,
         tenant_id: auth.tenant_id.to_string(),
-        roles: auth.permissions.roles.iter().map(|r: &fen_core::domain::acl::Role| r.to_string()).collect(),
+        roles: auth
+            .permissions
+            .roles
+            .iter()
+            .map(|r: &fen_core::domain::acl::Role| r.to_string())
+            .collect(),
     }))
 }
 
 /// POST /auth/logout - Logout and invalidate tokens.
 ///
 /// For OIDC, this may redirect to the provider's end session endpoint.
-pub async fn logout(
-    State(state): State<Arc<AppState>>,
-) -> Result<impl IntoResponse, ApiError> {
+pub async fn logout(State(state): State<Arc<AppState>>) -> Result<impl IntoResponse, ApiError> {
     // For OIDC, redirect to the provider's end session endpoint
     if let Some(ref oidc) = state.oidc_config {
         let logout_url = format!(
@@ -353,13 +363,15 @@ pub async fn logout(
     }
 
     // For local auth, just return success
-    Ok((StatusCode::OK, Json(serde_json::json!({"message": "Logged out"}))).into_response())
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({"message": "Logged out"})),
+    )
+        .into_response())
 }
 
 /// GET /auth/providers - List available authentication providers.
-pub async fn list_providers(
-    State(state): State<Arc<AppState>>,
-) -> Json<ProvidersResponse> {
+pub async fn list_providers(State(state): State<Arc<AppState>>) -> Json<ProvidersResponse> {
     let mut providers = vec![];
 
     if state.oidc_config.is_some() {
@@ -433,13 +445,12 @@ fn decode_id_token(token: &str) -> Result<IdTokenClaims, String> {
         return Err("Invalid token format".to_string());
     }
 
-    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
     let payload = URL_SAFE_NO_PAD
         .decode(parts[1])
         .map_err(|e| format!("Base64 decode error: {}", e))?;
 
-    serde_json::from_slice(&payload)
-        .map_err(|e| format!("JSON decode error: {}", e))
+    serde_json::from_slice(&payload).map_err(|e| format!("JSON decode error: {}", e))
 }
 
 /// Generate an access token for the Fen API.

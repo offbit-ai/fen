@@ -184,16 +184,12 @@ impl AppState {
 
         // Initialize ingestion pipeline — wire ML and/or graph if available
         let ingestion = match (&document_intelligence, &graph_store) {
-            (Some(di), Some(graph)) => {
-                Arc::new(IngestionPipeline::with_ml_and_graph(
-                    storage.clone(),
-                    di.clone(),
-                    graph.clone(),
-                )?)
-            }
-            (Some(di), None) => {
-                Arc::new(IngestionPipeline::with_ml(storage.clone(), di.clone())?)
-            }
+            (Some(di), Some(graph)) => Arc::new(IngestionPipeline::with_ml_and_graph(
+                storage.clone(),
+                di.clone(),
+                graph.clone(),
+            )?),
+            (Some(di), None) => Arc::new(IngestionPipeline::with_ml(storage.clone(), di.clone())?),
             _ => Arc::new(IngestionPipeline::new(storage.clone())?),
         };
         tracing::info!(
@@ -252,23 +248,16 @@ impl AppState {
         let (query_executor, zip_executor) = match (&warm_storage, &fulltext_index) {
             (Some(warm), Some(fti)) => {
                 let config = ExecutorConfig::default();
-                let executor = QueryExecutor::new(
-                    storage.clone(),
-                    warm.clone(),
-                    fti.clone(),
-                    config.clone(),
-                );
-                let zip = ZipExecutor::new(
-                    storage.clone(),
-                    warm.clone(),
-                    fti.clone(),
-                    config,
-                );
+                let executor =
+                    QueryExecutor::new(storage.clone(), warm.clone(), fti.clone(), config.clone());
+                let zip = ZipExecutor::new(storage.clone(), warm.clone(), fti.clone(), config);
                 tracing::info!("Query executor and ZIP executor initialized");
                 (Some(Arc::new(executor)), Some(Arc::new(zip)))
             }
             _ => {
-                tracing::info!("Query/ZIP executors not available (requires warm storage + fulltext index)");
+                tracing::info!(
+                    "Query/ZIP executors not available (requires warm storage + fulltext index)"
+                );
                 (None, None)
             }
         };
@@ -301,18 +290,25 @@ impl AppState {
         };
 
         // Load OIDC configuration from environment (optional)
-        let oidc_config = std::env::var("OIDC_ISSUER_URL").ok().map(|issuer_url| {
-            OidcConfig {
+        let oidc_config = std::env::var("OIDC_ISSUER_URL")
+            .ok()
+            .map(|issuer_url| OidcConfig {
                 issuer_url,
-                client_id: std::env::var("OIDC_CLIENT_ID").unwrap_or_else(|_| "fen-api".to_string()),
+                client_id: std::env::var("OIDC_CLIENT_ID")
+                    .unwrap_or_else(|_| "fen-api".to_string()),
                 client_secret: std::env::var("OIDC_CLIENT_SECRET").ok(),
                 redirect_uri: std::env::var("OIDC_REDIRECT_URI")
                     .unwrap_or_else(|_| "http://localhost:3000/auth/callback".to_string()),
                 scopes: std::env::var("OIDC_SCOPES")
                     .map(|s| s.split(',').map(|s| s.trim().to_string()).collect())
-                    .unwrap_or_else(|_| vec!["openid".to_string(), "profile".to_string(), "email".to_string()]),
-            }
-        });
+                    .unwrap_or_else(|_| {
+                        vec![
+                            "openid".to_string(),
+                            "profile".to_string(),
+                            "email".to_string(),
+                        ]
+                    }),
+            });
 
         if oidc_config.is_some() {
             tracing::info!("OIDC authentication configured");

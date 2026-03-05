@@ -159,13 +159,15 @@ pub async fn semantic_search(
     let di = state.document_intelligence.as_ref().ok_or_else(|| {
         ApiError::Internal("Semantic search requires ML pipeline (ML_ENABLED=true)".to_string())
     })?;
-    let warm = state.warm_storage.as_ref().ok_or_else(|| {
-        ApiError::Internal("Semantic search requires warm storage".to_string())
-    })?;
+    let warm = state
+        .warm_storage
+        .as_ref()
+        .ok_or_else(|| ApiError::Internal("Semantic search requires warm storage".to_string()))?;
 
-    let query_embedding = di.embedding.embed(&params.q).map_err(|e| {
-        ApiError::Internal(format!("Failed to generate query embedding: {}", e))
-    })?;
+    let query_embedding = di
+        .embedding
+        .embed(&params.q)
+        .map_err(|e| ApiError::Internal(format!("Failed to generate query embedding: {}", e)))?;
 
     let warm_guard = warm.read().await;
     let results = warm_guard
@@ -371,9 +373,7 @@ pub async fn execute_zip_query(
 // ==================== Helpers ====================
 
 /// Parse a QueryRequest into (FenQuery, QueryParams).
-fn parse_request(
-    request: QueryRequest,
-) -> Result<(fen_storage::FenQuery, QueryParams), ApiError> {
+fn parse_request(request: QueryRequest) -> Result<(fen_storage::FenQuery, QueryParams), ApiError> {
     let (query, mut params) = if let Some(sql) = &request.sql {
         let q = parse_query(sql)
             .map_err(|e| ApiError::BadRequest(format!("Invalid query syntax: {}", e)))?;
@@ -571,11 +571,8 @@ fn column_value_to_json(v: ColumnValue) -> serde_json::Value {
     match v {
         ColumnValue::String(s) => serde_json::Value::String(s),
         ColumnValue::Integer(i) => serde_json::Value::Number(i.into()),
-        ColumnValue::Float(f) => {
-            serde_json::Number::from_f64(f).map_or(serde_json::Value::Null, |n| {
-                serde_json::Value::Number(n)
-            })
-        }
+        ColumnValue::Float(f) => serde_json::Number::from_f64(f)
+            .map_or(serde_json::Value::Null, serde_json::Value::Number),
         ColumnValue::Decimal(d) => serde_json::Value::String(d.to_string()),
         ColumnValue::Date(d) => serde_json::Value::String(d.to_string()),
         ColumnValue::Boolean(b) => serde_json::Value::Bool(b),

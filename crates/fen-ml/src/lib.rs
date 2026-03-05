@@ -18,7 +18,7 @@ pub use donut::{DonutModel, DonutModelConfig, DonutOutput};
 pub use embedding::{DocumentEmbeddings, EmbeddingModel, EmbeddingModelConfig};
 pub use error::MlError;
 pub use gliner::{
-    ExtractionConfidence, GlinerConfig, GlinerExtractor, GlinerExtractionResult, GlinerModelConfig,
+    ExtractionConfidence, GlinerConfig, GlinerExtractionResult, GlinerExtractor, GlinerModelConfig,
 };
 pub use layout::{
     LayoutLabel, LayoutModel, LayoutModelConfig, LayoutRegion, LayoutResult, NamedEntity,
@@ -33,9 +33,17 @@ use std::path::Path;
 /// Load a PaddleOCR character dictionary from a file.
 /// Format: one character per line. Index 0 = blank/CTC, 1..N = chars, N+1 = EOS.
 fn load_vocabulary_from_file(path: &Path) -> Result<Vec<char>, MlError> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| MlError::Configuration(format!("Failed to read vocabulary {}: {}", path.display(), e)))?;
-    Ok(content.lines().filter_map(|line| line.chars().next()).collect())
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        MlError::Configuration(format!(
+            "Failed to read vocabulary {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
+    Ok(content
+        .lines()
+        .filter_map(|line| line.chars().next())
+        .collect())
 }
 
 /// Configuration for the complete document intelligence pipeline
@@ -82,7 +90,11 @@ impl DocumentIntelligence {
         let ocr = if !config.ocr.language_model_paths.is_empty() {
             // Multi-language mode: load per-language recognition models
             let det_path = models_dir.join(
-                config.ocr.detection_model_path.as_deref().unwrap_or("ocr_detection.onnx"),
+                config
+                    .ocr
+                    .detection_model_path
+                    .as_deref()
+                    .unwrap_or("ocr_detection.onnx"),
             );
 
             let mut lang_models = Vec::new();
@@ -115,11 +127,7 @@ impl DocumentIntelligence {
                 }
             }
 
-            OcrEngine::with_models(
-                ocr_config,
-                models_dir.join(det),
-                models_dir.join(rec),
-            )?
+            OcrEngine::with_models(ocr_config, models_dir.join(det), models_dir.join(rec))?
         } else {
             OcrEngine::new(config.ocr)?
         };
@@ -174,10 +182,7 @@ impl DocumentIntelligence {
     }
 
     /// Process a document image using the Donut vision pipeline (no OCR needed).
-    pub fn process_with_donut(
-        &self,
-        image: &image::DynamicImage,
-    ) -> Result<DonutOutput, MlError> {
+    pub fn process_with_donut(&self, image: &image::DynamicImage) -> Result<DonutOutput, MlError> {
         self.donut.process(image, None)
     }
 

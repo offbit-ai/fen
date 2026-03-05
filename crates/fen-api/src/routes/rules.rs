@@ -197,15 +197,17 @@ pub async fn rule_status(
 pub async fn rule_config(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<RuleConfigResponse>, ApiError> {
-    let statistical = state.rule_engine.statistical_analyzer().map(|analyzer| {
-        StatisticalAnalyzerConfig {
-            enabled: analyzer.is_enabled(),
-            threshold: analyzer.threshold(),
-            min_samples: 5,
-            metrics: analyzer.metrics().to_vec(),
-            outlier_severity: fen_core::domain::Severity::Medium,
-        }
-    });
+    let statistical =
+        state
+            .rule_engine
+            .statistical_analyzer()
+            .map(|analyzer| StatisticalAnalyzerConfig {
+                enabled: analyzer.is_enabled(),
+                threshold: analyzer.threshold(),
+                min_samples: 5,
+                metrics: analyzer.metrics().to_vec(),
+                outlier_severity: fen_core::domain::Severity::Medium,
+            });
 
     Ok(Json(RuleConfigResponse {
         statistical,
@@ -239,10 +241,7 @@ fn builtin_to_response(rule: &BuiltinRule) -> RuleResponse {
 pub async fn list_rules(
     State(_state): State<Arc<AppState>>,
 ) -> Result<Json<RuleListResponse>, ApiError> {
-    let items: Vec<RuleResponse> = BUILTIN_RULES
-        .iter()
-        .map(builtin_to_response)
-        .collect();
+    let items: Vec<RuleResponse> = BUILTIN_RULES.iter().map(builtin_to_response).collect();
     let total = items.len();
 
     Ok(Json(RuleListResponse { items, total }))

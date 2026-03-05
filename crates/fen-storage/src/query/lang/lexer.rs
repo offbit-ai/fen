@@ -347,50 +347,95 @@ fn keyword_or_ident(input: Input) -> IResult<Input, Token> {
         let (input, _by) = tag_no_case("BY")(input)?;
         (input, TokenKind::OrderBy)
     } else {
-        let kind = if ident_str.eq_ignore_ascii_case("SELECT") { TokenKind::Select }
-            else if ident_str.eq_ignore_ascii_case("FROM") { TokenKind::From }
-            else if ident_str.eq_ignore_ascii_case("WHERE") { TokenKind::Where }
-            else if ident_str.eq_ignore_ascii_case("AND") { TokenKind::And }
-            else if ident_str.eq_ignore_ascii_case("OR") { TokenKind::Or }
-            else if ident_str.eq_ignore_ascii_case("NOT") { TokenKind::Not }
-            else if ident_str.eq_ignore_ascii_case("AS") { TokenKind::As }
-            else if ident_str.eq_ignore_ascii_case("ASC") { TokenKind::Asc }
-            else if ident_str.eq_ignore_ascii_case("DESC") { TokenKind::Desc }
-            else if ident_str.eq_ignore_ascii_case("LIMIT") { TokenKind::Limit }
-            else if ident_str.eq_ignore_ascii_case("OFFSET") { TokenKind::Offset }
-            else if ident_str.eq_ignore_ascii_case("NULLS") { TokenKind::Nulls }
-            else if ident_str.eq_ignore_ascii_case("FIRST") { TokenKind::First }
-            else if ident_str.eq_ignore_ascii_case("LAST") { TokenKind::Last }
-            else if ident_str.eq_ignore_ascii_case("LIKE") { TokenKind::Like }
-            else if ident_str.eq_ignore_ascii_case("ILIKE") { TokenKind::ILike }
-            else if ident_str.eq_ignore_ascii_case("IN") { TokenKind::In }
-            else if ident_str.eq_ignore_ascii_case("IS") { TokenKind::Is }
-            else if ident_str.eq_ignore_ascii_case("NULL") { TokenKind::Null }
-            else if ident_str.eq_ignore_ascii_case("TRUE") { TokenKind::True }
-            else if ident_str.eq_ignore_ascii_case("FALSE") { TokenKind::False }
-            else if ident_str.eq_ignore_ascii_case("BETWEEN") { TokenKind::Between }
-            // ZIP keywords
-            else if ident_str.eq_ignore_ascii_case("ZIP") { TokenKind::Zip }
-            else if ident_str.eq_ignore_ascii_case("ON") { TokenKind::On }
-            else if ident_str.eq_ignore_ascii_case("INNER") { TokenKind::Inner }
-            else if ident_str.eq_ignore_ascii_case("LEFT") { TokenKind::Left }
-            else if ident_str.eq_ignore_ascii_case("CROSS") { TokenKind::Cross }
-            // Pipeline keywords
-            else if ident_str.eq_ignore_ascii_case("VALIDATE") { TokenKind::Validate }
-            else if ident_str.eq_ignore_ascii_case("ANALYZE") { TokenKind::Analyze }
-            else if ident_str.eq_ignore_ascii_case("CROSS_VALIDATE") { TokenKind::CrossValidate }
-            else if ident_str.eq_ignore_ascii_case("AGGREGATE") { TokenKind::Aggregate }
-            else if ident_str.eq_ignore_ascii_case("GRAPH") { TokenKind::Graph }
-            else if ident_str.eq_ignore_ascii_case("TRAVERSE") { TokenKind::Traverse }
-            else if ident_str.eq_ignore_ascii_case("ENRICH") { TokenKind::Enrich }
-            else if ident_str.eq_ignore_ascii_case("WITH") { TokenKind::With }
-            // Statistical baseline keywords
-            else if ident_str.eq_ignore_ascii_case("BASELINE") { TokenKind::Baseline }
-            else if ident_str.eq_ignore_ascii_case("WINDOW") { TokenKind::Window }
-            else if ident_str.eq_ignore_ascii_case("DAYS") { TokenKind::Days }
-            else if ident_str.eq_ignore_ascii_case("THRESHOLD") { TokenKind::Threshold }
-            else if ident_str.eq_ignore_ascii_case("METRICS") { TokenKind::Metrics }
-            else { TokenKind::Ident(ident_str) };
+        let kind = if ident_str.eq_ignore_ascii_case("SELECT") {
+            TokenKind::Select
+        } else if ident_str.eq_ignore_ascii_case("FROM") {
+            TokenKind::From
+        } else if ident_str.eq_ignore_ascii_case("WHERE") {
+            TokenKind::Where
+        } else if ident_str.eq_ignore_ascii_case("AND") {
+            TokenKind::And
+        } else if ident_str.eq_ignore_ascii_case("OR") {
+            TokenKind::Or
+        } else if ident_str.eq_ignore_ascii_case("NOT") {
+            TokenKind::Not
+        } else if ident_str.eq_ignore_ascii_case("AS") {
+            TokenKind::As
+        } else if ident_str.eq_ignore_ascii_case("ASC") {
+            TokenKind::Asc
+        } else if ident_str.eq_ignore_ascii_case("DESC") {
+            TokenKind::Desc
+        } else if ident_str.eq_ignore_ascii_case("LIMIT") {
+            TokenKind::Limit
+        } else if ident_str.eq_ignore_ascii_case("OFFSET") {
+            TokenKind::Offset
+        } else if ident_str.eq_ignore_ascii_case("NULLS") {
+            TokenKind::Nulls
+        } else if ident_str.eq_ignore_ascii_case("FIRST") {
+            TokenKind::First
+        } else if ident_str.eq_ignore_ascii_case("LAST") {
+            TokenKind::Last
+        } else if ident_str.eq_ignore_ascii_case("LIKE") {
+            TokenKind::Like
+        } else if ident_str.eq_ignore_ascii_case("ILIKE") {
+            TokenKind::ILike
+        } else if ident_str.eq_ignore_ascii_case("IN") {
+            TokenKind::In
+        } else if ident_str.eq_ignore_ascii_case("IS") {
+            TokenKind::Is
+        } else if ident_str.eq_ignore_ascii_case("NULL") {
+            TokenKind::Null
+        } else if ident_str.eq_ignore_ascii_case("TRUE") {
+            TokenKind::True
+        } else if ident_str.eq_ignore_ascii_case("FALSE") {
+            TokenKind::False
+        } else if ident_str.eq_ignore_ascii_case("BETWEEN") {
+            TokenKind::Between
+        }
+        // ZIP keywords
+        else if ident_str.eq_ignore_ascii_case("ZIP") {
+            TokenKind::Zip
+        } else if ident_str.eq_ignore_ascii_case("ON") {
+            TokenKind::On
+        } else if ident_str.eq_ignore_ascii_case("INNER") {
+            TokenKind::Inner
+        } else if ident_str.eq_ignore_ascii_case("LEFT") {
+            TokenKind::Left
+        } else if ident_str.eq_ignore_ascii_case("CROSS") {
+            TokenKind::Cross
+        }
+        // Pipeline keywords
+        else if ident_str.eq_ignore_ascii_case("VALIDATE") {
+            TokenKind::Validate
+        } else if ident_str.eq_ignore_ascii_case("ANALYZE") {
+            TokenKind::Analyze
+        } else if ident_str.eq_ignore_ascii_case("CROSS_VALIDATE") {
+            TokenKind::CrossValidate
+        } else if ident_str.eq_ignore_ascii_case("AGGREGATE") {
+            TokenKind::Aggregate
+        } else if ident_str.eq_ignore_ascii_case("GRAPH") {
+            TokenKind::Graph
+        } else if ident_str.eq_ignore_ascii_case("TRAVERSE") {
+            TokenKind::Traverse
+        } else if ident_str.eq_ignore_ascii_case("ENRICH") {
+            TokenKind::Enrich
+        } else if ident_str.eq_ignore_ascii_case("WITH") {
+            TokenKind::With
+        }
+        // Statistical baseline keywords
+        else if ident_str.eq_ignore_ascii_case("BASELINE") {
+            TokenKind::Baseline
+        } else if ident_str.eq_ignore_ascii_case("WINDOW") {
+            TokenKind::Window
+        } else if ident_str.eq_ignore_ascii_case("DAYS") {
+            TokenKind::Days
+        } else if ident_str.eq_ignore_ascii_case("THRESHOLD") {
+            TokenKind::Threshold
+        } else if ident_str.eq_ignore_ascii_case("METRICS") {
+            TokenKind::Metrics
+        } else {
+            TokenKind::Ident(ident_str)
+        };
         (input, kind)
     };
 

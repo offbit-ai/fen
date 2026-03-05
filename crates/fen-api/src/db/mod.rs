@@ -89,7 +89,10 @@ impl DbPools {
 
         tracing::info!("Connected to TimescaleDB");
 
-        Ok(Self { postgres, timescale })
+        Ok(Self {
+            postgres,
+            timescale,
+        })
     }
 
     /// Create repositories

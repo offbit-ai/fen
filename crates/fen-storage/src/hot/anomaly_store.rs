@@ -22,19 +22,14 @@ const VENDOR_ANOMALY_INDEX: TableDefinition<&str, &[u8]> =
     TableDefinition::new("vendor_anomaly_index");
 
 /// Status of an anomaly in the workflow
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AnomalyStatus {
+    #[default]
     Open,
     Investigating,
     Resolved,
     Dismissed,
-}
-
-impl Default for AnomalyStatus {
-    fn default() -> Self {
-        Self::Open
-    }
 }
 
 impl std::fmt::Display for AnomalyStatus {
@@ -471,9 +466,7 @@ impl AnomalyStore {
     }
 
     /// Get anomaly statistics (counts by severity, status, type)
-    pub async fn get_stats(
-        &self,
-    ) -> Result<AnomalyStats, StorageError> {
+    pub async fn get_stats(&self) -> Result<AnomalyStats, StorageError> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(ANOMALY_HISTORY_TABLE)?;
 

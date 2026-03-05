@@ -17,7 +17,10 @@ fn test_pipeline_construction() {
     assert!(pipeline.ocr.has_models(), "OCR should have models");
     assert!(pipeline.layout.has_model(), "Layout should have model");
     assert!(pipeline.table.has_models(), "Table should have models");
-    assert!(pipeline.embedding.has_model(), "Embedding should have model");
+    assert!(
+        pipeline.embedding.has_model(),
+        "Embedding should have model"
+    );
 }
 
 #[tokio::test]
@@ -91,8 +94,7 @@ async fn test_pipeline_multiple_documents() {
         }
         // Detection should always find regions in document images
         assert!(
-            !result.ocr_result.regions.is_empty()
-                || result.ocr_result.processing_time_ms > 0,
+            !result.ocr_result.regions.is_empty() || result.ocr_result.processing_time_ms > 0,
             "{} should at least be processed by OCR",
             filename
         );

@@ -53,7 +53,8 @@ static CONTRACT_TYPE_PATTERNS: Lazy<Vec<(Regex, ContractType)>> = Lazy::new(|| {
 });
 
 static TITLE_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?im)^([A-Z][A-Z\s]{5,80}(?:AGREEMENT|CONTRACT|ORDER|AMENDMENT|STATEMENT))").unwrap()
+    Regex::new(r"(?im)^([A-Z][A-Z\s]{5,80}(?:AGREEMENT|CONTRACT|ORDER|AMENDMENT|STATEMENT))")
+        .unwrap()
 });
 
 static PARTY_PATTERNS: Lazy<[Regex; 4]> = Lazy::new(|| {
@@ -78,13 +79,17 @@ static DATE_PATTERNS: Lazy<[Regex; 3]> = Lazy::new(|| {
 });
 
 static EFFECTIVE_DATE_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:effective\s+date|commenc(?:es?|ement)\s+date|start\s+date)\s*:?\s*(.+?)(?:\n|$)")
-        .unwrap()
+    Regex::new(
+        r"(?i)(?:effective\s+date|commenc(?:es?|ement)\s+date|start\s+date)\s*:?\s*(.+?)(?:\n|$)",
+    )
+    .unwrap()
 });
 
 static EXPIRATION_DATE_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?i)(?:expir(?:ation|es?)\s+date|end\s+date|termination\s+date)\s*:?\s*(.+?)(?:\n|$)")
-        .unwrap()
+    Regex::new(
+        r"(?i)(?:expir(?:ation|es?)\s+date|end\s+date|termination\s+date)\s*:?\s*(.+?)(?:\n|$)",
+    )
+    .unwrap()
 });
 
 static EXECUTION_DATE_PATTERN: Lazy<Regex> = Lazy::new(|| {
@@ -145,11 +150,7 @@ impl ContractParser {
     }
 
     /// Parse contract from extracted text
-    pub fn parse(
-        &self,
-        text: &str,
-        document_id: DocumentId,
-    ) -> Result<Contract, IngestionError> {
+    pub fn parse(&self, text: &str, document_id: DocumentId) -> Result<Contract, IngestionError> {
         let title = self.extract_title(text);
         let contract_type = self.detect_contract_type(text);
         let effective_date = self
@@ -320,10 +321,7 @@ impl ContractParser {
                 if let Some(m) = caps.get(1) {
                     let clause_text = m.as_str().trim();
                     if clause_text.len() >= 20 {
-                        clauses.push(ContractClause::new(
-                            clause_type.clone(),
-                            clause_text,
-                        ));
+                        clauses.push(ContractClause::new(clause_type.clone(), clause_text));
                     }
                 }
             }
@@ -363,13 +361,7 @@ fn parse_date_from_context(context: &str) -> Option<NaiveDate> {
 /// Parse various date formats
 fn parse_date(s: &str) -> Option<NaiveDate> {
     let formats = [
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%m-%d-%Y",
-        "%m-%d-%y",
-        "%Y-%m-%d",
+        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y", "%m-%d-%Y", "%m-%d-%y", "%Y-%m-%d",
         "%Y/%m/%d",
     ];
 
@@ -454,10 +446,7 @@ Termination: Either party may terminate this agreement with 30 days written noti
         let document_id = DocumentId::new();
         let contract = parser.parse(text, document_id).unwrap();
 
-        assert_eq!(
-            contract.contract_number,
-            Some("SA-2024-0042".to_string())
-        );
+        assert_eq!(contract.contract_number, Some("SA-2024-0042".to_string()));
         assert_eq!(contract.contract_type, ContractType::ServiceAgreement);
         assert_eq!(contract.total_value, Some(Decimal::new(15000000, 2)));
         assert!(contract.parties.len() >= 2);

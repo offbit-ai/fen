@@ -1,10 +1,7 @@
 use chrono::NaiveDate;
 use rust_decimal::Decimal;
 
-use fen_core::domain::{
-    ContractId, ContractType, Currency, DocumentId, Party, TenantId,
-    Contract,
-};
+use fen_core::domain::{Contract, ContractId, ContractType, Currency, DocumentId, Party, TenantId};
 use fen_core::ValidationStatus;
 use fen_ml::gliner::types::GlinerExtractionResult;
 
@@ -139,13 +136,7 @@ fn detect_contract_type(text: &str) -> ContractType {
 
 fn parse_date(s: &str) -> Option<NaiveDate> {
     let formats = [
-        "%m/%d/%Y",
-        "%m/%d/%y",
-        "%d/%m/%Y",
-        "%d/%m/%y",
-        "%m-%d-%Y",
-        "%m-%d-%y",
-        "%Y-%m-%d",
+        "%m/%d/%Y", "%m/%d/%y", "%d/%m/%Y", "%d/%m/%y", "%m-%d-%Y", "%m-%d-%y", "%Y-%m-%d",
         "%Y/%m/%d",
     ];
 
@@ -241,10 +232,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            contract.contract_number,
-            Some("SA-2024-0042".to_string())
-        );
+        assert_eq!(contract.contract_number, Some("SA-2024-0042".to_string()));
         assert_eq!(contract.parties.len(), 2);
         assert_eq!(contract.parties[0].name, "Acme Corporation");
         assert_eq!(contract.parties[1].name, "Widget Inc");

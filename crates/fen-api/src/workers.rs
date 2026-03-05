@@ -101,10 +101,7 @@ pub fn spawn_anomaly_worker(
     tokio::spawn(async move {
         let consumer = LocalEventConsumer::new(event_bus.clone());
 
-        if let Err(e) = consumer
-            .subscribe(&[topics::DOCUMENT_PROCESSED])
-            .await
-        {
+        if let Err(e) = consumer.subscribe(&[topics::DOCUMENT_PROCESSED]).await {
             tracing::error!(error = %e, "Anomaly worker failed to subscribe to DOCUMENT_PROCESSED");
             return;
         }
@@ -160,7 +157,11 @@ pub fn spawn_anomaly_worker(
 
                                     // Still publish clean validation result
                                     publish_validation_results(
-                                        &event_bus, &invoice, true, 0, 0,
+                                        &event_bus,
+                                        &invoice,
+                                        true,
+                                        0,
+                                        0,
                                         result.validation_time_ms,
                                     )
                                     .await;
@@ -187,12 +188,8 @@ pub fn spawn_anomaly_worker(
                                 );
 
                                 // Persist anomalies to store
-                                persist_anomalies(
-                                    &anomaly_store,
-                                    &result.anomalies,
-                                    &invoice,
-                                )
-                                .await;
+                                persist_anomalies(&anomaly_store, &result.anomalies, &invoice)
+                                    .await;
 
                                 // Publish detailed ANOMALY_EVENTS for each anomaly
                                 for anomaly in &result.anomalies {
@@ -227,11 +224,7 @@ pub fn spawn_anomaly_worker(
                                     let key = invoice.tenant_id.to_string();
                                     if let Ok(bytes) = serde_json::to_vec(&anomaly_payload) {
                                         let _ = event_bus
-                                            .publish(
-                                                topics::ANOMALY_EVENTS,
-                                                key.as_bytes(),
-                                                &bytes,
-                                            )
+                                            .publish(topics::ANOMALY_EVENTS, key.as_bytes(), &bytes)
                                             .await;
                                     }
                                 }
