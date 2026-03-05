@@ -332,6 +332,11 @@ pub async fn ingest_contract(
         );
     }
 
+    // 3. Publish DOCUMENT_PROCESSED event for downstream consumers
+    if let Some(ref event_bus) = state.event_bus {
+        crate::workers::publish_contract_processed(event_bus, &contract).await;
+    }
+
     let response = crate::routes::documents::contract_to_response(&contract);
 
     Ok((StatusCode::CREATED, Json(response)))

@@ -2,11 +2,11 @@
 //!
 //! This worker:
 //! 1. Consumes documents from `fen.document.ingestion` topic
-//! 2. Extracts text from PDFs
-//! 3. Parses invoices/contracts using ML models
+//! 2. Extracts text from PDFs (invoices and contracts)
+//! 3. Parses using ML models when available, with GLiNER/regex fallback
 //! 4. Generates embeddings
 //! 5. Stores documents in the appropriate shard
-//! 6. Publishes to `fen.document.processed` topic
+//! 6. Publishes to `fen.document.processed` topic (bincode serialized)
 //!
 //! # Usage
 //!
@@ -15,7 +15,7 @@
 //! ```
 
 use clap::Parser;
-use fen_core::domain::Invoice;
+use fen_core::domain::{Contract, Invoice};
 use fen_events::{
     topics, EventConsumer, EventProducer, LocalEventBus, LocalEventConsumer, RawEvent,
 };
@@ -78,7 +78,7 @@ struct Args {
     max_retries: u32,
 }
 
-/// Event payload for document ingestion
+/// Event payload for document ingestion (JSON from upstream)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DocumentIngestedEvent {
     document_id: String,
@@ -87,26 +87,27 @@ struct DocumentIngestedEvent {
     mime_type: String,
     size_bytes: u64,
     source_hash: String,
+    /// Document type hint: "invoice", "contract", or "auto"
+    #[serde(default = "default_document_type")]
+    document_type: String,
     /// Base64-encoded document bytes (for small documents) or storage URL
     data: Option<String>,
     storage_url: Option<String>,
 }
 
-/// Event payload for processed document (bincode serialized)
+fn default_document_type() -> String {
+    "auto".to_string()
+}
+
+/// Unified processed event for the Kafka wire format.
+///
+/// Carries `Option<Invoice>` + `Option<Contract>` so the validation worker can
+/// handle both document types. Serialized with bincode for compact Kafka payloads.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DocumentProcessedEvent {
-    document_id: String,
-    tenant_id: String,
-    invoice_id: String,
     document_type: String,
-    confidence_score: f64,
-    processing_time_ms: u64,
-    extracted_fields: Vec<String>,
-    vendor_name: String,
-    invoice_number: String,
-    total_amount: String,
-    /// The full Invoice for downstream validation
-    invoice: Invoice,
+    invoice: Option<Invoice>,
+    contract: Option<Contract>,
 }
 
 /// Event payload for failed processing
@@ -183,14 +184,28 @@ impl std::fmt::Display for ProcessingError {
 
 impl std::error::Error for ProcessingError {}
 
-/// Process a single document ingestion event
+/// Determine document type from event payload or filename heuristics.
+fn detect_document_type(ingested: &DocumentIngestedEvent) -> &str {
+    match ingested.document_type.as_str() {
+        "invoice" | "contract" => ingested.document_type.as_str(),
+        _ => {
+            let lower = ingested.filename.to_lowercase();
+            if lower.contains("contract") || lower.contains("agreement") || lower.contains("nda") {
+                "contract"
+            } else {
+                "invoice"
+            }
+        }
+    }
+}
+
+/// Process a single document ingestion event — handles both invoices and contracts.
 async fn process_document(
     event: &RawEvent,
     pipeline: &IngestionPipeline<TieredStorage>,
-) -> Result<(DocumentIngestedEvent, Invoice, u64), ProcessingError> {
+) -> Result<(DocumentIngestedEvent, DocumentProcessedEvent, u64), ProcessingError> {
     let start = Instant::now();
 
-    // Deserialize the ingestion event
     let ingested: DocumentIngestedEvent = serde_json::from_slice(&event.payload)
         .map_err(|e| ProcessingError::Deserialization(e.to_string()))?;
 
@@ -202,71 +217,80 @@ async fn process_document(
         "Processing document"
     );
 
-    // Get document bytes - either from inline data or fetch from storage
+    // Get document bytes
     let document_bytes = if let Some(data) = &ingested.data {
-        // Decode base64-encoded document
         use base64::Engine;
         base64::engine::general_purpose::STANDARD
             .decode(data)
             .map_err(|e| ProcessingError::Deserialization(format!("Base64 decode error: {}", e)))?
-    } else if let Some(_storage_url) = &ingested.storage_url {
-        // In production, fetch from object storage (S3, GCS, etc.)
-        // For now, return an error indicating storage fetch is not implemented
-        return Err(ProcessingError::MissingData(
-            "Storage URL fetching not implemented - please provide inline data".to_string(),
-        ));
+    } else if let Some(storage_url) = &ingested.storage_url {
+        fetch_from_storage(storage_url).await?
     } else {
         return Err(ProcessingError::MissingData(
             "No document data or storage URL provided".to_string(),
         ));
     };
 
-    // Process through the ingestion pipeline
-    let result = pipeline
-        .ingest_pdf(&document_bytes, &ingested.filename)
-        .await
-        .map_err(|e| ProcessingError::Pipeline(e.to_string()))?;
-    let invoice = result.invoice;
+    let doc_type = detect_document_type(&ingested);
+
+    let processed_event = match doc_type {
+        "contract" => {
+            let result = pipeline
+                .ingest_contract_pdf(&document_bytes, &ingested.filename)
+                .await
+                .map_err(|e| ProcessingError::Pipeline(e.to_string()))?;
+
+            info!(
+                document_id = %ingested.document_id,
+                contract_id = %result.contract.id,
+                "Contract processed successfully"
+            );
+
+            DocumentProcessedEvent {
+                document_type: "contract".to_string(),
+                invoice: None,
+                contract: Some(result.contract),
+            }
+        }
+        _ => {
+            let result = pipeline
+                .ingest_pdf(&document_bytes, &ingested.filename)
+                .await
+                .map_err(|e| ProcessingError::Pipeline(e.to_string()))?;
+
+            info!(
+                document_id = %ingested.document_id,
+                invoice_id = %result.invoice.id,
+                invoice_number = %result.invoice.invoice_number,
+                confidence = %result.invoice.confidence_score,
+                "Invoice processed successfully"
+            );
+
+            DocumentProcessedEvent {
+                document_type: "invoice".to_string(),
+                invoice: Some(result.invoice),
+                contract: None,
+            }
+        }
+    };
 
     let processing_time_ms = start.elapsed().as_millis() as u64;
 
-    info!(
-        document_id = %ingested.document_id,
-        invoice_id = %invoice.id,
-        invoice_number = %invoice.invoice_number,
-        confidence = %invoice.confidence_score,
-        processing_time_ms = processing_time_ms,
-        "Document processed successfully"
-    );
-
-    Ok((ingested, invoice, processing_time_ms))
+    Ok((ingested, processed_event, processing_time_ms))
 }
 
-/// Create a DocumentProcessed event from the invoice
-fn create_processed_event(
-    ingested: &DocumentIngestedEvent,
-    invoice: Invoice,
-    processing_time_ms: u64,
-) -> DocumentProcessedEvent {
-    DocumentProcessedEvent {
-        document_id: ingested.document_id.clone(),
-        tenant_id: ingested.tenant_id.clone(),
-        invoice_id: invoice.id.to_string(),
-        document_type: "Invoice".to_string(),
-        confidence_score: invoice.confidence_score as f64,
-        processing_time_ms,
-        extracted_fields: vec![
-            "invoice_number".to_string(),
-            "vendor_name".to_string(),
-            "total_amount".to_string(),
-            "invoice_date".to_string(),
-            "line_items".to_string(),
-        ],
-        vendor_name: invoice.vendor.name.clone(),
-        invoice_number: invoice.invoice_number.clone(),
-        total_amount: invoice.total_amount.to_string(),
-        invoice,
+/// Fetch document bytes from a storage URL.
+async fn fetch_from_storage(url: &str) -> Result<Vec<u8>, ProcessingError> {
+    if let Some(path) = url.strip_prefix("file://") {
+        return tokio::fs::read(path)
+            .await
+            .map_err(|e| ProcessingError::MissingData(format!("Failed to read {}: {}", path, e)));
     }
+
+    Err(ProcessingError::MissingData(format!(
+        "Storage URL scheme not yet supported: {}. Use file:// for local, or provide inline data.",
+        url
+    )))
 }
 
 /// Create a DocumentProcessingFailed event
@@ -292,13 +316,11 @@ async fn run_worker(
     pipeline: Arc<IngestionPipeline<TieredStorage>>,
     state: Arc<WorkerState>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Subscribe to ingestion topic
     consumer.subscribe(&[topics::DOCUMENT_INGESTION]).await?;
 
     info!("Worker subscribed to {}", topics::DOCUMENT_INGESTION);
 
     loop {
-        // Poll for messages
         let events = match consumer.poll(1000).await {
             Ok(events) => events,
             Err(e) => {
@@ -312,7 +334,6 @@ async fn run_worker(
             let key = event.key.as_deref().unwrap_or_default();
             let key_str = String::from_utf8_lossy(key).to_string();
 
-            // Try to extract document info for error handling
             let (document_id, tenant_id) =
                 match serde_json::from_slice::<DocumentIngestedEvent>(&event.payload) {
                     Ok(ingested) => (ingested.document_id.clone(), ingested.tenant_id.clone()),
@@ -320,11 +341,8 @@ async fn run_worker(
                 };
 
             match process_document(&event, &pipeline).await {
-                Ok((ingested, invoice, processing_time_ms)) => {
-                    let processed_event =
-                        create_processed_event(&ingested, invoice, processing_time_ms);
-
-                    // Serialize with bincode (compact binary format)
+                Ok((_ingested, processed_event, _processing_time_ms)) => {
+                    // Serialize with bincode for compact Kafka wire format
                     let payload = bincode::serialize(&processed_event)
                         .expect("Failed to serialize processed event");
 
@@ -341,7 +359,6 @@ async fn run_worker(
                 Err(e) => {
                     error!(error = %e, document_id = %document_id, "Failed to process document");
 
-                    // Publish to dead letter queue
                     let failed_event = create_failed_event(&document_id, &tenant_id, &e, 0);
                     let payload = serde_json::to_vec(&failed_event)
                         .expect("Failed to serialize failed event");
@@ -355,7 +372,6 @@ async fn run_worker(
             }
         }
 
-        // Commit offsets
         if let Err(e) = consumer.commit_all().await {
             warn!(error = %e, "Failed to commit offsets");
         }
@@ -403,7 +419,6 @@ async fn health_server(port: u16, state: Arc<WorkerState>) {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
@@ -421,7 +436,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "Starting Fen Ingestion Worker"
     );
 
-    // Create storage configuration from path
     let storage_config = TieredStorageConfig {
         hot_backend: HotStorageBackend::Embedded {
             path: format!("{}/hot.redb", args.storage_path),
@@ -432,28 +446,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         ..Default::default()
     };
 
-    // Create storage
     let storage = Arc::new(
         TieredStorage::new(storage_config)
             .await
             .map_err(|e| format!("Failed to create storage: {}", e))?,
     );
 
-    // Create ingestion pipeline
     let pipeline = Arc::new(
         IngestionPipeline::new(storage).map_err(|e| format!("Failed to create pipeline: {}", e))?,
     );
 
-    // Create worker state
     let state = Arc::new(WorkerState::new());
 
-    // Start health server
     let health_state = state.clone();
     tokio::spawn(async move {
         health_server(args.health_port, health_state).await;
     });
 
-    // Create consumer and producer
     let (consumer, producer): (Arc<dyn EventConsumer>, Arc<dyn EventProducer>) = if args
         .use_local_bus
     {
@@ -480,7 +489,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     };
 
-    // Run worker
     run_worker(consumer, producer, pipeline, state).await?;
 
     Ok(())

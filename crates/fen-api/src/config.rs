@@ -58,7 +58,6 @@ pub struct AppConfig {
     pub rate_limit_burst: u32,
 
     /// Statistical anomaly detection configuration
-    #[allow(dead_code)]
     pub statistical: StatisticalConfig,
 
     /// ML document intelligence configuration
@@ -72,22 +71,25 @@ pub struct AppConfig {
 }
 
 /// Configuration for statistical anomaly detection
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct StatisticalConfig {
     /// Enable statistical analysis
     pub enabled: bool,
     /// Enable during document ingestion (POST /documents)
+    #[allow(dead_code)]
     pub on_ingest: bool,
     /// Enable during validation (POST /validate)
+    #[allow(dead_code)]
     pub on_validate: bool,
     /// Default z-score threshold for outlier detection
     pub threshold: f64,
     /// Metrics to analyze
     pub metrics: Vec<String>,
     /// Rolling window in days for baseline computation
+    #[allow(dead_code)]
     pub window_days: u32,
     /// Enable seasonal baseline awareness (month-of-year patterns)
+    #[allow(dead_code)]
     pub seasonal: bool,
 }
 

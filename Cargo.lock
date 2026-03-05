@@ -3102,6 +3102,8 @@ dependencies = [
  "clap",
  "fen-core",
  "fen-events",
+ "fen-notify",
+ "fen-storage",
  "rust_decimal",
  "serde",
  "serde_json",

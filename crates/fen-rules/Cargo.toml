@@ -14,6 +14,8 @@ kafka = ["fen-events/kafka"]
 [dependencies]
 fen-core = { path = "../fen-core" }
 fen-events = { path = "../fen-events" }
+fen-storage = { path = "../fen-storage" }
+fen-notify = { path = "../fen-notify" }
 
 # CLI
 clap.workspace = true

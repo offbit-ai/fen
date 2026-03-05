@@ -76,9 +76,26 @@ impl AppState {
         let anomaly_store = Arc::new(AnomalyStore::new(storage.db().clone())?);
         tracing::info!("Anomaly store initialized");
 
-        // Initialize rule engine
-        let rule_engine = Arc::new(RuleEngine::new(config.rules_path.as_deref()).await?);
-        tracing::info!("Rule engine initialized");
+        // Initialize rule engine with statistical analysis if configured
+        let mut rule_engine = RuleEngine::new(config.rules_path.as_deref()).await?;
+        if config.statistical.enabled {
+            let stat_config = fen_rules::StatisticalAnalyzerConfig {
+                enabled: true,
+                threshold: config.statistical.threshold,
+                min_samples: 5,
+                metrics: config.statistical.metrics.clone(),
+                outlier_severity: fen_core::domain::Severity::Medium,
+            };
+            rule_engine = rule_engine.with_statistical_config(stat_config);
+            tracing::info!(
+                threshold = config.statistical.threshold,
+                metrics = ?config.statistical.metrics,
+                "Rule engine initialized with statistical analysis"
+            );
+        } else {
+            tracing::info!("Rule engine initialized (statistical analysis disabled)");
+        }
+        let rule_engine = Arc::new(rule_engine);
 
         // Initialize ML document intelligence (optional) — must come before IngestionPipeline
         let document_intelligence = if config.ml.enabled {
