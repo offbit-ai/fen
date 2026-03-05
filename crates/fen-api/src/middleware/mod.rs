@@ -1,5 +1,6 @@
 mod auth;
 mod authz;
+pub mod metrics;
 mod rate_limit;
 
 pub use auth::{auth_middleware, AuthConfig, AuthContext, Claims};

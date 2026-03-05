@@ -31,8 +31,10 @@ RUN apt-get update && apt-get install -y \
 # Copy binary from builder
 COPY --from=builder /app/target/release/fen-api /usr/local/bin/fen-api
 
-# Create data and models directories
-RUN mkdir -p /app/data /app/rules /app/models
+# Create non-root user and data directories
+RUN useradd -r -s /usr/sbin/nologin fen \
+    && mkdir -p /app/data /app/rules /app/models \
+    && chown -R fen:fen /app
 
 # Set environment variables
 ENV BIND_ADDRESS=0.0.0.0:3000
@@ -49,6 +51,9 @@ EXPOSE 3000
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/health || exit 1
+
+# Run as non-root user
+USER fen
 
 # Run the binary
 CMD ["fen-api"]

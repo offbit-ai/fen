@@ -41,6 +41,8 @@ base64.workspace = true
 reqwest.workspace = true
 urlencoding.workspace = true
 sqlx.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
 
 [lints]
 workspace = true

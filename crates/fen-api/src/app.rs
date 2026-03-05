@@ -10,7 +10,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::config::AppConfig;
-use crate::middleware::{auth_middleware, RateLimitLayer};
+use crate::middleware::{auth_middleware, metrics::metrics_middleware, RateLimitLayer};
 use crate::routes::{admin, anomalies, auth, documents, events, graph, health, ingest, notifications, rules, search, storage, validate};
 use crate::state::AppState;
 
@@ -24,10 +24,18 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
     // Auth config for the middleware
     let auth_config = Arc::new(state.auth_config.clone());
 
+    // Initialize Prometheus metrics recorder
+    let prom_handle = crate::middleware::metrics::init_metrics();
+
     // Public routes — no authentication required
     let public_routes = Router::new()
         .route("/health", get(health::health_check))
         .route("/ready", get(health::readiness_check))
+        .route(
+            "/metrics",
+            get(crate::middleware::metrics::metrics_handler)
+                .with_state(prom_handle),
+        )
         // Authentication endpoints (must be public for login flow)
         .route("/auth/login", get(auth::login))
         .route("/auth/callback", get(auth::callback))
@@ -128,6 +136,7 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
+        .layer(middleware::from_fn_with_state(state.clone(), metrics_middleware))
         .layer(TraceLayer::new_for_http())
         .layer(rate_limit)
         .layer(RequestBodyLimitLayer::new(config.max_upload_size))
