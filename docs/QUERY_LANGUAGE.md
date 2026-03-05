@@ -35,9 +35,28 @@ The Fen query language is designed for querying invoices and contracts with supp
 
 ```
 SQL String ──> Parser ──> AST ──> Executor ──> Results
+                           │         │
+                           │         └── Morsel-parallel filter → score → sort → project
                            │
                            └── Or from JSON Query
 ```
+
+### Execution Model
+
+FQL uses **morsel-driven parallelism** (inspired by HyPer/Umbra) for CPU-bound query stages.
+The candidate set is partitioned into fixed-size morsels (~2048 rows) and processed in parallel
+via rayon work-stealing:
+
+```
+Candidates ──┬── Morsel 0 ─── Filter → Score ──┐
+             ├── Morsel 1 ─── Filter → Score ──┤── Merge + Sort → LIMIT
+             ├── Morsel 2 ─── Filter → Score ──┤
+             └── Morsel N ─── Filter → Score ──┘
+```
+
+- **Parallel threshold**: Sets below 4096 candidates execute sequentially to avoid ~5-10μs thread dispatch overhead
+- **NUMA-aware**: Rayon's work-stealing keeps morsels on the same core for L2/L3 cache locality
+- **Thread-safe evaluation**: All filter/score/project operations are pure functions with no shared mutable state
 
 ---
 
@@ -133,7 +152,7 @@ The `invoices` table contains extracted invoice data.
 | `validation_status` | String | Validation status |
 | `confidence_score` | Float | Extraction confidence (0-1) |
 | `extracted_text` | String | Full extracted text |
-| `embedding` | Vector | Semantic embedding (768 dims) |
+| `embedding` | Vector | Semantic embedding (384 dims) |
 
 ### Contracts Table
 
@@ -248,7 +267,7 @@ LIMIT 10
 
 **Parameters:**
 - `column` - The embedding column (usually `embedding`)
-- `vector` - A parameter containing the query vector (768 floats)
+- `vector` - A parameter containing the query vector (384 floats)
 
 **Returns:** Float between 0 (identical) and 2 (opposite)
 
@@ -522,7 +541,7 @@ Parameters allow safe binding of dynamic values. Parameters are prefixed with `:
 | Integer | Integer values | `:min_amount` |
 | Float | Floating point | `:threshold` |
 | Boolean | Boolean values | `:include_void` |
-| Vector | Float array (768 dims) | `:query_vector` |
+| Vector | Float array (384 dims) | `:query_vector` |
 
 ### Using Parameters (Rust)
 
@@ -556,7 +575,7 @@ let query = parse_query(
      LIMIT 10"
 )?;
 
-// Generate query embedding (768 dimensions)
+// Generate query embedding (384 dimensions, all-MiniLM-L6-v2)
 let embedding: Vec<f32> = model.encode("find invoices for software services")?;
 
 let params = QueryParams::new()

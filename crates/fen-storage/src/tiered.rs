@@ -24,7 +24,7 @@ use crate::warm::LanceStorage;
 ///
 /// # Example
 ///
-/// ```rust,ignore
+/// ```text
 /// // Development configuration (default)
 /// let config = TieredStorageConfig::default();
 ///
@@ -158,7 +158,7 @@ impl TieredStorage {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```text
     /// // Development (default embedded storage)
     /// let config = TieredStorageConfig::default();
     /// let storage = TieredStorage::new(config).await?;

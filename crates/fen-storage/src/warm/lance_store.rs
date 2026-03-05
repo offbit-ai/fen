@@ -48,7 +48,7 @@ impl LanceStorage {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```text
     /// // Development: embedded storage
     /// let backend = WarmStorageBackend::embedded("/data/warm");
     /// let storage = LanceStorage::from_backend(&backend).await?;

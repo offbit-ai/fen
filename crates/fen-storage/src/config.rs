@@ -7,7 +7,7 @@
 //!
 //! # Usage
 //!
-//! ```rust,ignore
+//! ```text
 //! // Development (default - embedded feature)
 //! let config = WarmStorageConfig::embedded("/path/to/local/db");
 //!

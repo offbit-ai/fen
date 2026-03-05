@@ -65,7 +65,7 @@ pub struct AnomalyRecord {
     pub severity: Severity,
     /// Human-readable description
     pub description: String,
-    /// Field path (e.g., "total_amount", "line_items[0].price")
+    /// Field path (e.g., "total_amount", "line_items\[0\].price")
     pub field_path: Option<String>,
     /// Expected value (for comparison anomalies)
     pub expected_value: Option<String>,

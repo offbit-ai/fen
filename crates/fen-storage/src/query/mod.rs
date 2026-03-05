@@ -1,3 +1,14 @@
+//! Query engine for the Fen query language (FQL)
+//!
+//! # Modules
+//!
+//! - [`lang`] — Parser, AST, and JSON query builder
+//! - `executor` — Async query executor (I/O: hot/warm storage, vector/text search)
+//! - [`morsel`] — Morsel-driven parallel filter, score, sort, and projection
+//! - `zip_executor` — Cross-table ZIP queries with pipeline operations
+//! - `engine` — Tiered query routing (hot → warm → cold)
+//! - `cache` — LRU query cache with TTL
+
 mod cache;
 mod engine;
 mod executor;

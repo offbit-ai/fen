@@ -66,28 +66,25 @@
 //!
 //! ## Parsing SQL Queries
 //!
-//! ```rust,ignore
+//! ```text
 //! use fen_storage::{parse_query, QueryParams};
 //!
-//! // Parse a SQL query
 //! let query = parse_query(
 //!     "SELECT * FROM invoices WHERE vendor_name = :vendor"
 //! )?;
 //!
-//! // Create parameters
 //! let params = QueryParams::new()
 //!     .with_string("vendor", "Acme Corp");
 //!
-//! // Execute with QueryExecutor
+//! // Execute with QueryExecutor (morsel-parallel filter + score)
 //! let result = executor.execute(&query, &params).await?;
 //! ```
 //!
 //! ## Using JSON Queries
 //!
-//! ```rust,ignore
+//! ```text
 //! use fen_storage::{JsonQuery, JsonCondition, JsonValue};
 //!
-//! // Build query programmatically
 //! let query = JsonQuery::invoices()
 //!     .alias("inv")
 //!     .select_column("invoice_number")
@@ -96,7 +93,6 @@
 //!     .limit(10)
 //!     .build();
 //!
-//! // Convert to AST
 //! let ast = query.to_ast()?;
 //! let params = query.to_params();
 //! ```

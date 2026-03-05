@@ -5,6 +5,22 @@
 //! - Full-text BM25 search (BM25_SCORE)
 //! - Standard SQL-like filters
 //! - Score fusion for hybrid ranking
+//!
+//! # Execution Model
+//!
+//! The executor delegates CPU-bound stages (filter, score, sort, project)
+//! to the [`morsel`](super::morsel) module for parallel execution. The
+//! executor itself handles I/O: candidate retrieval from hot/warm storage,
+//! vector search via LanceDB, and full-text search via Tantivy.
+//!
+//! ```text
+//! Executor (async I/O)           Morsel (parallel CPU)
+//! ┌─────────────────┐           ┌───────────────────┐
+//! │ vector search   │──────────>│ filter + score    │
+//! │ text search     │           │ sort              │
+//! │ hot/warm scan   │           │ project           │
+//! └─────────────────┘           └───────────────────┘
+//! ```
 
 use std::collections::HashMap;
 use std::sync::Arc;

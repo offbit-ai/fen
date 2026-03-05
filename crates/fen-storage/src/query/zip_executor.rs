@@ -78,10 +78,9 @@
 //!
 //! # Usage
 //!
-//! ```rust,ignore
+//! ```text
 //! use fen_storage::{ZipExecutor, parse_query, QueryParams};
 //!
-//! // Parse a ZIP query
 //! let query = parse_query(
 //!     "SELECT inv.invoice_number, con.title
 //!      FROM invoices inv
@@ -89,11 +88,9 @@
 //!      WHERE inv.total_amount > con.total_value"
 //! )?;
 //!
-//! // Execute
 //! let params = QueryParams::new();
 //! let result = zip_executor.execute_zip_query(&query, &params).await?;
 //!
-//! // Process results
 //! for pair in &result.pairs {
 //!     if let (Some(inv), Some(con)) = (&pair.invoice, &pair.contract) {
 //!         println!("Invoice {} exceeds contract {}", inv.invoice_number, con.title);
@@ -103,17 +100,17 @@
 //!
 //! # Result Structure
 //!
-//! ```rust,ignore
-//! pub struct ZipResult {
-//!     pub pairs: Vec<ZipPair>,      // Invoice-contract pairs
-//!     pub metadata: ZipMetadata,     // Execution statistics
-//!     pub pipeline_results: Option<PipelineResults>, // Pipeline output
+//! ```text
+//! ZipResult {
+//!     pairs: Vec<ZipPair>,                         // Invoice-contract pairs
+//!     metadata: ZipMetadata,                        // Execution statistics
+//!     pipeline_results: Option<PipelineResults>,    // Pipeline output
 //! }
 //!
-//! pub struct ZipPair {
-//!     pub invoice: Option<Invoice>,  // None in LEFT ZIP if no match
-//!     pub contract: Option<Contract>, // None in LEFT ZIP if no match
-//!     pub score: Option<f64>,        // Relevance score
+//! ZipPair {
+//!     invoice: Option<Invoice>,   // None in LEFT ZIP if no match
+//!     contract: Option<Contract>, // None in LEFT ZIP if no match
+//!     score: Option<f64>,         // Relevance score
 //! }
 //! ```
 
